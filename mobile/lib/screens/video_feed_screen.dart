@@ -1502,13 +1502,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       final settings = context.read<AppSettings>();
       _muted = settings.muted;
       preloaded.setVolume(_muted ? 0 : 1);
-      if (preloadDetail != null) {
-        await PlaybackHelpers.skipIntro(
-          preloaded,
-          enabled: settings.skipIntro,
-          fallbackDurationSec: preloadDetail.durationSec,
-        );
-      }
       if (seq != _loadSeq || !_canRun) {
         try {
           await preloaded.dispose();
@@ -1532,7 +1525,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _sliderValue.value = 0;
       _currentTime.value = '0:00';
       if (preloadDetail != null) {
-        _translateTitleOnly(preloadDetail.title);
+        unawaited(
+          PlaybackHelpers.skipIntro(
+            preloaded,
+            enabled: settings.skipIntro,
+            fallbackDurationSec: preloadDetail.durationSec,
+          ),
+        );
       }
       await preloaded.play();
       if (seq != _loadSeq || !_canRun) {
@@ -1543,6 +1542,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _recordWatch(item);
       _startProgressTimer();
       WakelockPlus.enable();
+      if (preloadDetail != null) {
+        // ignore: unawaited_futures
+        _translateTitleOnly(preloadDetail.title);
+      }
       if (mounted) setState(() {});
 
       if (_multiPreload) {
@@ -1746,12 +1749,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     player.setVolume(_muted ? 0 : 1);
     _baseSpeed = _estimateBaseSpeed(stream.height);
 
-    await PlaybackHelpers.skipIntro(
-      player,
-      enabled: settings.skipIntro,
-      fallbackDurationSec: detail.durationSec,
-    );
-
     if (seq != _loadSeq || !_canRun) {
       await player.dispose();
       return;
@@ -1767,7 +1764,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _titleText = detail.title;
       _totalTime.value = PlaybackHelpers.fmtDuration(effDur);
     });
-    _translateTitleOnly(detail.title);
+    unawaited(
+      PlaybackHelpers.skipIntro(
+        player,
+        enabled: settings.skipIntro,
+        fallbackDurationSec: detail.durationSec,
+      ),
+    );
     await ready.play();
     if (seq != _loadSeq || !_canRun) {
       if (identical(_controller, ready)) _controller = null;
@@ -1787,6 +1790,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _recordWatch(item);
     _startProgressTimer();
     WakelockPlus.enable();
+    _translateTitleOnly(detail.title);
     if (mounted) setState(() {});
 
     CacheManager.onVideoPlayed();
@@ -2296,7 +2300,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
-      canPop: _allowPop,
+      canPop: _allowPop || defaultTargetPlatform == TargetPlatform.iOS,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (immersive) {

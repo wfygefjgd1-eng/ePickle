@@ -760,14 +760,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
       _muted = context.read<AppSettings>().muted;
       preloaded.setVolume(_muted ? 0 : 1);
-      if (preloadDetail != null) {
-        final skip = context.read<AppSettings>().skipIntro;
-        await PlaybackHelpers.skipIntro(
-          preloaded,
-          enabled: skip,
-          fallbackDurationSec: preloadDetail.durationSec,
-        );
-      }
       if (seq != _seq || !_canRun) {
         try {
           await preloaded.dispose();
@@ -790,8 +782,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       // ignore: unawaited_futures
       _ensureMoreIfNearEnd(index);
       if (preloadDetail != null) {
-        // ignore: unawaited_futures
-        _translateTitleOnly(preloadDetail.title);
+        unawaited(
+          PlaybackHelpers.skipIntro(
+            preloaded,
+            enabled: context.read<AppSettings>().skipIntro,
+            fallbackDurationSec: preloadDetail.durationSec,
+          ),
+        );
       }
       await preloaded.play();
       if (seq != _seq || !_canRun) {
@@ -802,6 +799,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       _startTimer();
       WakelockPlus.enable();
+      if (preloadDetail != null) {
+        // ignore: unawaited_futures
+        _translateTitleOnly(preloadDetail.title);
+      }
       if (mounted) setState(() {});
 
       if (_multiPreload) {
@@ -990,14 +991,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
     _muted = context.read<AppSettings>().muted;
     player.setVolume(_muted ? 0 : 1);
-    final skip = context.read<AppSettings>().skipIntro;
-
-    await PlaybackHelpers.skipIntro(
-      player,
-      enabled: skip,
-      fallbackDurationSec: detail.durationSec,
-    );
-
     if (seq != _seq || !_canRun) {
       await player.dispose();
       return;
@@ -1013,8 +1006,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _titleText = detail.title;
       _totalTime = PlaybackHelpers.fmtDuration(effDur);
     });
-    // ignore: unawaited_futures
-    _translateTitleOnly(detail.title);
+    unawaited(
+      PlaybackHelpers.skipIntro(
+        player,
+        enabled: context.read<AppSettings>().skipIntro,
+        fallbackDurationSec: detail.durationSec,
+      ),
+    );
     await player.play();
     if (seq != _seq || !_canRun) {
       if (identical(_controller, player)) _controller = null;
@@ -1034,6 +1032,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
     _startTimer();
     WakelockPlus.enable();
+    // ignore: unawaited_futures
+    _translateTitleOnly(detail.title);
     if (mounted) setState(() {});
 
     // Clean up old detail cache to prevent memory growth
@@ -1752,7 +1752,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
-      canPop: _allowPop,
+      canPop: _allowPop || defaultTargetPlatform == TargetPlatform.iOS,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (immersive) {

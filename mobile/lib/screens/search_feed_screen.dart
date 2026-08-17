@@ -1154,40 +1154,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
   }
 
-  void _disposePreload() {
-    void drop(VideoPlayerController? c) {
-      if (c == null) return;
-      // ignore: unawaited_futures
-      c.pause().catchError((_) {}).whenComplete(() {
-        try {
-          c.dispose();
-        } catch (_) {}
-      });
-    }
-
-    drop(_preloadController);
-    _preloadController = null;
-    _preloadIndex = null;
-    _preloadStream = null;
-    _preloadRetries = 0;
-    drop(_preloadController2);
-    _preloadController2 = null;
-    _preloadIndex2 = null;
-    _preloadStream2 = null;
-    _preloadRetries2 = 0;
-    drop(_preloadController3);
-    _preloadController3 = null;
-    _preloadIndex3 = null;
-    _preloadStream3 = null;
-    _preloadRetries3 = 0;
-
-    drop(_preloadController4);
-    _preloadController4 = null;
-    _preloadIndex4 = null;
-    _preloadStream4 = null;
-    _preloadRetries4 = 0;
-  }
-
   Future<void> _preloadNext(int index) async {
     if (!_canRun || index < 0 || index >= _items.length || index == _index) {
       return;

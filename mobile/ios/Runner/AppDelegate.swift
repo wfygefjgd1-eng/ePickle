@@ -203,7 +203,19 @@ import WebKit
       }
     }
     browserRenderRequests[requestId] = request
-    request.start(in: window?.rootViewController?.view)
+    request.start(in: activeWindow?.rootViewController?.view)
+  }
+
+  /// Scene-based lifecycle: FlutterAppDelegate.window is never populated, so
+  /// resolve the foreground scene's key window instead.
+  private var activeWindow: UIWindow? {
+    if let window {
+      return window
+    }
+    return UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .first { $0.activationState == .foregroundActive }?
+      .keyWindow
   }
 
   private func cancelBrowserRequests() {
@@ -533,6 +545,8 @@ private final class StripchatLivePlatformView: NSObject,
     guard !videoRevealed else { return }
     statusTimer?.invalidate()
     statusTimer = nil
+    focusTimer?.invalidate()
+    focusTimer = nil
     loadingIndicator.stopAnimating()
     loadingProgress.progressTintColor = .systemRed
     loadingProgress.setProgress(1, animated: true)
@@ -760,6 +774,8 @@ private final class StripchatLivePlatformView: NSObject,
       self.videoRevealed = true
       self.statusTimer?.invalidate()
       self.statusTimer = nil
+      self.focusTimer?.invalidate()
+      self.focusTimer = nil
       self.loadingStartedAt = nil
       self.loadingIndicator.stopAnimating()
       UIView.animate(

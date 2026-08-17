@@ -423,18 +423,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             ),
           ),
           // 竖屏：快进按钮（半透明，无背景）
-          Positioned(
-            left: 10,
-            bottom: 80,
-            child: SafeArea(
-              child: _MinimalButton(
-                storageKey: 'fastforward_button_normal',
-                defaultOffset: const Offset(10, 80),
-                icon: Icons.forward_30,
-                onTap: widget.onFastForward,
-              ),
-            ),
-          ),
           // 竖屏：音量按钮（半透明，无背景）
           Positioned(
             right: 10,

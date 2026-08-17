@@ -16,6 +16,7 @@ import '../services/phub_api.dart';
 import '../services/translator.dart';
 import '../services/xvideos_api.dart';
 import '../services/app_settings.dart';
+import '../services/app_route_observer.dart';
 import '../services/auto_rotate_controller.dart';
 import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
@@ -56,7 +57,7 @@ class SearchFeedScreen extends StatefulWidget {
 }
 
 class _SearchFeedScreenState extends State<SearchFeedScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RouteAware {
   late final PageController _pageCtrl;
   late final List<VideoItem> _items;
   late int _index;
@@ -92,6 +93,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   Duration? _dragStartPosition;
   Duration? _dragTargetPosition;
   String _seekPreviewText = '';
+  bool _resumePlaybackOnRouteReturn = false;
+  PageRoute<dynamic>? _route;
 
   /// Shared iOS/Android lookahead pool.
   VideoPlayerController? _preloadController;
@@ -172,6 +175,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _chrome ??= context.read<PlayerChrome>();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic> && !identical(route, _route)) {
+      if (_route != null) {
+        appRouteObserver.unsubscribe(this);
+      }
+      _route = route;
+      appRouteObserver.subscribe(this, route);
+    }
   }
 
   @override
@@ -199,6 +210,105 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final s = _settings;
     if (!mounted || s == null) return;
     _autoRotate?.enabled = s.autoRotate;
+  }
+
+  @override
+  void didPushNext() {
+    _resumePlaybackOnRouteReturn =
+        (_controller?.value.isPlaying ?? false) || _pageLoading;
+    if (_browserLiveUrl != null) {
+      _resumePlaybackOnRouteReturn = true;
+    }
+    unawaited(_pausePlaybackForRouteChange(releasePlayers: false));
+  }
+
+  @override
+  void didPopNext() {
+    if (!_resumePlaybackOnRouteReturn || !mounted) return;
+    _resumePlaybackOnRouteReturn = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _canRun) {
+        startPlaying();
+      }
+    });
+  }
+
+  void startPlaying() {
+    _resumePlaybackOnRouteReturn = false;
+    if (!_appInForeground) return;
+    final immersive = _chrome?.immersive ?? false;
+    _autoRotate?.syncLandscapeMode(
+      immersive,
+      side: immersive ? _chrome?.landscapeSide : null,
+    );
+    _autoRotate?.listening = true;
+    _autoRotate?.start();
+    if (_browserLiveUrl != null) {
+      unawaited(StripchatLiveView.resumeLive());
+      WakelockPlus.enable();
+      return;
+    }
+    final c = _controller;
+    if (c != null && c.value.isInitialized) {
+      unawaited(c.play().then((_) {
+        if (_canRun) _startTimer();
+        _restartPreloading();
+      }).catchError((_) {}));
+      WakelockPlus.enable();
+      return;
+    }
+    if (_items.isNotEmpty) {
+      unawaited(_playIndex(_index.clamp(0, _items.length - 1)));
+    }
+  }
+
+  Future<void> _pausePlaybackForRouteChange({
+    required bool releasePlayers,
+  }) async {
+    _seq++;
+    _progressTimer?.cancel();
+    _progressTimer = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _skipTimer?.cancel();
+    _skipTimer = null;
+    _cancelBackgroundWork();
+    final hadBrowserLive = _browserLiveUrl != null;
+    final current = _controller;
+    _autoRotate?.syncLandscapeMode(false);
+    _autoRotate?.listening = false;
+    _autoRotate?.stop();
+    try {
+      if (current != null) {
+        await current.setVolume(0);
+        await current.pause();
+      }
+    } catch (_) {}
+    final frozen = _frozenController;
+    _frozenController = null;
+    _frozenIndex = null;
+    if (frozen != null) {
+      try {
+        await frozen.pause();
+      } catch (_) {}
+      try {
+        await frozen.dispose();
+      } catch (_) {}
+    }
+    if (hadBrowserLive) {
+      await StripchatLiveView.pauseLive();
+    }
+    WakelockPlus.disable();
+    if (releasePlayers) {
+      _controller = null;
+      _browserLiveUrl = null;
+      _browserIsStripchat = false;
+    }
+    if (releasePlayers && current != null) {
+      try {
+        await current.dispose();
+      } catch (_) {}
+    }
   }
 
   void _onAutoRotate(AutoRotateAction action, DeviceOrientation? side) {
@@ -243,6 +353,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _settings = null;
     _autoRotate?.dispose();
     _autoRotate = null;
+    if (_route != null) {
+      appRouteObserver.unsubscribe(this);
+      _route = null;
+    }
     try {
       _chrome?.ensurePortraitChrome();
     } catch (_) {}
@@ -486,17 +600,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _autoRotate?.start();
       if (!_resumePlaybackOnForeground) return;
       _resumePlaybackOnForeground = false;
-      final controller = _controller;
-      if (controller != null && controller.value.isInitialized) {
-        unawaited(controller.play().then((_) {
-          if (!_canRun || !identical(controller, _controller)) return;
-          _startTimer();
-          _restartPreloading();
-        }).catchError((_) {}));
-        WakelockPlus.enable();
-      } else if (_items.isNotEmpty) {
-        unawaited(_playIndex(_index.clamp(0, _items.length - 1)));
-      }
+      startPlaying();
     }
   }
 
@@ -1975,18 +2079,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     ),
                   ),
                   // 竖屏：快进按钮（半透明，无背景）
-                  Positioned(
-                    left: 10,
-                    bottom: 80,
-                    child: SafeArea(
-                      child: _MinimalButton(
-                        storageKey: 'search_fastforward_button_normal',
-                        defaultOffset: const Offset(10, 80),
-                        icon: Icons.forward_30,
-                        onTap: _fastForward,
-                      ),
-                    ),
-                  ),
                   // 竖屏：音量按钮（半透明，无背景）
                   Positioned(
                     right: 10,
@@ -2044,6 +2136,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     showPlayerSettingsSheet(
       context,
       qualityHeights: heights.isEmpty ? null : heights,
+      onFastForward: _fastForward,
       onQualityChanged: () {
         _sessionQualityCap = null;
         if (mounted) _playIndex(_index);

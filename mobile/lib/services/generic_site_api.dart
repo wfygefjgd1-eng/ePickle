@@ -2314,6 +2314,43 @@ class GenericSiteApi {
       return null;
     }
 
+    String? nestedStringValue(dynamic value) {
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+      if (value is Map) {
+        final map = Map<String, dynamic>.from(value);
+        for (final nestedKey in const [
+          'src',
+          'url',
+          'href',
+          'path',
+          'image',
+          'thumb',
+          'thumbnail',
+        ]) {
+          final nested = nestedStringValue(map[nestedKey]);
+          if (nested != null && nested.isNotEmpty) return nested;
+        }
+        for (final nestedValue in map.values) {
+          final nested = nestedStringValue(nestedValue);
+          if (nested != null && nested.isNotEmpty) return nested;
+        }
+      } else if (value is List) {
+        for (final nestedValue in value) {
+          final nested = nestedStringValue(nestedValue);
+          if (nested != null && nested.isNotEmpty) return nested;
+        }
+      }
+      return null;
+    }
+
+    String? firstNestedString(Map<String, dynamic> map, List<String> keys) {
+      for (final key in keys) {
+        final value = nestedStringValue(map[key]);
+        if (value != null && value.isNotEmpty) return value;
+      }
+      return null;
+    }
+
     bool falseValue(dynamic value) =>
         value == false || value == 0 || value == '0' || value == 'false';
 
@@ -2501,22 +2538,39 @@ class GenericSiteApi {
             _liveStreamNames['${site.id}:$key'] = streamValue;
           }
           if (seen.add(key)) {
-            final thumb = stringValue(map, const [
-              'image_url_360x270',
-              'imageUrl360x270',
-              'previewUrlThumbSmall',
-              'preview_url',
-              'image_url_720x540',
-              'imageUrl720x540',
-              'image_url',
-              'imageUrl',
-              'snapshotUrl',
-              'thumbnail_url',
-              'thumbnail',
-              'thumb',
-              'avatarUrl',
-              'image',
-            ]);
+            final thumb = firstNestedString(map, const [
+                  'default_thumb',
+                  'defaultThumb',
+                  'image_url_360x270',
+                  'imageUrl360x270',
+                  'previewUrlThumbSmall',
+                  'preview_url_thumb_small',
+                  'preview_url',
+                  'previewUrl',
+                  'preview',
+                  'image_url_720x540',
+                  'imageUrl720x540',
+                  'image_url_180x135',
+                  'imageUrl180x135',
+                  'image_url',
+                  'imageUrl',
+                  'snapshotUrl',
+                  'snapshot_url',
+                  'thumbnail_url',
+                  'thumbnailUrl',
+                  'thumbnail',
+                  'thumb',
+                  'thumb_url',
+                  'thumbUrl',
+                  'room_img',
+                  'roomImg',
+                  'profile_image',
+                  'profileImage',
+                  'avatarUrl',
+                  'avatar_url',
+                  'image',
+                  'img',
+                ]);
             final title = stringValue(
                   map,
                   const ['display_name', 'displayName', 'title'],

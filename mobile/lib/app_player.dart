@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import 'screens/home_page.dart';
 import 'services/app_settings.dart';
+import 'services/app_route_observer.dart';
 import 'services/generic_site_api.dart';
 import 'services/layout_settings.dart';
 import 'services/mitao_api.dart';
@@ -100,6 +101,7 @@ class PlayerApp extends StatelessWidget {
           ),
         ),
         home: const HomePage(),
+        navigatorObservers: [appRouteObserver],
       ),
     );
   }

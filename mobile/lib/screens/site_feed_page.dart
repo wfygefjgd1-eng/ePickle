@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -93,7 +94,10 @@ class _SiteFeedPageState extends State<SiteFeedPage>
     // Leaving content tab → pause players
     if (_index < _keys.length) {
       for (final k in _keys) {
-        k.currentState?.pausePlayback(releasePlayers: true);
+        final state = k.currentState;
+        if (state != null) {
+          unawaited(state.pausePlayback(releasePlayers: true));
+        }
       }
     }
 

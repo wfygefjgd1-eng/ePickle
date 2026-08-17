@@ -14,6 +14,7 @@ import '../screens/hidden_sites_page.dart';
 Future<void> showPlayerSettingsSheet(
   BuildContext context, {
   VoidCallback? onQualityChanged,
+  VoidCallback? onFastForward,
   List<int>? qualityHeights,
 }) {
   return showModalBottomSheet<void>(
@@ -107,6 +108,28 @@ Future<void> showPlayerSettingsSheet(
                         value: settings.skipIntro,
                         onChanged: settings.setSkipIntro,
                       ),
+                      if (onFastForward != null)
+                        ListTile(
+                          leading: const Icon(
+                            Icons.forward_30,
+                            color: Color(0xFFFF6B35),
+                          ),
+                          title: const Text(
+                            '快进 30 秒',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          subtitle: const Text(
+                            '从当前播放位置向后跳 30 秒',
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 12,
+                            ),
+                          ),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            onFastForward();
+                          },
+                        ),
                       SwitchListTile(
                         title: const Text(
                           '自动横屏',

@@ -16,6 +16,7 @@ import '../services/phub_api.dart';
 import '../services/translator.dart';
 import '../services/xvideos_api.dart';
 import '../services/app_settings.dart';
+import '../services/app_route_observer.dart';
 import '../services/auto_rotate_controller.dart';
 import '../services/cache_manager.dart';
 import '../services/feed_list_cache.dart';
@@ -56,7 +57,7 @@ class VideoFeedScreen extends StatefulWidget {
 }
 
 class VideoFeedScreenState extends State<VideoFeedScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RouteAware {
   final List<VideoItem> _items = [];
   final Set<String> _seen = {};
   late final PageController _pageCtrl;
@@ -103,6 +104,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   bool _appInForeground = true;
   bool _allowPop = false;
   bool _exiting = false;
+  bool _resumePlaybackOnRouteReturn = false;
   int _lifecycleEpoch = 0;
   String? _error;
   String _titleText = '';
@@ -153,6 +155,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   late final Map<String, String> _httpHeaders = _buildHeaders();
+  PageRoute<dynamic>? _route;
 
   int get _effectiveQualityCap {
     if (_sessionQualityCap != null) return _sessionQualityCap!;
@@ -207,6 +210,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _chrome ??= context.read<PlayerChrome>();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic> && !identical(route, _route)) {
+      if (_route != null) {
+        appRouteObserver.unsubscribe(this);
+      }
+      _route = route;
+      appRouteObserver.subscribe(this, route);
+    }
   }
 
   @override
@@ -258,6 +269,25 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final s = _settings;
     if (!mounted || s == null) return;
     _autoRotate?.enabled = s.autoRotate;
+  }
+
+  @override
+  void didPushNext() {
+    _resumePlaybackOnRouteReturn =
+        (_controller?.value.isPlaying ?? false) || _pageLoading;
+    if (_browserLiveUrl != null) {
+      _resumePlaybackOnRouteReturn = true;
+    }
+    unawaited(pausePlayback(releasePlayers: false));
+  }
+
+  @override
+  void didPopNext() {
+    if (!_resumePlaybackOnRouteReturn || !mounted) return;
+    _resumePlaybackOnRouteReturn = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _canRun) startPlaying();
+    });
   }
 
   void _recordWatch(VideoItem item) {
@@ -354,6 +384,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _settings = null;
     _autoRotate?.dispose();
     _autoRotate = null;
+    if (_route != null) {
+      appRouteObserver.unsubscribe(this);
+      _route = null;
+    }
     try {
       _chrome?.ensurePortraitChrome();
     } catch (_) {}
@@ -565,22 +599,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 8000;
       if (!_active) return;
       _syncAutoRotateListening();
-      final controller = _controller;
-      if (_browserLiveUrl != null) {
-        unawaited(StripchatLiveView.resumeLive());
-        _startLiveWatchdog();
-        WakelockPlus.enable();
-      } else if (controller != null && controller.value.isInitialized) {
-        unawaited(controller.play().then((_) {
-          if (!_canRun || !identical(controller, _controller)) return;
-          _startProgressTimer();
-          _restartPreloading();
-        }).catchError((_) {}));
-        WakelockPlus.enable();
-      } else if (_items.isNotEmpty) {
-        unawaited(_playIndex(_currentIndex.clamp(0, _items.length - 1)));
-      } else if (!_loadingMore) {
-        unawaited(_loadMore());
+      if (_resumePlaybackOnForeground) {
+        _resumePlaybackOnForeground = false;
+        startPlaying();
       }
     }
   }
@@ -611,6 +632,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   void startPlaying() {
     _active = true;
+    _resumePlaybackOnRouteReturn = false;
     if (!_appInForeground) return;
     final immersive = _chrome?.immersive ?? false;
     _autoRotate?.syncLandscapeMode(
@@ -619,6 +641,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     );
     _syncAutoRotateListening();
     if (_browserLiveUrl != null) {
+      unawaited(StripchatLiveView.resumeLive());
       WakelockPlus.enable();
       return;
     }
@@ -632,13 +655,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (_controller != null && _controller!.value.isInitialized) {
       _controller!.play();
       _startProgressTimer();
+      _restartPreloading();
       WakelockPlus.enable();
       return;
     }
     _playIndex(_currentIndex);
   }
 
-  void pausePlayback({bool releasePlayers = true}) {
+  Future<void> pausePlayback({bool releasePlayers = true}) async {
     _active = false;
     _autoRotate?.syncLandscapeMode(false);
     _syncAutoRotateListening();
@@ -646,36 +670,37 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _lifecycleEpoch++;
     _cancelBackgroundWork();
     final c = _controller;
-    _controller = null;
     final hadBrowserLive = _browserLiveUrl != null;
-    _browserLiveUrl = null;
-    _browserIsStripchat = false;
     try {
-      c?.setVolume(0);
-      c?.pause();
+      if (c != null) {
+        await c.setVolume(0);
+        await c.pause();
+      }
     } catch (_) {}
     final frozen = _frozenController;
     _frozenController = null;
     _frozenIndex = null;
     if (frozen != null) {
-      unawaited(frozen
-          .pause()
-          .catchError((_) {})
-          .whenComplete(() => frozen.dispose()));
+      try {
+        await frozen.pause();
+      } catch (_) {}
+      try {
+        await frozen.dispose();
+      } catch (_) {}
+    }
+    if (hadBrowserLive) {
+      await StripchatLiveView.pauseLive();
     }
     WakelockPlus.disable();
-    if (hadBrowserLive) {
-      unawaited(StripchatLiveView.pauseLive());
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() {});
-      });
+    if (releasePlayers) {
+      _controller = null;
+      _browserLiveUrl = null;
+      _browserIsStripchat = false;
     }
     if (releasePlayers && c != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        try {
-          c.dispose();
-        } catch (_) {}
-      });
+      try {
+        await c.dispose();
+      } catch (_) {}
     }
   }
 
@@ -930,31 +955,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _appInForeground = false;
     _loadSeq++;
     _lifecycleEpoch++;
-    _cancelBackgroundWork();
-    _liveWatchdog?.cancel();
-    _liveWatchdog = null;
-    if (_browserLiveUrl != null) {
-      try {
-        await StripchatLiveView.pauseLive();
-      } catch (_) {}
-    }
-    _browserLiveUrl = null;
-    _browserIsStripchat = false;
-    final frozen = _frozenController;
-    _frozenController = null;
-    _frozenIndex = null;
-    if (frozen != null) {
-      try {
-        await frozen.pause();
-      } catch (_) {}
-      try {
-        await frozen.dispose();
-      } catch (_) {}
-    }
-    await _disposeController().timeout(
-      const Duration(seconds: 2),
-      onTimeout: () {},
-    );
+    await pausePlayback(releasePlayers: true);
     WakelockPlus.disable();
     if (!mounted) return;
     setState(() => _allowPop = true);
@@ -2230,6 +2231,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     showPlayerSettingsSheet(
       context,
       qualityHeights: heights.isEmpty ? null : heights,
+      onFastForward: _fastForward,
       onQualityChanged: () {
         _sessionQualityCap = null;
         if (mounted) _playIndex(_currentIndex);

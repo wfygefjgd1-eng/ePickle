@@ -145,6 +145,83 @@ Future<void> showPlayerSettingsSheet(
                         value: settings.autoSkipUnavailable,
                         onChanged: settings.setAutoSkipUnavailable,
                       ),
+                      if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+                        const Divider(color: Colors.white12),
+                        const ListTile(
+                          title: Text(
+                            '按钮显示',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                            ),
+                          ),
+                          dense: true,
+                        ),
+                        SwitchListTile(
+                          title: const Text(
+                            '站点页返回按钮',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          subtitle: const Text(
+                            '控制左上角返回按钮的显示与隐藏',
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 12,
+                            ),
+                          ),
+                          activeThumbColor: const Color(0xFFFF6B35),
+                          value: settings.showSiteBackButton,
+                          onChanged: settings.setShowSiteBackButton,
+                        ),
+                        SwitchListTile(
+                          title: const Text(
+                            '搜索页返回按钮',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          subtitle: const Text(
+                            '控制播放页左上角返回按钮的显示与隐藏',
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 12,
+                            ),
+                          ),
+                          activeThumbColor: const Color(0xFFFF6B35),
+                          value: settings.showSearchBackButton,
+                          onChanged: settings.setShowSearchBackButton,
+                        ),
+                        SwitchListTile(
+                          title: const Text(
+                            '全屏按钮',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          subtitle: const Text(
+                            '控制右上角全屏按钮的显示与隐藏',
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 12,
+                            ),
+                          ),
+                          activeThumbColor: const Color(0xFFFF6B35),
+                          value: settings.showFullscreenButton,
+                          onChanged: settings.setShowFullscreenButton,
+                        ),
+                        SwitchListTile(
+                          title: const Text(
+                            '声音按钮',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          subtitle: const Text(
+                            '控制右下角声音按钮的显示与隐藏',
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 12,
+                            ),
+                          ),
+                          activeThumbColor: const Color(0xFFFF6B35),
+                          value: settings.showMuteButton,
+                          onChanged: settings.setShowMuteButton,
+                        ),
+                      ],
                       ListTile(
                         leading: const Icon(
                           Icons.add_link,

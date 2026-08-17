@@ -110,40 +110,58 @@ class MitaoApi {
     final results = <VideoItem>[];
     var failCount = 0;
     var tried = 0;
+    final concurrency = maxPages <= 2 ? 2 : 3;
+    final hardTimeout = maxPages <= 2
+        ? const Duration(seconds: 14)
+        : const Duration(seconds: 24);
 
-    Future<void> run() async {
-      for (final p in ordered) {
-        tried++;
-        final url = p <= 1
-            ? '$base/index.php/vod/type/id/$zhongTypeId.html'
-            : '$base/index.php/vod/type/id/$zhongTypeId/page/$p.html';
-        try {
-          final html = await _getHtml(url);
-          results.addAll(_parseList(html, seen));
-        } catch (e) {
-          if (e is DioException && CancelToken.isCancel(e)) rethrow;
-          failCount++;
-          if (p > 1) {
-            try {
-              final alt =
-                  '$base/index.php/vod/type/id/$zhongTypeId.html?page=$p';
-              final html = await _getHtml(alt);
-              results.addAll(_parseList(html, seen));
-            } catch (e) {
-              if (e is DioException && CancelToken.isCancel(e)) rethrow;
-              failCount++;
-            }
+    Future<List<VideoItem>> fetchPage(int p) async {
+      final url = p <= 1
+          ? '$base/index.php/vod/type/id/$zhongTypeId.html'
+          : '$base/index.php/vod/type/id/$zhongTypeId/page/$p.html';
+      try {
+        final html = await _getHtml(url);
+        return _parseList(html, seen);
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        failCount++;
+        if (p > 1) {
+          try {
+            final alt = '$base/index.php/vod/type/id/$zhongTypeId.html?page=$p';
+            final html = await _getHtml(alt);
+            return _parseList(html, seen);
+          } catch (e) {
+            if (e is DioException && CancelToken.isCancel(e)) rethrow;
+            failCount++;
           }
         }
-        if (results.length >= limit) break;
+        return const <VideoItem>[];
       }
     }
 
-    final hardTimeout = maxPages <= 2
-        ? const Duration(seconds: 16)
-        : const Duration(seconds: 28);
+    Future<void> runBatches() async {
+      for (var i = 0; i < ordered.length && tried < maxPages;) {
+        if (results.length >= limit) break;
+        final batchPages = <int>[];
+        while (batchPages.length < concurrency &&
+            i < ordered.length &&
+            tried < maxPages) {
+          batchPages.add(ordered[i]);
+          i++;
+          tried++;
+        }
+        final pagesOut = await Future.wait(batchPages.map(fetchPage));
+        for (final list in pagesOut) {
+          if (list.isEmpty) continue;
+          results.addAll(list);
+          if (results.length >= limit) break;
+        }
+        if (results.length >= (limit < 12 ? limit : 8)) break;
+      }
+    }
+
     try {
-      await run().timeout(hardTimeout);
+      await runBatches().timeout(hardTimeout);
     } on TimeoutException {
       if (results.isEmpty) {
         throw PhubException(

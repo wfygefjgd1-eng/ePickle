@@ -1,9 +1,11 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/video_item.dart';
+import '../services/app_settings.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 import 'stripchat_live_view.dart';
@@ -73,7 +75,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   String _seekPreviewText = '';
 
   void _onHorizontalDragStart(DragStartDetails details) {
-    if (!widget.immersive) return;
     final ctrl = widget.controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
 
@@ -86,9 +87,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
-    if (!widget.immersive ||
-        _dragStartX == null ||
-        _dragStartPosition == null) {
+    if (_dragStartX == null || _dragStartPosition == null) {
       return;
     }
     final ctrl = widget.controller;
@@ -97,8 +96,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final deltaX = details.globalPosition.dx - _dragStartX!;
     final screenWidth = MediaQuery.of(context).size.width;
 
-    // 距离映射：拖动屏幕 1/6 宽度 = 60秒
-    final secondsPerScreenWidth = 360.0; // 全屏宽度 = 6分钟
+    // 璺濈鏄犲皠锛氭嫋鍔ㄥ睆骞?1/6 瀹藉害 = 60绉?
+    final secondsPerScreenWidth = 360.0; // 鍏ㄥ睆瀹藉害 = 6鍒嗛挓
     final deltaSec = (deltaX / screenWidth * secondsPerScreenWidth).round();
 
     final newPos = _dragStartPosition! + Duration(seconds: deltaSec);
@@ -106,6 +105,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final clampedPos = Duration(
       milliseconds: newPos.inMilliseconds.clamp(0, duration.inMilliseconds),
     );
+    final ratio = duration.inMilliseconds > 0
+        ? (clampedPos.inMilliseconds / duration.inMilliseconds)
+            .clamp(0.0, 1.0)
+        : 0.0;
 
     String formatTime(Duration d) {
       final min = d.inMinutes;
@@ -116,19 +119,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     setState(() {
       _dragTargetPosition = clampedPos;
       if (deltaSec > 0) {
-        _seekPreviewText = '+$deltaSec秒 → ${formatTime(clampedPos)}';
+        _seekPreviewText = '+$deltaSec绉?鈫?${formatTime(clampedPos)}';
       } else if (deltaSec < 0) {
-        _seekPreviewText = '$deltaSec秒 → ${formatTime(clampedPos)}';
+        _seekPreviewText = '$deltaSec绉?鈫?${formatTime(clampedPos)}';
       } else {
         _seekPreviewText = formatTime(clampedPos);
       }
     });
+    widget.onSeekPreview(ratio);
   }
 
   void _onHorizontalDragEnd(DragEndDetails details) {
-    if (!widget.immersive ||
-        _dragStartX == null ||
-        _dragStartPosition == null) {
+    if (_dragStartX == null || _dragStartPosition == null) {
       return;
     }
     final ctrl = widget.controller;
@@ -291,6 +293,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final showFullscreenButton =
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        context.select<AppSettings, bool>((s) => s.showFullscreenButton);
+    final showMuteButton =
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        context.select<AppSettings, bool>((s) => s.showMuteButton);
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -303,7 +311,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           child: _buildVideoSurface(),
         ),
         // 横屏手势进度预览
-        if (widget.immersive && _seekPreviewText.isNotEmpty)
+        if (_seekPreviewText.isNotEmpty)
           Center(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -325,23 +333,24 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           // 横屏：点击屏幕显示/隐藏控制栏
           if (_showExitButton) ...[
             // 退出按钮
-            Positioned(
-              right: 16,
-              top: 16,
-              child: SafeArea(
-                child: GestureDetector(
-                  onTap: widget.onFullscreen,
-                  child: Icon(
-                    Icons.fullscreen_exit,
-                    color: Colors.white.withValues(alpha: 0.5),
-                    size: 28,
-                    shadows: const [
-                      Shadow(color: Colors.black45, blurRadius: 4),
-                    ],
+            if (showFullscreenButton)
+              Positioned(
+                right: 16,
+                top: 16,
+                child: SafeArea(
+                  child: GestureDetector(
+                    onTap: widget.onFullscreen,
+                    child: Icon(
+                      Icons.fullscreen_exit,
+                      color: Colors.white.withValues(alpha: 0.5),
+                      size: 28,
+                      shadows: const [
+                        Shadow(color: Colors.black45, blurRadius: 4),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
             // 设置按钮
             Positioned(
               left: 16,
@@ -380,7 +389,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             ),
           ],
         ] else ...[
-          _buildTopBar(),
+          _buildTopBar(showFullscreenButton: showFullscreenButton),
           // 竖屏：设置按钮（上移到标题行，半透明，无背景）
           Positioned(
             right: 10,
@@ -399,15 +408,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             right: 50,
             top: 8,
             child: SafeArea(
-              child: Opacity(
-                opacity: 0.42,
-                child: _MinimalButton(
-                  storageKey: 'fullscreen_button_normal',
-                  defaultOffset: const Offset(50, 8),
-                  icon: Icons.fullscreen,
-                  onTap: widget.onFullscreen,
-                ),
-              ),
+              child: showFullscreenButton
+                  ? Opacity(
+                      opacity: 0.42,
+                      child: _MinimalButton(
+                        storageKey: 'fullscreen_button_normal',
+                        defaultOffset: const Offset(50, 8),
+                        icon: Icons.fullscreen,
+                        onTap: widget.onFullscreen,
+                      ),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ),
           // 竖屏：快进按钮（半透明，无背景）
@@ -428,12 +439,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             right: 10,
             bottom: 80,
             child: SafeArea(
-              child: _MinimalButton(
-                storageKey: 'mute_button_normal',
-                defaultOffset: const Offset(10, 80),
-                icon: widget.muted ? Icons.volume_off : Icons.volume_up,
-                onTap: widget.onMute,
-              ),
+              child: showMuteButton
+                  ? _MinimalButton(
+                      storageKey: 'mute_button_normal',
+                      defaultOffset: const Offset(10, 80),
+                      icon: widget.muted ? Icons.volume_off : Icons.volume_up,
+                      onTap: widget.onMute,
+                    )
+                  : const SizedBox.shrink(),
             ),
           ),
           Positioned(
@@ -458,7 +471,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     );
   }
 
-  Widget _buildTopBar() {
+  Widget _buildTopBar({required bool showFullscreenButton}) {
     final title = widget.titleText.isNotEmpty
         ? widget.titleText
         : (widget.currentIndex < widget.items.length
@@ -466,7 +479,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             : '');
     return Positioned(
       left: 10,
-      right: 96,
+      right: showFullscreenButton ? 96 : 56,
       top: 8,
       child: SafeArea(
         child: Column(

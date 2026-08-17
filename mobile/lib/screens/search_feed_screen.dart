@@ -193,6 +193,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_canRun) _playIndex(_index);
     });
+    _onSeekPreview(ratio);
   }
 
   void _onSettingsChanged() {
@@ -1552,8 +1553,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   void _onHorizontalDragStart(DragStartDetails details) {
-    final chrome = _chrome;
-    if (chrome == null || !chrome.immersive) return;
     final ctrl = _controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
 
@@ -1566,11 +1565,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
-    final chrome = _chrome;
-    if (chrome == null ||
-        !chrome.immersive ||
-        _dragStartX == null ||
-        _dragStartPosition == null) {
+    if (_dragStartX == null || _dragStartPosition == null) {
       return;
     }
     final ctrl = _controller;
@@ -1587,6 +1582,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final clampedPos = Duration(
       milliseconds: newPos.inMilliseconds.clamp(0, duration.inMilliseconds),
     );
+    final ratio = duration.inMilliseconds > 0
+        ? (clampedPos.inMilliseconds / duration.inMilliseconds)
+            .clamp(0.0, 1.0)
+        : 0.0;
 
     String formatTime(Duration d) {
       final min = d.inMinutes;
@@ -1597,21 +1596,18 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     setState(() {
       _dragTargetPosition = clampedPos;
       if (deltaSec > 0) {
-        _seekPreviewText = '+$deltaSec秒 → ${formatTime(clampedPos)}';
+        _seekPreviewText = '+$deltaSec绉?鈫?${formatTime(clampedPos)}';
       } else if (deltaSec < 0) {
-        _seekPreviewText = '$deltaSec秒 → ${formatTime(clampedPos)}';
+        _seekPreviewText = '$deltaSec绉?鈫?${formatTime(clampedPos)}';
       } else {
         _seekPreviewText = formatTime(clampedPos);
       }
     });
+    _onSeekPreview(ratio);
   }
 
   void _onHorizontalDragEnd(DragEndDetails details) {
-    final chrome = _chrome;
-    if (chrome == null ||
-        !chrome.immersive ||
-        _dragStartX == null ||
-        _dragStartPosition == null) {
+    if (_dragStartX == null || _dragStartPosition == null) {
       return;
     }
     final ctrl = _controller;
@@ -1655,10 +1651,19 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   @override
   Widget build(BuildContext context) {
     final immersive = context.select<PlayerChrome, bool>((c) => c.immersive);
+    final showSearchBackButton =
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        context.select<AppSettings, bool>((s) => s.showSearchBackButton);
+    final showFullscreenButton =
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        context.select<AppSettings, bool>((s) => s.showFullscreenButton);
+    final showMuteButton =
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        context.select<AppSettings, bool>((s) => s.showMuteButton);
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
-      canPop: _allowPop,
+      canPop: _allowPop || defaultTargetPlatform == TargetPlatform.iOS,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (immersive) {
@@ -1804,7 +1809,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     },
                   ),
                 // 横屏手势进度预览
-                if (immersive && _seekPreviewText.isNotEmpty)
+        if (_seekPreviewText.isNotEmpty)
                   Center(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
@@ -1829,23 +1834,24 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   // 横屏：点击屏幕显示/隐藏控制栏
                   if (_showExitButton) ...[
                     // 退出按钮
-                    Positioned(
-                      right: 16,
-                      top: 16,
-                      child: SafeArea(
-                        child: GestureDetector(
-                          onTap: _toggleFullscreen,
-                          child: Icon(
-                            Icons.fullscreen_exit,
-                            color: Colors.white.withValues(alpha: 0.5),
-                            size: 28,
-                            shadows: const [
-                              Shadow(color: Colors.black45, blurRadius: 4),
-                            ],
+                    if (showFullscreenButton)
+                      Positioned(
+                        right: 16,
+                        top: 16,
+                        child: SafeArea(
+                          child: GestureDetector(
+                            onTap: _toggleFullscreen,
+                            child: Icon(
+                              Icons.fullscreen_exit,
+                              color: Colors.white.withValues(alpha: 0.5),
+                              size: 28,
+                              shadows: const [
+                                Shadow(color: Colors.black45, blurRadius: 4),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
                     // 设置按钮
                     Positioned(
                       left: 16,
@@ -1924,20 +1930,21 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     ),
                   ),
                   // 竖屏：全屏按钮（半透明，无背景）
-                  Positioned(
-                    left: 10,
-                    top: 52,
-                    child: SafeArea(
-                      child: _MinimalButton(
-                        storageKey: 'search_back_button_normal',
-                        defaultOffset: const Offset(10, 52),
-                        icon: Icons.arrow_back_ios_new,
-                        iconAlpha: 0.3,
-                        showShadow: false,
-                        onTap: _exitAfterStopping,
+                  if (showSearchBackButton)
+                    Positioned(
+                      left: 10,
+                      top: 52,
+                      child: SafeArea(
+                        child: _MinimalButton(
+                          storageKey: 'search_back_button_normal',
+                          defaultOffset: const Offset(10, 52),
+                          icon: Icons.arrow_back_ios_new,
+                          iconAlpha: 0.3,
+                          showShadow: false,
+                          onTap: _exitAfterStopping,
+                        ),
                       ),
                     ),
-                  ),
                   // 竖屏：设置按钮（半透明，无背景）
                   Positioned(
                     right: 10,
@@ -1955,15 +1962,17 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     right: 10,
                     top: 96,
                     child: SafeArea(
-                      child: Opacity(
-                        opacity: 0.42,
-                        child: _MinimalButton(
-                          storageKey: 'search_fullscreen_button_normal',
-                          defaultOffset: const Offset(10, 96),
-                          icon: Icons.fullscreen,
-                          onTap: _toggleFullscreen,
-                        ),
-                      ),
+                      child: showFullscreenButton
+                          ? Opacity(
+                              opacity: 0.42,
+                              child: _MinimalButton(
+                                storageKey: 'search_fullscreen_button_normal',
+                                defaultOffset: const Offset(10, 96),
+                                icon: Icons.fullscreen,
+                                onTap: _toggleFullscreen,
+                              ),
+                            )
+                          : const SizedBox.shrink(),
                     ),
                   ),
                   // 竖屏：快进按钮（半透明，无背景）
@@ -1984,12 +1993,16 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     right: 10,
                     bottom: 80,
                     child: SafeArea(
-                      child: _MinimalButton(
-                        storageKey: 'search_mute_button_normal',
-                        defaultOffset: const Offset(10, 80),
-                        icon: _muted ? Icons.volume_off : Icons.volume_up,
-                        onTap: _toggleMute,
-                      ),
+                      child: showMuteButton
+                          ? _MinimalButton(
+                              storageKey: 'search_mute_button_normal',
+                              defaultOffset: const Offset(10, 80),
+                              icon: _muted
+                                  ? Icons.volume_off
+                                  : Icons.volume_up,
+                              onTap: _toggleMute,
+                            )
+                          : const SizedBox.shrink(),
                     ),
                   ),
                   Positioned(

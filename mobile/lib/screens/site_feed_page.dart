@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../services/app_settings.dart';
 import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
 import 'site_tag_directory_page.dart';
@@ -112,6 +113,9 @@ class _SiteFeedPageState extends State<SiteFeedPage>
     final site = widget.site;
     final tabs = _contentTabs;
     final immersive = context.select<PlayerChrome, bool>((c) => c.immersive);
+    final showSiteBackButton =
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        context.select<AppSettings, bool>((s) => s.showSiteBackButton);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -140,7 +144,7 @@ class _SiteFeedPageState extends State<SiteFeedPage>
                   ),
               ],
             ),
-          if (!immersive)
+          if (!immersive && showSiteBackButton)
             Positioned(
               left: 4,
               top: 0,

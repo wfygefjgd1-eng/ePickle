@@ -139,44 +139,61 @@ class XvideosApi {
             : 'https://www.xvideos.com/?k=$k&p=$p',
       );
     }
-    urls.shuffle(rng);
+    final ordered = [...urls]..shuffle(rng);
 
     final seen = <String>{...?exclude};
     final results = <VideoItem>[];
     var tried = 0;
     var failCount = 0;
-    Future<void> run() async {
-      for (final u in urls) {
-        if (tried >= maxUrls) break;
-        tried++;
-        try {
-          final html = await _getHtml(u);
-          results.addAll(_parseList(html, seen));
-        } catch (e) {
-          if (e is DioException && CancelToken.isCancel(e)) rethrow;
-          failCount++;
-          continue;
-        }
+    final concurrency = maxUrls <= 2 ? 2 : 3;
+    final hardTimeout = maxUrls <= 2
+        ? const Duration(seconds: 14)
+        : const Duration(seconds: 24);
+
+    Future<void> runBatches() async {
+      for (var i = 0; i < ordered.length && tried < maxUrls;) {
         if (results.length >= limit) break;
+        final batchUrls = <String>[];
+        while (batchUrls.length < concurrency &&
+            i < ordered.length &&
+            tried < maxUrls) {
+          batchUrls.add(ordered[i]);
+          i++;
+          tried++;
+        }
+        final pages = await Future.wait(
+          batchUrls.map((u) async {
+            try {
+              return await _getHtml(u);
+            } catch (e) {
+              if (e is DioException && CancelToken.isCancel(e)) rethrow;
+              failCount++;
+              return null;
+            }
+          }),
+        );
+        for (final html in pages) {
+          if (html == null) continue;
+          results.addAll(_parseList(html, seen));
+          if (results.length >= limit) break;
+        }
+        if (results.length >= (limit < 12 ? limit : 8)) break;
       }
     }
 
-    final hardTimeout = maxUrls <= 2
-        ? const Duration(seconds: 16)
-        : const Duration(seconds: 28);
     try {
-      await run().timeout(hardTimeout);
+      await runBatches().timeout(hardTimeout);
     } on TimeoutException {
       if (results.isEmpty) {
         throw PhubException(
-          '加载超时。可：设置→重新检测代理，或开 TUN/VPN',
+          '鍔犺浇瓒呮椂銆傚彲锛氳缃啋閲嶆柊妫€娴嬩唬鐞嗭紝鎴栧紑 TUN/VPN',
         );
       }
     }
     if (results.isEmpty && (failCount > 0 || tried > 0)) {
       throw PhubException(
-        '无法访问源站（$failCount/$tried 失败）。'
-        '系统未代理时请开 TUN，或设置里填写/检测代理',
+        '鏃犳硶璁块棶婧愮珯锛?failCount/$tried 澶辫触锛夈€?
+        '绯荤粺鏈唬鐞嗘椂璇峰紑 TUN锛屾垨璁剧疆閲屽～鍐?妫€娴嬩唬鐞?,
       );
     }
     results.shuffle(rng);

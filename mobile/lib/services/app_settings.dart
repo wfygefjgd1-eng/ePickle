@@ -10,6 +10,10 @@ class AppSettings extends ChangeNotifier {
   static const _kSkipIntro = 'skip_intro_10s';
   static const _kMuted = 'playback_muted';
   static const _kQualityCap = 'quality_cap_height'; // 0=auto preferred
+  static const _kShowSiteBackButton = 'show_site_back_button';
+  static const _kShowSearchBackButton = 'show_search_back_button';
+  static const _kShowFullscreenButton = 'show_fullscreen_button';
+  static const _kShowMuteButton = 'show_mute_button';
   static const _kProxyEnabled = 'proxy_enabled';
   static const _kProxyHost = 'proxy_host';
   static const _kProxyPort = 'proxy_port';
@@ -22,6 +26,10 @@ class AppSettings extends ChangeNotifier {
   bool _skipIntro = true;
   bool _muted = false;
   int _qualityCap = 0;
+  bool _showSiteBackButton = true;
+  bool _showSearchBackButton = true;
+  bool _showFullscreenButton = true;
+  bool _showMuteButton = true;
 
   /// Default to DIRECT; TUN handles routing at system level.
   bool _proxyEnabled = false;
@@ -38,6 +46,10 @@ class AppSettings extends ChangeNotifier {
   bool get skipIntro => _skipIntro;
   bool get muted => _muted;
   int get qualityCap => _qualityCap;
+  bool get showSiteBackButton => _showSiteBackButton;
+  bool get showSearchBackButton => _showSearchBackButton;
+  bool get showFullscreenButton => _showFullscreenButton;
+  bool get showMuteButton => _showMuteButton;
   bool get proxyEnabled => _proxyEnabled;
   String get proxyHost => _proxyHost;
   int get proxyPort => _proxyPort;
@@ -115,6 +127,14 @@ class AppSettings extends ChangeNotifier {
       _skipIntro = p.getBool(_kSkipIntro) ?? true;
       _muted = p.getBool(_kMuted) ?? false;
       _qualityCap = p.getInt(_kQualityCap) ?? 0;
+      final iosDefault = defaultTargetPlatform == TargetPlatform.iOS;
+      _showSiteBackButton =
+          p.getBool(_kShowSiteBackButton) ?? !iosDefault;
+      _showSearchBackButton =
+          p.getBool(_kShowSearchBackButton) ?? !iosDefault;
+      _showFullscreenButton =
+          p.getBool(_kShowFullscreenButton) ?? !iosDefault;
+      _showMuteButton = p.getBool(_kShowMuteButton) ?? !iosDefault;
       _autoRotate = p.getBool(_kAutoRotate) ?? true;
       _autoLowerOnStall = p.getBool(_kPromptOnStall) ?? true;
       _autoSkipUnavailable = p.getBool(_kAutoSkipUnavailable) ?? true;
@@ -136,6 +156,11 @@ class AppSettings extends ChangeNotifier {
       _skipIntro = true;
       _muted = false;
       _qualityCap = 0;
+      final iosDefault = defaultTargetPlatform == TargetPlatform.iOS;
+      _showSiteBackButton = !iosDefault;
+      _showSearchBackButton = !iosDefault;
+      _showFullscreenButton = !iosDefault;
+      _showMuteButton = !iosDefault;
       _userConfiguredProxy = false;
       _autoRotate = true;
       _autoLowerOnStall = true;
@@ -232,6 +257,46 @@ class AppSettings extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       await p.setInt(_kQualityCap, v);
+    } catch (_) {}
+  }
+
+  Future<void> setShowSiteBackButton(bool v) async {
+    if (_showSiteBackButton == v) return;
+    _showSiteBackButton = v;
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_kShowSiteBackButton, v);
+    } catch (_) {}
+  }
+
+  Future<void> setShowSearchBackButton(bool v) async {
+    if (_showSearchBackButton == v) return;
+    _showSearchBackButton = v;
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_kShowSearchBackButton, v);
+    } catch (_) {}
+  }
+
+  Future<void> setShowFullscreenButton(bool v) async {
+    if (_showFullscreenButton == v) return;
+    _showFullscreenButton = v;
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_kShowFullscreenButton, v);
+    } catch (_) {}
+  }
+
+  Future<void> setShowMuteButton(bool v) async {
+    if (_showMuteButton == v) return;
+    _showMuteButton = v;
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_kShowMuteButton, v);
     } catch (_) {}
   }
 

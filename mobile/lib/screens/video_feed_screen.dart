@@ -2260,7 +2260,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
-      canPop: _allowPop,
+      canPop: _allowPop || defaultTargetPlatform == TargetPlatform.iOS,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (immersive) {

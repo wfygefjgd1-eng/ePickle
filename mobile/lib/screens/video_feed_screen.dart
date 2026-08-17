@@ -599,8 +599,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (cycle != _preloadCycle || !_canRun) return;
       if (slot == 0) {
         await _preloadNext(index);
-      } else {
+      } else if (slot == 1) {
         await _preloadNext2(index);
+      } else if (slot == 2) {
+        await _preloadNext3(index);
+      } else {
+        await _preloadNext4(index);
       }
     }
   }
@@ -825,6 +829,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       // PH / X titles are English — batch translate after list load.
       final translateStart = addedStart.clamp(0, _items.length);
       if (widget.kind != VideoFeedKind.zhong &&
+          widget.site?.kind != SiteKind.live &&
           _items.length > translateStart) {
         // ignore: unawaited_futures
         _translateItemsRange(translateStart);
@@ -1542,13 +1547,27 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           _preloadIndex = _preloadIndex2;
           _preloadStream = _preloadStream2;
           _preloadRetries = _preloadRetries2;
-          _preloadController2 = null;
-          _preloadIndex2 = null;
-          _preloadStream2 = null;
-          _preloadRetries2 = 0;
+          _preloadController2 = _preloadController3;
+          _preloadIndex2 = _preloadIndex3;
+          _preloadStream2 = _preloadStream3;
+          _preloadRetries2 = _preloadRetries3;
+          _preloadController3 = _preloadController4;
+          _preloadIndex3 = _preloadIndex4;
+          _preloadStream3 = _preloadStream4;
+          _preloadRetries3 = _preloadRetries4;
+          _preloadController4 = null;
+          _preloadIndex4 = null;
+          _preloadStream4 = null;
+          _preloadRetries4 = 0;
+        } else {
+          // ignore: unawaited_futures
+          _preloadNext(index + 1);
         }
+        final n = _preloadSlotCount;
+        if (n >= 2) unawaited(_preloadNext2(index + 2));
+        if (n >= 3) unawaited(_preloadNext3(index + 3));
+        if (n >= 4) unawaited(_preloadNext4(index + 4));
       }
-      _restartPreloading();
 
       // Clean up old detail cache to prevent memory growth
       _cleanupDetailCache(index);
@@ -1751,7 +1770,16 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       await ready.dispose();
       return;
     }
-    _restartPreloading();
+    if (_multiPreload) {
+      final n = _preloadSlotCount;
+      unawaited(_preloadNext(index + 1));
+      if (n >= 2) unawaited(_preloadNext2(index + 2));
+      if (n >= 3) unawaited(_preloadNext3(index + 3));
+      if (n >= 4) unawaited(_preloadNext4(index + 4));
+    } else {
+      unawaited(_preloadNext(index + 1));
+      unawaited(_prefetchDetail(index + 2));
+    }
     _recordWatch(item);
     _startProgressTimer();
     WakelockPlus.enable();
@@ -1995,6 +2023,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   Future<void> _translateTitleOnly(String title) async {
     if (title.isEmpty) return;
+    if (widget.site?.kind == SiteKind.live) return;
     // Already Chinese (e.g. 中 tab) — keep as-is.
     if (RegExp(r'[\u4e00-\u9fff]').hasMatch(title)) {
       if (mounted) setState(() => _titleText = title);
@@ -2015,7 +2044,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   /// Batch-translate newly loaded English titles; prioritize near current index.
   Future<void> _translateItemsRange(int start) async {
     if (start < 0 || start >= _items.length) return;
-    if (widget.kind == VideoFeedKind.zhong) return;
+    if (widget.kind == VideoFeedKind.zhong || widget.site?.kind == SiteKind.live) {
+      return;
+    }
     try {
       final slice = _items.sublist(start);
       final urls = slice.map((e) => e.url).toList();

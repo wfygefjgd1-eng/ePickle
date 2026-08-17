@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -62,7 +64,6 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
 
   Future<void> _select(SiteTag tag) async {
     final api = context.read<GenericSiteApi>();
-    final translator = context.read<Translator>();
     final generation = ++_generation;
     setState(() {
       _selected = tag;
@@ -75,17 +76,19 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
     });
     try {
       final raw = await _fetchItems(api, tag, page: 1, exclude: const {});
-      final items = await _translate(raw, translator);
       if (!mounted || generation != _generation) return;
       setState(() {
-        _items = items;
+        _items = raw;
         _page = 1;
         _hasMore = raw.isNotEmpty;
         _loading = false;
-        if (items.isEmpty) {
+        if (raw.isEmpty) {
           _error = '\u6682\u65e0\u53ef\u64ad\u653e\u7684\u5185\u5bb9';
         }
       });
+      if (raw.isNotEmpty && widget.site.kind != SiteKind.live) {
+        unawaited(_translateRange(0, generation));
+      }
     } catch (e) {
       if (!mounted || generation != _generation) return;
       setState(() {
@@ -99,21 +102,23 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
     final tag = _selected;
     if (tag == null || _loading || _loadingMore || !_hasMore) return;
     final api = context.read<GenericSiteApi>();
-    final translator = context.read<Translator>();
     final generation = _generation;
     setState(() => _loadingMore = true);
     try {
       final seen = _items.map((item) => item.viewkey).toSet();
       final raw = await _fetchItems(api, tag, page: _page + 1, exclude: seen);
       final additions = raw.where((item) => seen.add(item.viewkey)).toList();
-      final translated = await _translate(additions, translator);
       if (!mounted || generation != _generation) return;
+      final addedStart = _items.length;
       setState(() {
-        _items = [..._items, ...translated];
+        _items = [..._items, ...additions];
         _page++;
         _hasMore = raw.isNotEmpty && additions.isNotEmpty;
         _loadingMore = false;
       });
+      if (additions.isNotEmpty && widget.site.kind != SiteKind.live) {
+        unawaited(_translateRange(addedStart, generation));
+      }
     } catch (_) {
       if (!mounted || generation != _generation) return;
       setState(() {
@@ -123,15 +128,25 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
     }
   }
 
-  Future<List<VideoItem>> _translate(
-    List<VideoItem> items,
-    Translator translator,
-  ) async {
-    final titles =
-        await translator.batchEnToZh(items.map((e) => e.title).toList());
-    return [
-      for (var i = 0; i < items.length; i++) items[i].copyWith(title: titles[i])
-    ];
+  Future<void> _translateRange(int start, int generation) async {
+    if (widget.site.kind == SiteKind.live) return;
+    if (start < 0 || start >= _items.length) return;
+    try {
+      final slice = _items.sublist(start);
+      final titles = slice.map((e) => e.title).toList();
+      final translated =
+          await context.read<Translator>().batchEnToZh(titles);
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        for (var i = 0; i < translated.length; i++) {
+          final idx = start + i;
+          if (idx >= _items.length) break;
+          final zh = translated[i];
+          if (zh.isEmpty || zh == _items[idx].title) continue;
+          _items[idx] = _items[idx].copyWith(title: zh);
+        }
+      });
+    } catch (_) {}
   }
 
   Future<List<VideoItem>> _fetchItems(

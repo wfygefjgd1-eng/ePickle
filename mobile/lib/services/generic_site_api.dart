@@ -2502,14 +2502,14 @@ class GenericSiteApi {
           }
           if (seen.add(key)) {
             final thumb = stringValue(map, const [
-              'image_url_720x540',
               'image_url_360x270',
-              'imageUrl720x540',
               'imageUrl360x270',
-              'image_url',
-              'imageUrl',
               'previewUrlThumbSmall',
               'preview_url',
+              'image_url_720x540',
+              'imageUrl720x540',
+              'image_url',
+              'imageUrl',
               'snapshotUrl',
               'thumbnail_url',
               'thumbnail',
@@ -2522,12 +2522,15 @@ class GenericSiteApi {
                   const ['display_name', 'displayName', 'title'],
                 ) ??
                 username;
+            final fallbackThumb = site.isChaturbate
+                ? 'https://roomimg.stream.highwebmedia.com/ri/${Uri.encodeComponent(username.toLowerCase())}.jpg'
+                : null;
             out.add(
               VideoItem(
                 url: '$base/$username',
                 title: title,
                 duration: 'LIVE',
-                thumb: _normalizeLiveThumb(thumb, base),
+                thumb: _normalizeLiveThumb(thumb ?? fallbackThumb, base),
               ),
             );
           }

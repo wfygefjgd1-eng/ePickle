@@ -52,6 +52,13 @@ class _SiteFeedPageState extends State<SiteFeedPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    for (final key in _keys) {
+      final state = key.currentState;
+      if (state != null) {
+        // ignore: unawaited_futures
+        state.pausePlayback(releasePlayers: true);
+      }
+    }
     super.dispose();
   }
 

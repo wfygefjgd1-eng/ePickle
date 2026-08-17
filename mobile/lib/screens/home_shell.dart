@@ -47,6 +47,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    for (final key in _feedKeys) {
+      final state = key.currentState;
+      if (state != null) {
+        // ignore: unawaited_futures
+        state.pausePlayback(releasePlayers: true);
+      }
+    }
     super.dispose();
   }
 

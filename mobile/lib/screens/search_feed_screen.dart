@@ -1752,7 +1752,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
-      canPop: _allowPop || defaultTargetPlatform == TargetPlatform.iOS,
+      canPop: _allowPop,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (immersive) {

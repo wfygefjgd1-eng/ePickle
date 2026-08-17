@@ -30,13 +30,17 @@ class _HomePageState extends State<HomePage> {
   final _focusNode = FocusNode();
   String _versionLabel = '';
   bool _prewarmStarted = false;
+  Timer? _prewarmTimer;
 
   @override
   void initState() {
     super.initState();
     _loadVersion();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_prewarmHomeFeeds());
+      if (!mounted) return;
+      _prewarmTimer = Timer(const Duration(milliseconds: 450), () {
+        if (mounted) unawaited(_prewarmHomeFeeds());
+      });
     });
   }
 
@@ -51,6 +55,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    _prewarmTimer?.cancel();
     _searchCtrl.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -89,8 +94,6 @@ class _HomePageState extends State<HomePage> {
   Future<void> _prewarmHomeFeeds() async {
     if (_prewarmStarted || !mounted) return;
     _prewarmStarted = true;
-    await Future<void>.delayed(const Duration(milliseconds: 450));
-    if (!mounted) return;
     final sites = context
         .read<LayoutSettings>()
         .enabledVideoSites
@@ -114,7 +117,6 @@ class _HomePageState extends State<HomePage> {
           ),
         );
       } catch (_) {}
-      await Future<void>.delayed(const Duration(milliseconds: 250));
     }
   }
 

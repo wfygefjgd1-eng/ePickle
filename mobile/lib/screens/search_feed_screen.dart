@@ -193,7 +193,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_canRun) _playIndex(_index);
     });
-    _onSeekPreview(ratio);
   }
 
   void _onSettingsChanged() {

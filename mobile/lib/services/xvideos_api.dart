@@ -186,14 +186,14 @@ class XvideosApi {
     } on TimeoutException {
       if (results.isEmpty) {
         throw PhubException(
-          '鍔犺浇瓒呮椂銆傚彲锛氳缃啋閲嶆柊妫€娴嬩唬鐞嗭紝鎴栧紑 TUN/VPN',
+          'Source fetch timed out. Check network/TUN and try again.',
         );
       }
     }
     if (results.isEmpty && (failCount > 0 || tried > 0)) {
       throw PhubException(
-        '鏃犳硶璁块棶婧愮珯锛?failCount/$tried 澶辫触锛夈€?
-        '绯荤粺鏈唬鐞嗘椂璇峰紑 TUN锛屾垨璁剧疆閲屽～鍐?妫€娴嬩唬鐞?,
+        'Unable to fetch source pages ($failCount/$tried failed). '
+        'Check network/TUN or try again later.',
       );
     }
     results.shuffle(rng);

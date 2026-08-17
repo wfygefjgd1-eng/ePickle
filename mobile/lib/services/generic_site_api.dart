@@ -110,8 +110,15 @@ class GenericSiteApi {
           .timeout(timeout);
     } on TimeoutException {
       if (!token.isCancelled) token.cancel('request timeout');
+      // A hanging request usually means the cached proxy went stale or the
+      // connection is dead; re-detect the system proxy before the next try.
+      AppHttpClient.markProxySuspect();
       rethrow;
     } on DioException catch (error) {
+      if (error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.receiveTimeout) {
+        AppHttpClient.markProxySuspect();
+      }
       if (!CancelToken.isCancel(error) && _shouldUseNativeFallback(error)) {
         final native = await _nativeGetHtml(
           url,

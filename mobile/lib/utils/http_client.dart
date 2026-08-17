@@ -21,11 +21,11 @@ class AppHttpClient {
   static int proxyPort = 0;
   static String proxyType = 'http';
 
-  /// Auto-detected system proxy (Android). Used when no manual proxy.
+  /// Auto-detected system proxy (Android/iOS). Used when no manual proxy.
   static String? _systemHost;
   static int _systemPort = 0;
   static String _systemType = 'http';
-  static bool _systemReady = false;
+  static DateTime? _lastSystemProxyRefresh;
 
   static void applyProxyConfig({
     required bool enabled,
@@ -39,8 +39,16 @@ class AppHttpClient {
     proxyEnabled = enabled && proxyHost.isNotEmpty && proxyPort > 0;
   }
 
-  /// Refresh Android system proxy for Dio. Safe to call often.
+  /// Refresh Android/iOS system proxy for Dio. Safe to call often; throttled
+  /// to at most one native lookup every 3 seconds. [markProxySuspect] clears
+  /// the timestamp so a stale proxy is re-detected on the very next call.
   static Future<void> refreshSystemProxy() async {
+    final last = _lastSystemProxyRefresh;
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(seconds: 3)) {
+      return;
+    }
+    _lastSystemProxyRefresh = DateTime.now();
     try {
       final info = await SystemProxy.detect();
       if (info != null) {
@@ -56,7 +64,13 @@ class AppHttpClient {
       _systemHost = null;
       _systemPort = 0;
     }
-    _systemReady = true;
+  }
+
+  /// Requests failing with connect/receive timeouts often mean the cached
+  /// proxy went stale (proxy app restarted, port changed). Clear the throttle
+  /// timestamp so the next [refreshSystemProxy] re-detects immediately.
+  static void markProxySuspect() {
+    _lastSystemProxyRefresh = null;
   }
 
   static String _findProxy(Uri uri) {
@@ -87,11 +101,10 @@ class AppHttpClient {
     Duration receiveTimeout = const Duration(seconds: 28),
     CancelToken? cancelToken,
   }) {
-    // Kick off system proxy detect once if not ready (non-blocking).
-    if (!_systemReady) {
-      // ignore: discarded_futures
-      refreshSystemProxy();
-    }
+    // Re-detect system proxy on every client creation so proxy app restarts /
+    // config changes are picked up promptly (throttled inside refreshSystemProxy).
+    // ignore: discarded_futures
+    refreshSystemProxy();
 
     final dio = Dio(
       BaseOptions(

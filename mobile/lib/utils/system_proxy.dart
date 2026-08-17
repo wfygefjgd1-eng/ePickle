@@ -28,19 +28,20 @@ class SystemProxy {
 
   static const _channel = MethodChannel('epickle/system_proxy');
 
-  /// Android: read system HTTP proxy (Clash/V2Ray 系统代理模式).
+  /// Android: read system HTTP proxy (Clash/V2Ray 系统代理).
+  /// iOS: read system HTTP proxy (Shadowrocket/Quantumult X 系统代理).
   /// Other platforms: only env vars. TUN mode usually has no proxy → null → DIRECT.
   static Future<SystemProxyInfo?> detect() async {
     if (kIsWeb) return null;
 
-    if (!kIsWeb && Platform.isAndroid) {
+    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       try {
         final raw = await _channel.invokeMethod<dynamic>('getSystemProxy');
         if (raw is Map) {
           final host = raw['host']?.toString();
           final port = int.tryParse('${raw['port']}');
           final type = raw['type']?.toString() == 'socks5' ? 'socks5' : 'http';
-          final source = raw['source']?.toString() ?? 'android';
+          final source = raw['source']?.toString() ?? 'system';
           if (host != null &&
               host.isNotEmpty &&
               port != null &&

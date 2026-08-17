@@ -16,6 +16,8 @@ class MitaoApi {
   /// 中文字幕
   static const zhongTypeId = 2;
 
+  static const _singleRequestTimeout = Duration(seconds: 10);
+
   MitaoApi({Dio? dio, CancelToken? cancelToken})
       : _cancelToken = cancelToken ?? CancelToken(),
         _dio = dio ??
@@ -47,7 +49,30 @@ class MitaoApi {
   }
 
   Future<String> _getHtml(String url) async {
-    final res = await _dio.get<String>(url);
+    final token = CancelToken();
+    // Cascade the instance-level cancel (page exit / tab switch).
+    if (!_cancelToken.isCancelled) {
+      // ignore: discarded_futures
+      _cancelToken.whenCancel.then((_) {
+        if (!token.isCancelled) token.cancel();
+      });
+    }
+    final Response<String> res;
+    try {
+      res = await _dio
+          .get<String>(url, cancelToken: token)
+          .timeout(_singleRequestTimeout);
+    } on TimeoutException {
+      if (!token.isCancelled) token.cancel('request timeout');
+      AppHttpClient.markProxySuspect();
+      rethrow;
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
+        AppHttpClient.markProxySuspect();
+      }
+      rethrow;
+    }
     final status = res.statusCode ?? 0;
     if (status == 401 || status == 403) {
       throw PhubException('访问被拒绝 (403)，请检查网络环境');

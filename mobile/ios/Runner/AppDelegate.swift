@@ -124,6 +124,20 @@ import WebKit
         result(FlutterMethodNotImplemented)
       }
     }
+
+    // Dio cannot see iOS system proxy; URLSession/WebView can. Expose it to Dart.
+    let systemProxyChannel = FlutterMethodChannel(
+      name: "epickle/system_proxy",
+      binaryMessenger: messenger
+    )
+    systemProxyChannel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "getSystemProxy":
+        result(SystemProxyReader.systemProxyInfo())
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
   }
 
   override func applicationDidEnterBackground(_ application: UIApplication) {
@@ -986,6 +1000,27 @@ private final class BrowserRenderRequest: NSObject, WKNavigationDelegate {
     webView?.removeFromSuperview()
     webView = nil
     completion(nil, FlutterError(code: code, message: message, details: nil))
+  }
+}
+
+/// Reads the system HTTP proxy via CFNetwork. Matches the shape Android's
+/// readSystemProxy returns, so Dart parses both identically.
+enum SystemProxyReader {
+  static func systemProxyInfo() -> [String: Any?] {
+    let none: [String: Any?] = [
+      "host": nil, "port": nil, "type": nil, "source": "none",
+    ]
+    guard let settings = CFNetworkCopySystemProxySettings() as? [String: Any] else {
+      return none
+    }
+    let host = settings["HTTPProxy"] as? String
+      ?? settings["HTTPSProxy"] as? String
+    let port = (settings["HTTPPort"] as? NSNumber)?.intValue
+      ?? (settings["HTTPSPort"] as? NSNumber)?.intValue
+    guard let host, !host.isEmpty, let port, port > 0, port < 65536 else {
+      return none
+    }
+    return ["host": host, "port": port, "type": "http", "source": "ios"]
   }
 }
 

@@ -13,6 +13,7 @@ import '../utils/http_headers.dart';
 /// Pure-client API: scrapes site HTML (no backend, no built-in nodes).
 /// Uses system route by default; optional local proxy via [AppHttpClient].
 class PhubApi {
+  static const _singleRequestTimeout = Duration(seconds: 10);
   PhubApi({Dio? dio, CancelToken? cancelToken})
       : _cancelToken = cancelToken ?? CancelToken(),
         _dio = dio ??
@@ -88,7 +89,34 @@ class PhubApi {
   }
 
   Future<String> _getHtml(String url) async {
-    final res = await _dio.get<String>(url);
+    // Single-request budget so a hanging proxy/socket can never hold a feed,
+    // search, or detail open beyond 10s. On timeout we cancel the underlying
+    // request AND flag the proxy cache suspect (it may have gone stale).
+    final token = CancelToken();
+    // Cascade the instance-level cancel (page exit / tab switch) into this
+    // per-request token.
+    if (!_cancelToken.isCancelled) {
+      // ignore: discarded_futures
+      _cancelToken.whenCancel.then((_) {
+        if (!token.isCancelled) token.cancel();
+      });
+    }
+    final Response<String> res;
+    try {
+      res = await _dio.get<String>(url, cancelToken: token).timeout(
+            _singleRequestTimeout,
+          );
+    } on TimeoutException {
+      if (!token.isCancelled) token.cancel('request timeout');
+      AppHttpClient.markProxySuspect();
+      rethrow;
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
+        AppHttpClient.markProxySuspect();
+      }
+      rethrow;
+    }
     final status = res.statusCode ?? 0;
     if (status == 401 || status == 403) {
       throw PhubException('访问被拒绝 (403)，请检查网络环境');

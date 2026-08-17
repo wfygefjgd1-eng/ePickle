@@ -5,6 +5,23 @@
 
 ---
 
+## [2.6.6] - 代理网络优化（iOS + Android）
+
+### 代理感知
+- **iOS 系统代理检测**：Dio 现可通过 `CFNetworkCopySystemProxySettings` 读取 iOS 系统代理（Shadowrocket / Quantumult X 系统代理模式），解决「仅开系统代理时国外站点列表加载超时转圈」的问题；TUN 模式自动保持直连
+- **代理缓存自愈**：请求超时/连接失败会自动标记代理缓存失效，下次请求前重新检测系统代理，代理软件重启、切换端口后无需进设置手动「重新检测代理」
+
+### 加载提速
+- **单请求超时兜底**：PH / XVideos / Mitao / 通用站点的 HTML 请求统一 10 秒单请求上限，超时真正取消底层 socket（此前最坏可挂 28 秒且无法取消）
+- **转圈时长收敛**：代理不通时首屏加载从最长 ~30 秒降到 ~10 秒内出结果（成功或错误提示），不再让失败连接吃满全部超时
+
+### iOS 原生
+- WebView 渲染请求（`renderGet`）改用前台窗口挂载，修复 Scene 生命周期下窗口为 nil 导致反 Cloudflare 兜底容易超时
+- 直播间视频已显示/加载失败后停止每秒注入 JS（省电省 CPU，失败后不被页面意外视频覆盖提示）
+- Info.plist 增加 `NSAllowsArbitraryLoadsInWebContent`，允许 http:// 站点在 WKWebView / URLSession 中正常加载
+
+---
+
 ## [2.5.1] - Android 功能对齐与稳定性修复
 
 ### Android 对齐

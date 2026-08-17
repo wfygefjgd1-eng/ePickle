@@ -216,9 +216,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   void didPushNext() {
     _resumePlaybackOnRouteReturn =
         (_controller?.value.isPlaying ?? false) || _pageLoading;
-    if (_browserLiveUrl != null) {
-      _resumePlaybackOnRouteReturn = true;
-    }
     unawaited(_pausePlaybackForRouteChange(releasePlayers: false));
   }
 
@@ -243,11 +240,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     );
     _autoRotate?.listening = true;
     _autoRotate?.start();
-    if (_browserLiveUrl != null) {
-      unawaited(StripchatLiveView.resumeLive());
-      WakelockPlus.enable();
-      return;
-    }
     final c = _controller;
     if (c != null && c.value.isInitialized) {
       unawaited(c.play().then((_) {
@@ -273,7 +265,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _skipTimer?.cancel();
     _skipTimer = null;
     _cancelBackgroundWork();
-    final hadBrowserLive = _browserLiveUrl != null;
     final current = _controller;
     _autoRotate?.syncLandscapeMode(false);
     _autoRotate?.listening = false;
@@ -295,14 +286,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         await frozen.dispose();
       } catch (_) {}
     }
-    if (hadBrowserLive) {
-      await StripchatLiveView.pauseLive();
-    }
     WakelockPlus.disable();
     if (releasePlayers) {
       _controller = null;
-      _browserLiveUrl = null;
-      _browserIsStripchat = false;
     }
     if (releasePlayers && current != null) {
       try {

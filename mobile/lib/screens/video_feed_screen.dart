@@ -105,6 +105,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   bool _allowPop = false;
   bool _exiting = false;
   bool _resumePlaybackOnRouteReturn = false;
+  bool _resumePlaybackOnForeground = false;
   int _lifecycleEpoch = 0;
   String? _error;
   String _titleText = '';
@@ -577,6 +578,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         state == AppLifecycleState.hidden) {
       if (!_appInForeground) return;
       _appInForeground = false;
+      _resumePlaybackOnForeground =
+          (_controller?.value.isPlaying ?? false) || _pageLoading;
       _lifecycleEpoch++;
       _loadSeq++;
       _autoRotate?.listening = false;

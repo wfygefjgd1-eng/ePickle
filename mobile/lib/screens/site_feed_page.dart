@@ -52,14 +52,24 @@ class _SiteFeedPageState extends State<SiteFeedPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _stopAllFeedsImmediately();
+    super.dispose();
+  }
+
+  void _stopAllFeedsImmediately({bool leavingScreen = true}) {
     for (final key in _keys) {
       final state = key.currentState;
       if (state != null) {
-        // ignore: unawaited_futures
-        state.pausePlayback(releasePlayers: true);
+        state.stopPlaybackImmediately(leavingScreen: leavingScreen);
       }
     }
-    super.dispose();
+  }
+
+  Future<void> _exitToHome() async {
+    _stopAllFeedsImmediately();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    if (!mounted) return;
+    Navigator.of(context).maybePop();
   }
 
   @override
@@ -103,7 +113,7 @@ class _SiteFeedPageState extends State<SiteFeedPage>
       for (final k in _keys) {
         final state = k.currentState;
         if (state != null) {
-          unawaited(state.pausePlayback(releasePlayers: true));
+          state.stopPlaybackImmediately(leavingScreen: false);
         }
       }
     }
@@ -129,7 +139,15 @@ class _SiteFeedPageState extends State<SiteFeedPage>
         defaultTargetPlatform != TargetPlatform.iOS ||
         context.select<AppSettings, bool>((s) => s.showSiteBackButton);
 
-    return Scaffold(
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, _) {
+        _stopAllFeedsImmediately();
+        if (!didPop) {
+          unawaited(_exitToHome());
+        }
+      },
+      child: Scaffold(
       backgroundColor: Colors.black,
       extendBody: true,
       body: Stack(
@@ -166,7 +184,7 @@ class _SiteFeedPageState extends State<SiteFeedPage>
                   shape: const CircleBorder(),
                   child: IconButton(
                     icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => Navigator.of(context).maybePop(),
+                    onPressed: _exitToHome,
                     tooltip: '返回',
                   ),
                 ),
@@ -222,6 +240,7 @@ class _SiteFeedPageState extends State<SiteFeedPage>
                 ),
               ),
             ),
+      ),
     );
   }
 }

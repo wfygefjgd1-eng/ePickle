@@ -1,9 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
+import '../models/video_item.dart';
+import '../services/feed_list_cache.dart';
+import '../services/generic_site_api.dart';
 import '../services/layout_settings.dart';
+import '../services/mitao_api.dart';
+import '../services/phub_api.dart';
 import '../services/source_catalog.dart';
+import '../services/xvideos_api.dart';
 import '../widgets/player_settings_sheet.dart';
 import '../widgets/site_logo.dart';
 import 'search_screen.dart';
@@ -21,11 +29,15 @@ class _HomePageState extends State<HomePage> {
   final _searchCtrl = TextEditingController();
   final _focusNode = FocusNode();
   String _versionLabel = '';
+  bool _prewarmStarted = false;
 
   @override
   void initState() {
     super.initState();
     _loadVersion();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_prewarmHomeFeeds());
+    });
   }
 
   Future<void> _loadVersion() async {
@@ -71,6 +83,59 @@ class _HomePageState extends State<HomePage> {
       await lay.removeCustomUrl(site.primaryHost);
     } else {
       await lay.toggleVideoSite(site.id, false);
+    }
+  }
+
+  Future<void> _prewarmHomeFeeds() async {
+    if (_prewarmStarted || !mounted) return;
+    _prewarmStarted = true;
+    await Future<void>.delayed(const Duration(milliseconds: 450));
+    if (!mounted) return;
+    final sites = context
+        .read<LayoutSettings>()
+        .enabledVideoSites
+        .where((s) => s.ready && s.tags.isNotEmpty)
+        .take(3)
+        .toList(growable: false);
+    for (final site in sites) {
+      if (!mounted) return;
+      final tag = site.tags.first;
+      final cacheKey = '${site.id}_${tag.id}';
+      if (FeedListCache.peek(cacheKey) != null) continue;
+      try {
+        final list = await _fetchPrewarmList(site, tag);
+        if (!mounted || list.isEmpty) continue;
+        FeedListCache.put(
+          cacheKey,
+          FeedListSnapshot(
+            items: list,
+            seen: <String>{for (final item in list) item.viewkey},
+            index: 0,
+          ),
+        );
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+  }
+
+  Future<List<VideoItem>> _fetchPrewarmList(SiteDef site, SiteTag tag) {
+    switch (site.id) {
+      case 'pornhub':
+        if (tag.id == 'asian') {
+          return context.read<PhubApi>().fetchAsian(limit: 12, maxUrls: 2);
+        }
+        return context.read<PhubApi>().fetchRecommend(limit: 12, maxUrls: 2);
+      case 'xvideos':
+        return context.read<XvideosApi>().fetchFeed(limit: 12, maxUrls: 2);
+      case 'mitao':
+        return context.read<MitaoApi>().fetchZhong(limit: 12, maxPages: 2);
+      default:
+        return context.read<GenericSiteApi>().fetchFeed(
+              site,
+              tagId: tag.id,
+              page: 1,
+              limit: 12,
+            );
     }
   }
 

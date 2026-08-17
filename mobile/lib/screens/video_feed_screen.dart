@@ -356,14 +356,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   @override
   void dispose() {
-    _active = false;
-    _appInForeground = false;
-    _loadSeq++;
-    _lifecycleEpoch++;
-    _cancelBackgroundWork();
-    if (_browserLiveUrl != null) {
-      unawaited(StripchatLiveView.pauseLive());
-    }
+    stopPlaybackImmediately();
     if (_items.isNotEmpty && widget.initialItems.isEmpty) {
       final idx = _currentIndex.clamp(0, _items.length - 1);
       FeedListCache.put(
@@ -404,24 +397,83 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _totalTime.dispose();
     _speedLabel.dispose();
     _pageCtrl.dispose();
-    final c = _controller;
-    _controller = null;
-    try {
-      c?.pause();
-      c?.dispose();
-    } catch (_) {}
-    final frozen = _frozenController;
-    _frozenController = null;
-    _frozenIndex = null;
-    if (frozen != null) {
-      unawaited(
-        frozen.pause().catchError((_) {}).whenComplete(() => frozen.dispose()),
-      );
-    }
-    _disposeInitializingPlayersSync();
-    _disposePreloadSync();
     WakelockPlus.disable();
     super.dispose();
+  }
+
+  void stopPlaybackImmediately({bool leavingScreen = true}) {
+    _active = false;
+    if (leavingScreen) {
+      _appInForeground = false;
+    }
+    _loadSeq++;
+    _lifecycleEpoch++;
+    _resumePlaybackOnRouteReturn = false;
+    _resumePlaybackOnForeground = false;
+    _progressTimer?.cancel();
+    _progressTimer = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _skipTimer?.cancel();
+    _skipTimer = null;
+    _loadMoreTimer?.cancel();
+    _loadMoreTimer = null;
+    _liveWatchdog?.cancel();
+    _liveWatchdog = null;
+    _autoRotate?.syncLandscapeMode(false);
+    _autoRotate?.listening = false;
+    _autoRotate?.stop();
+    if (_browserLiveUrl != null) {
+      unawaited(StripchatLiveView.pauseLive().catchError((_) {}));
+    }
+    _browserLiveUrl = null;
+    _browserIsStripchat = false;
+
+    final players = <VideoPlayerController>[
+      if (_controller != null) _controller!,
+      if (_frozenController != null) _frozenController!,
+      if (_preloadController != null) _preloadController!,
+      if (_preloadController2 != null) _preloadController2!,
+      if (_preloadController3 != null) _preloadController3!,
+      if (_preloadController4 != null) _preloadController4!,
+      ..._initializingControllers,
+    ];
+    _controller = null;
+    _frozenController = null;
+    _frozenIndex = null;
+    _preloadController = null;
+    _preloadIndex = null;
+    _preloadStream = null;
+    _preloadRetries = 0;
+    _preloadController2 = null;
+    _preloadIndex2 = null;
+    _preloadStream2 = null;
+    _preloadRetries2 = 0;
+    _preloadController3 = null;
+    _preloadIndex3 = null;
+    _preloadStream3 = null;
+    _preloadRetries3 = 0;
+    _preloadController4 = null;
+    _preloadIndex4 = null;
+    _preloadStream4 = null;
+    _preloadRetries4 = 0;
+    _initializingControllers.clear();
+    for (final player in players.toSet()) {
+      unawaited(_mutePauseDispose(player));
+    }
+    WakelockPlus.disable();
+  }
+
+  Future<void> _mutePauseDispose(VideoPlayerController player) async {
+    try {
+      await player.setVolume(0);
+    } catch (_) {}
+    try {
+      await player.pause();
+    } catch (_) {}
+    try {
+      await player.dispose();
+    } catch (_) {}
   }
 
   void _disposePreloadSync() {
@@ -954,12 +1006,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   Future<void> _exitAfterStopping() async {
     if (_exiting) return;
     _exiting = true;
-    _active = false;
-    _appInForeground = false;
-    _loadSeq++;
-    _lifecycleEpoch++;
-    await pausePlayback(releasePlayers: true);
-    WakelockPlus.disable();
+    stopPlaybackImmediately();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
     if (!mounted) return;
     setState(() => _allowPop = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2302,7 +2350,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     return PopScope(
       canPop: _allowPop || defaultTargetPlatform == TargetPlatform.iOS,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
+        if (didPop) {
+          stopPlaybackImmediately();
+          return;
+        }
         if (immersive) {
           // ignore: unawaited_futures
           chrome.exitFullscreen().then((_) {

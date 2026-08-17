@@ -332,9 +332,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   @override
   void dispose() {
-    _appInForeground = false;
-    _seq++;
-    _cancelBackgroundWork();
+    stopPlaybackImmediately();
     _settings?.removeListener(_onSettingsChanged);
     _settings = null;
     _autoRotate?.dispose();
@@ -353,26 +351,70 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _slider.dispose();
     _curTime.dispose();
     _pageCtrl.dispose();
-    final c = _controller;
-    _controller = null;
-    try {
-      c?.setVolume(0);
-      c?.pause();
-      c?.dispose();
-    } catch (_) {}
-    final frozen = _frozenController;
-    _frozenController = null;
-    _frozenIndex = null;
-    if (frozen != null) {
-      unawaited(frozen
-          .pause()
-          .catchError((_) {})
-          .whenComplete(() => frozen.dispose()));
-    }
-    _disposeInitializingPlayersSync();
-    _disposePreloadSync();
     WakelockPlus.disable();
     super.dispose();
+  }
+
+  void stopPlaybackImmediately() {
+    _appInForeground = false;
+    _resumePlaybackOnRouteReturn = false;
+    _resumePlaybackOnForeground = false;
+    _seq++;
+    _progressTimer?.cancel();
+    _progressTimer = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _skipTimer?.cancel();
+    _skipTimer = null;
+    _autoRotate?.syncLandscapeMode(false);
+    _autoRotate?.listening = false;
+    _autoRotate?.stop();
+
+    final players = <VideoPlayerController>[
+      if (_controller != null) _controller!,
+      if (_frozenController != null) _frozenController!,
+      if (_preloadController != null) _preloadController!,
+      if (_preloadController2 != null) _preloadController2!,
+      if (_preloadController3 != null) _preloadController3!,
+      if (_preloadController4 != null) _preloadController4!,
+      ..._initializingControllers,
+    ];
+    _controller = null;
+    _frozenController = null;
+    _frozenIndex = null;
+    _preloadController = null;
+    _preloadIndex = null;
+    _preloadStream = null;
+    _preloadRetries = 0;
+    _preloadController2 = null;
+    _preloadIndex2 = null;
+    _preloadStream2 = null;
+    _preloadRetries2 = 0;
+    _preloadController3 = null;
+    _preloadIndex3 = null;
+    _preloadStream3 = null;
+    _preloadRetries3 = 0;
+    _preloadController4 = null;
+    _preloadIndex4 = null;
+    _preloadStream4 = null;
+    _preloadRetries4 = 0;
+    _initializingControllers.clear();
+    for (final player in players.toSet()) {
+      unawaited(_mutePauseDispose(player));
+    }
+    WakelockPlus.disable();
+  }
+
+  Future<void> _mutePauseDispose(VideoPlayerController player) async {
+    try {
+      await player.setVolume(0);
+    } catch (_) {}
+    try {
+      await player.pause();
+    } catch (_) {}
+    try {
+      await player.dispose();
+    } catch (_) {}
   }
 
   void _disposePreloadSync() {
@@ -412,38 +454,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   Future<void> _exitAfterStopping() async {
     if (_exiting) return;
     _exiting = true;
-    _appInForeground = false;
-    _seq++;
-    _progressTimer?.cancel();
-    _retryTimer?.cancel();
-    _skipTimer?.cancel();
-
-    final players = <VideoPlayerController>{
-      if (_controller != null) _controller!,
-      if (_frozenController != null) _frozenController!,
-      if (_preloadController != null) _preloadController!,
-      if (_preloadController2 != null) _preloadController2!,
-      if (_preloadController3 != null) _preloadController3!,
-      if (_preloadController4 != null) _preloadController4!,
-    };
-    _controller = null;
-    _frozenController = null;
-    _frozenIndex = null;
-    _preloadController = null;
-    _preloadController2 = null;
-    _preloadController3 = null;
-    _preloadController4 = null;
-    _disposeInitializingPlayersSync();
-
-    await Future.wait(players.map((player) async {
-      try {
-        await player.pause();
-      } catch (_) {}
-      try {
-        await player.dispose();
-      } catch (_) {}
-    })).timeout(const Duration(seconds: 2), onTimeout: () => const []);
-    WakelockPlus.disable();
+    stopPlaybackImmediately();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
     if (!mounted) return;
     setState(() => _allowPop = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1754,7 +1766,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     return PopScope(
       canPop: _allowPop || defaultTargetPlatform == TargetPlatform.iOS,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
+        if (didPop) {
+          stopPlaybackImmediately();
+          return;
+        }
         if (immersive) {
           // ignore: unawaited_futures
           chrome.exitFullscreen().then((_) {

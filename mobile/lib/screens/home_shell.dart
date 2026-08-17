@@ -50,8 +50,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     for (final key in _feedKeys) {
       final state = key.currentState;
       if (state != null) {
-        // ignore: unawaited_futures
-        state.pausePlayback(releasePlayers: true);
+        state.stopPlaybackImmediately();
       }
     }
     super.dispose();
@@ -79,6 +78,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       chrome.exitFullscreen();
     }
     // Leaving feed: widget unmounted → dispose → FeedListCache keeps list.
+    _feedKeys[_index].currentState?.stopPlaybackImmediately();
     setState(() => _index = i);
   }
 

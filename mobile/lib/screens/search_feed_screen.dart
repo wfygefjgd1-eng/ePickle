@@ -84,6 +84,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   final Map<int, VideoDetail> _detailCache = {};
   int? _prefetchingIndex;
+  int _preloadWaveSeq = 0;
+  int _preloadWaveIndex = -1;
   PlayerChrome? _chrome;
   AutoRotateController? _autoRotate;
   AppSettings? _settings;
@@ -493,12 +495,26 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   void _restartPreloading() {
     if (!_canRun || _items.isEmpty) return;
+    if (_preloadWaveSeq == _seq && _preloadWaveIndex == _index) {
+      return;
+    }
+    _preloadWaveSeq = _seq;
+    _preloadWaveIndex = _index;
     unawaited(_runPreloadCycle(_seq));
   }
 
   Future<void> _runPreloadCycle(int seq) async {
+    final jobs = <Future<void>>[];
     for (var slot = 0; slot < _preloadSlotCount; slot++) {
       final index = _index + slot + 1;
+      if (index >= _items.length) break;
+      jobs.add(_warmPreloadSlot(seq, index, slot));
+    }
+    await Future.wait(jobs);
+  }
+
+  Future<void> _warmPreloadSlot(int seq, int index, int slot) async {
+    try {
       if (seq != _seq || !_canRun || index >= _items.length) return;
       await _prefetchDetail(index);
       if (seq != _seq || !_canRun) return;
@@ -507,6 +523,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } else {
         await _preloadNext2(index);
       }
+    } catch (_) {
     }
   }
 
@@ -862,7 +879,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       return;
     }
 
-    _disposePreload();
+    _trimPreloadState(index);
 
     final previous = _controller;
     final previousIndex = _index;
@@ -919,6 +936,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _scheduleSkipToNext(index);
       return;
     }
+
+    _restartPreloading();
 
     final cap = _effectiveQualityCap;
     final candidates = PlaybackHelpers.streamCandidates(detail, cap);
@@ -1042,6 +1061,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       unawaited(_preloadNext(index + 1));
       unawaited(_prefetchDetail(index + 2));
     }
+    _trimPreloadState(index);
     _startTimer();
     WakelockPlus.enable();
     // ignore: unawaited_futures
@@ -1085,6 +1105,52 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       // Ignore errors in prefetch
     } finally {
       if (_prefetchingIndex == index) _prefetchingIndex = null;
+    }
+  }
+
+  void _trimPreloadState(int currentIndex) {
+    final minKeep = currentIndex + 1;
+    final maxKeep = currentIndex + _preloadSlotCount;
+
+    bool keep(int? index) =>
+        index != null && index >= minKeep && index <= maxKeep;
+
+    void drop(VideoPlayerController? controller) {
+      if (controller == null) return;
+      unawaited(controller.pause().catchError((_) {}).whenComplete(() {
+        try {
+          controller.dispose();
+        } catch (_) {}
+      }));
+    }
+
+    if (!keep(_preloadIndex)) {
+      drop(_preloadController);
+      _preloadController = null;
+      _preloadIndex = null;
+      _preloadStream = null;
+      _preloadRetries = 0;
+    }
+    if (_preloadSlotCount >= 2 && !keep(_preloadIndex2)) {
+      drop(_preloadController2);
+      _preloadController2 = null;
+      _preloadIndex2 = null;
+      _preloadStream2 = null;
+      _preloadRetries2 = 0;
+    }
+    if (_preloadSlotCount >= 3 && !keep(_preloadIndex3)) {
+      drop(_preloadController3);
+      _preloadController3 = null;
+      _preloadIndex3 = null;
+      _preloadStream3 = null;
+      _preloadRetries3 = 0;
+    }
+    if (_preloadSlotCount >= 4 && !keep(_preloadIndex4)) {
+      drop(_preloadController4);
+      _preloadController4 = null;
+      _preloadIndex4 = null;
+      _preloadStream4 = null;
+      _preloadRetries4 = 0;
     }
   }
 

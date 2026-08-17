@@ -129,6 +129,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   final Map<int, VideoDetail> _detailCache = {};
   int? _prefetchingIndex;
   int _preloadCycle = 0;
+  int _preloadWaveIndex = -1;
   bool _seeking = false;
   VideoDetail? _currentDetail;
   PlayerChrome? _chrome;
@@ -663,16 +664,29 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   void _restartPreloading() {
     if (!_canRun || _items.isEmpty) return;
-    final cycle = ++_preloadCycle;
-    unawaited(_runPreloadCycle(cycle));
+    if (_preloadCycle == _loadSeq && _preloadWaveIndex == _currentIndex) {
+      return;
+    }
+    _preloadCycle = _loadSeq;
+    _preloadWaveIndex = _currentIndex;
+    unawaited(_runPreloadCycle(_loadSeq));
   }
 
-  Future<void> _runPreloadCycle(int cycle) async {
+  Future<void> _runPreloadCycle(int seq) async {
+    final jobs = <Future<void>>[];
     for (var slot = 0; slot < _preloadSlotCount; slot++) {
       final index = _currentIndex + slot + 1;
-      if (cycle != _preloadCycle || !_canRun || index >= _items.length) return;
+      if (index >= _items.length) break;
+      jobs.add(_warmPreloadSlot(seq, index, slot));
+    }
+    await Future.wait(jobs);
+  }
+
+  Future<void> _warmPreloadSlot(int seq, int index, int slot) async {
+    try {
+      if (seq != _loadSeq || !_canRun || index >= _items.length) return;
       await _prefetchDetail(index);
-      if (cycle != _preloadCycle || !_canRun) return;
+      if (seq != _loadSeq || !_canRun) return;
       if (slot == 0) {
         await _preloadNext(index);
       } else if (slot == 1) {
@@ -682,6 +696,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       } else {
         await _preloadNext4(index);
       }
+    } catch (_) {
     }
   }
 
@@ -1030,6 +1045,52 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       // Ignore errors in prefetch
     } finally {
       if (_prefetchingIndex == index) _prefetchingIndex = null;
+    }
+  }
+
+  void _trimPreloadState(int currentIndex) {
+    final minKeep = currentIndex + 1;
+    final maxKeep = currentIndex + _preloadSlotCount;
+
+    bool keep(int? index) =>
+        index != null && index >= minKeep && index <= maxKeep;
+
+    void drop(VideoPlayerController? controller) {
+      if (controller == null) return;
+      unawaited(controller.pause().catchError((_) {}).whenComplete(() {
+        try {
+          controller.dispose();
+        } catch (_) {}
+      }));
+    }
+
+    if (!keep(_preloadIndex)) {
+      drop(_preloadController);
+      _preloadController = null;
+      _preloadIndex = null;
+      _preloadStream = null;
+      _preloadRetries = 0;
+    }
+    if (_preloadSlotCount >= 2 && !keep(_preloadIndex2)) {
+      drop(_preloadController2);
+      _preloadController2 = null;
+      _preloadIndex2 = null;
+      _preloadStream2 = null;
+      _preloadRetries2 = 0;
+    }
+    if (_preloadSlotCount >= 3 && !keep(_preloadIndex3)) {
+      drop(_preloadController3);
+      _preloadController3 = null;
+      _preloadIndex3 = null;
+      _preloadStream3 = null;
+      _preloadRetries3 = 0;
+    }
+    if (_preloadSlotCount >= 4 && !keep(_preloadIndex4)) {
+      drop(_preloadController4);
+      _preloadController4 = null;
+      _preloadIndex4 = null;
+      _preloadStream4 = null;
+      _preloadRetries4 = 0;
     }
   }
 
@@ -1624,12 +1685,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         if (n >= 4) unawaited(_preloadNext4(index + 4));
       }
 
+      _trimPreloadState(index);
+
       // Clean up old detail cache to prevent memory growth
       _cleanupDetailCache(index);
       return;
     }
 
-    _disposePreload();
+    _trimPreloadState(index);
 
     final previous = _controller;
     final previousIndex = _currentIndex;
@@ -1680,6 +1743,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       PlaybackHelpers.toast(context, '视频标记为不可用（不自动跳过）');
       return;
     }
+
+    _restartPreloading();
 
     final settings = context.read<AppSettings>();
 

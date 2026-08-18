@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -599,7 +598,6 @@ class _HgCoverState extends State<_HgCover> {
 
   Uint8List? _bytes;
   bool _failed = false;
-  bool _ioTried = false;
 
   @override
   void initState() {
@@ -622,7 +620,6 @@ class _HgCoverState extends State<_HgCover> {
   void _onRetrySignal() {
     if (!mounted || _bytes != null) return;
     _failed = false;
-    _ioTried = false;
     unawaited(_loadNative());
     if (mounted) setState(() {});
   }
@@ -634,7 +631,6 @@ class _HgCoverState extends State<_HgCover> {
       final hit = _mem[widget.url];
       _bytes = hit;
       _failed = false;
-      _ioTried = false;
       if (hit == null) unawaited(_loadNative());
     }
   }
@@ -645,10 +641,19 @@ class _HgCoverState extends State<_HgCover> {
       widget.url,
       headers: AppHttpHeaders.forMediaUrl(widget.url),
       timeout: const Duration(seconds: 8),
+      aesKeyHex: HuangGuoApi.mediaAesKey,
+      aesIvHex: HuangGuoApi.mediaAesIv,
     );
     if (!mounted) return;
     if (bytes != null && bytes.isNotEmpty) {
-      HgCoverLog.add('cover native OK ${bytes.length}B: ${widget.url}');
+      final magic = bytes.length >= 2
+          ? '${bytes[0].toRadixString(16).padLeft(2, '0')}'
+            '${bytes[1].toRadixString(16).padLeft(2, '0')}'
+          : 'short';
+      final isJpeg = bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8;
+      HgCoverLog.add(
+        'cover native OK ${bytes.length}B magic=$magic ${isJpeg ? 'JPEG' : ''}: '
+        '${widget.url}');
       _mem[widget.url] = bytes;
       if (_mem.length > _memLimit) {
         _mem.remove(_mem.keys.first);
@@ -660,51 +665,20 @@ class _HgCoverState extends State<_HgCover> {
     }
   }
 
-  Future<void> _loadIo() async {
-    _ioTried = true;
-    HgCoverLog.add('cover io try: ${widget.url}');
-    // dart:io 直连仅作兜底与诊断（多数 CDN 会拒绝）。
-    try {
-      final resp = await HttpClientImage.download(widget.url);
-      if (!mounted) return;
-      if (resp != null && resp.isNotEmpty) {
-        HgCoverLog.add('cover io OK ${resp.length}B: ${widget.url}');
-        _mem[widget.url] = resp;
-        setState(() => _bytes = resp);
-      } else {
-        HgCoverLog.add('cover io EMPTY: ${widget.url}');
-      }
-    } catch (e) {
-      HgCoverLog.add('cover io FAILED: ${widget.url} $e');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final b = _bytes;
     if (b != null) {
-      return Image.memory(b, fit: BoxFit.cover, gaplessPlayback: true);
-    }
-    if (_failed && !_ioTried) {
-      unawaited(_loadIo());
+      return Image.memory(
+        b,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) {
+          HgCoverLog.add('cover decode error: ${widget.url}');
+          return const ColoredBox(color: Color(0xFF141414));
+        },
+      );
     }
     return const ColoredBox(color: Color(0xFF141414));
   }
-}
-
-/// 极简 dart:io 下载：诊断/兜底用，不引入额外依赖。
-class HttpClientImage {
-  static Future<Uint8List?> download(String url) async {
-    final http = _client ??= HttpClient()..connectionTimeout = const Duration(seconds: 6);
-    final req = await http.getUrl(Uri.parse(url));
-    final resp = await req.close();
-    if (resp.statusCode != 200) return null;
-    final builder = BytesBuilder(copy: false);
-    await for (final chunk in resp) {
-      builder.add(chunk);
-    }
-    return builder.takeBytes();
-  }
-
-  static HttpClient? _client;
 }

@@ -23,6 +23,11 @@ import 'phub_api.dart';
 class HuangGuoApi {
   static const String defaultBase = 'https://huangguoai.com';
 
+  /// 封面/图片 AES-128-CBC(NoPadding) 密钥与 IV（站点 crypto-worker.js 内嵌，
+  /// 实图 = 对 URL 返回的密文做 CBC 解密；浏览器内由 Worker 完成）。
+  static const String mediaAesKey = 'f5d965df75336270';
+  static const String mediaAesIv = '97b60394abc2fbe1';
+
   static const _singleRequestTimeout = Duration(seconds: 10);
 
   HuangGuoApi({AppSettings? settings, Dio? dio, CancelToken? cancelToken})

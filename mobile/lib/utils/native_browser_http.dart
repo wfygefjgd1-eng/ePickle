@@ -71,10 +71,15 @@ class NativeBrowserHttp {
 
   /// Native GET returning raw binary bytes (URLSession), for image/CDN hosts
   /// that reject Dart HttpClient's TLS stack. Same cookie/session as `get`.
+  /// When [aesKeyHex]/[aesIvHex] are given the native side decrypts the body
+  /// (AES-128-CBC, no padding) before returning — used by HuangGuo media
+  /// whose "images" are ciphertext until decrypted with the site's keys.
   static Future<Uint8List?> getBytes(
     String url, {
     required Map<String, String> headers,
     required Duration timeout,
+    String? aesKeyHex,
+    String? aesIvHex,
   }) async {
     try {
       final raw = await _channel
@@ -82,6 +87,8 @@ class NativeBrowserHttp {
             'url': url,
             'headers': headers,
             'timeoutMs': timeout.inMilliseconds,
+            if (aesKeyHex != null) 'aesKeyHex': aesKeyHex,
+            if (aesIvHex != null) 'aesIvHex': aesIvHex,
           });
       return raw;
     } on PlatformException {

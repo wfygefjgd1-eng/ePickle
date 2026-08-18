@@ -1,3 +1,4 @@
+import CommonCrypto
 import Flutter
 import UIKit
 import WebKit
@@ -9,6 +10,22 @@ import WebKit
   private var stripchatControlChannel: FlutterMethodChannel?
   private var browserTasks: [UUID: URLSessionDataTask] = [:]
   private var browserRenderRequests: [UUID: BrowserRenderRequest] = [:]
+
+  /// Hex string → Data (lowercase hex only, no prefix). Returns nil if invalid.
+  private static func dataFromHex(_ hex: String) -> Data? {
+    guard hex.count % 2 == 0 else { return nil }
+    var bytes = [UInt8]()
+    bytes.reserveCapacity(hex.count / 2)
+    var idx = hex.startIndex
+    while idx < hex.endIndex {
+      let next = hex.index(idx, offsetBy: 2)
+      let pair = hex[idx..<next]
+      guard let b = UInt8(pair, radix: 16) else { return nil }
+      bytes.append(b)
+      idx = next
+    }
+    return Data(bytes)
+  }
 
   override func application(
     _ application: UIApplication,
@@ -118,6 +135,8 @@ import WebKit
           url: url,
           headers: headers,
           timeoutMs: timeoutMs,
+          aesKeyHex: arguments["aesKeyHex"] as? String,
+          aesIvHex: arguments["aesIvHex"] as? String,
           result: result
         )
       case "renderGet":
@@ -208,6 +227,8 @@ import WebKit
     url: URL,
     headers: [String: String],
     timeoutMs: Int,
+    aesKeyHex: String?,
+    aesIvHex: String?,
     result: @escaping FlutterResult
   ) {
     let requestId = UUID()
@@ -232,7 +253,7 @@ import WebKit
         }
         guard let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode),
-              let data, !data.isEmpty else {
+              var payload = data, !payload.isEmpty else {
           result(FlutterError(
             code: "native_http_bad_response",
             message: "Bad HTTP response for \(url.absoluteString)",
@@ -240,11 +261,46 @@ import WebKit
           ))
           return
         }
-        result(FlutterStandardTypedData(bytes: data))
+        if let keyHex = aesKeyHex, let ivHex = aesIvHex,
+           let key = AppDelegate.dataFromHex(keyHex), key.count == 16,
+           let iv = AppDelegate.dataFromHex(ivHex), iv.count == 16,
+           let plain = aesDecryptCBCNoPadding(payload, key: key, iv: iv) {
+          payload = plain
+        }
+        result(FlutterStandardTypedData(bytes: payload))
       }
     }
     browserTasks[requestId] = task
     task.resume()
+  }
+
+  private func aesDecryptCBCNoPadding(_ data: Data, key: Data, iv: Data) -> Data? {
+    guard data.count % 16 == 0, data.count > 0 else { return nil }
+    var out = Data(count: data.count)
+    var numOut = 0
+    let status = out.withUnsafeMutableBytes { (outBuf: UnsafeMutableRawBufferPointer) -> Int32 in
+      guard let outBase = outBuf.baseAddress else { return Int32(kCCParamError) }
+      return data.withUnsafeBytes { (inBuf: UnsafeRawBufferPointer) in
+        guard let inBase = inBuf.baseAddress else { return Int32(kCCParamError) }
+        return key.withUnsafeBytes { (kBuf: UnsafeRawBufferPointer) in
+          guard let kBase = kBuf.baseAddress else { return Int32(kCCParamError) }
+          return iv.withUnsafeBytes { (ivBuf: UnsafeRawBufferPointer) in
+            guard let ivBase = ivBuf.baseAddress else { return Int32(kCCParamError) }
+            return CCCrypt(
+              CCOperation(kCCDecrypt),
+              CCAlgorithm(kCCAlgorithmAES),
+              CCOptions(0), // CBC, no padding
+              kBase, kBuf.count,
+              ivBase,
+              inBase, inBuf.count,
+              outBase, outBuf.count,
+              &numOut
+            )
+          }
+        }
+      }
+    }
+    return status == kCCSuccess ? out : nil
   }
 
   private func startBrowserRender(

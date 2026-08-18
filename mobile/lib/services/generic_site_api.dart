@@ -1446,6 +1446,8 @@ class GenericSiteApi {
       caseSensitive: false,
     ).firstMatch(html);
     if (minutes != null) return (int.tryParse(minutes.group(1)!) ?? 0) * 60;
+    final fallback = _durationSecondsFromText(html);
+    if (fallback != null) return fallback;
     return 0;
   }
 
@@ -2744,14 +2746,19 @@ class GenericSiteApi {
       String? thumb;
       final im = imgRe.firstMatch(chunk);
       if (im != null) {
-        thumb = im.group(1);
-        if (thumb != null && thumb.startsWith('//')) thumb = 'https:$thumb';
-        if (thumb != null && !thumb.startsWith('http')) {
-          thumb = _abs(base, thumb);
-        }
+        thumb = _normalizeThumbUrl(im.group(1), base);
       }
+      thumb ??= _extractThumbFromChunk(chunk, base);
+      final duration = _extractDurationLabel(chunk);
 
-      out.add(VideoItem(url: abs, title: title, duration: '-', thumb: thumb));
+      out.add(
+        VideoItem(
+          url: abs,
+          title: title,
+          duration: duration ?? '-',
+          thumb: thumb,
+        ),
+      );
       if (out.length >= 80) break;
     }
     return out;
@@ -2966,7 +2973,164 @@ class GenericSiteApi {
 
   String? _resolvedThumb(String html, String pageUrl) {
     final thumb = _extractThumb(html);
-    return thumb == null ? null : _abs(pageUrl, thumb);
+    return _normalizeThumbUrl(thumb, pageUrl);
+  }
+
+  String? _normalizeThumbUrl(String? raw, String base) {
+    if (raw == null) return null;
+    var thumb = raw.replaceAll(r'\/', '/').trim();
+    if (thumb.isEmpty) return null;
+    if (thumb.startsWith('//')) thumb = 'https:$thumb';
+    if (!thumb.startsWith('http')) thumb = _abs(base, thumb);
+    final low = thumb.toLowerCase();
+    if (low.startsWith('data:image/') ||
+        low.contains('cover-placeholder') ||
+        low.contains('placeholder') ||
+        low.contains('blank') ||
+        low.contains('spacer') ||
+        low.contains('pixel') ||
+        low.contains('default') ||
+        low.contains('loading') ||
+        low.contains('sprite') ||
+        low.contains('noimage')) {
+      return null;
+    }
+    return thumb;
+  }
+
+  String? _extractThumbFromChunk(String chunk, String base) {
+    final candidates = <RegExp>[
+      RegExp(
+        r'''(?:data-src|data-original|data-thumb|data-poster|data-lazy-src|data-image|src|poster)\s*=\s*["']([^"']+)["']''',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''(?:data-srcset|srcset)\s*=\s*["']([^"']+)["']''',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''style\s*=\s*["'][^"']*background(?:-image)?\s*:\s*url\((?:'|")?([^"')]+)(?:'|")?\)[^"']*["']''',
+        caseSensitive: false,
+      ),
+    ];
+    for (final pattern in candidates) {
+      final match = pattern.firstMatch(chunk);
+      if (match == null) continue;
+      var raw = match.group(1)!.replaceAll(r'\/', '/').trim();
+      if (pattern.pattern.contains('srcset')) {
+        raw = raw.split(',').first.trim().split(' ').first.trim();
+      }
+      var thumb = _normalizeThumbUrl(raw, base);
+      if (thumb == null) continue;
+      final low = thumb.toLowerCase();
+      if (RegExp(r'\.(?:jpg|jpeg|png|webp|gif)(?:[?#]|$)').hasMatch(low) ||
+          low.contains('thumb') ||
+          low.contains('thumbnail') ||
+          low.contains('cover') ||
+          low.contains('poster') ||
+          low.contains('preview') ||
+          low.contains('image') ||
+          low.contains('photo') ||
+          low.contains('img')) {
+        return thumb;
+      }
+    }
+    return null;
+  }
+
+  String? _extractDurationLabel(String html) {
+    final raw = _durationSecondsFromText(html);
+    if (raw != null && raw > 0) return _formatDurationLabel(raw);
+    final attr = RegExp(
+      r'''(?:data-|aria-)?(?:duration|length|time)\s*=\s*["']([^"']+)["']''',
+      caseSensitive: false,
+    ).firstMatch(html)?.group(1);
+    if (attr != null) {
+      final label = _normalizeDurationLabel(attr);
+      if (label != null) return label;
+    }
+    final explicit = RegExp(
+      r'''(?<!\d)(\d{1,2}:\d{2}(?::\d{2})?)(?!\d)''',
+    ).firstMatch(html)?.group(1);
+    if (explicit != null) return explicit;
+    return null;
+  }
+
+  String? _normalizeDurationLabel(String raw) {
+    final seconds = _durationSecondsFromText(raw);
+    if (seconds != null && seconds > 0) return _formatDurationLabel(seconds);
+    final label = raw
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (RegExp(r'^\d{1,2}:\d{2}(?::\d{2})?$').hasMatch(label)) return label;
+    return null;
+  }
+
+  int? _durationSecondsFromText(String raw) {
+    final text = raw
+        .replaceAll(r'\/', '/')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .toLowerCase()
+        .trim();
+    if (text.isEmpty) return null;
+
+    final hms = RegExp(r'(?<!\d)(\d{1,2}):([0-5]\d):([0-5]\d)(?!\d)')
+        .firstMatch(text);
+    if (hms != null) {
+      final hours = int.tryParse(hms.group(1) ?? '') ?? 0;
+      final minutes = int.tryParse(hms.group(2) ?? '') ?? 0;
+      final seconds = int.tryParse(hms.group(3) ?? '') ?? 0;
+      return hours * 3600 + minutes * 60 + seconds;
+    }
+
+    final ms = RegExp(r'(?<!\d)(\d{1,3}):([0-5]\d)(?!\d)').firstMatch(text);
+    if (ms != null) {
+      final minutes = int.tryParse(ms.group(1) ?? '') ?? 0;
+      final seconds = int.tryParse(ms.group(2) ?? '') ?? 0;
+      return minutes * 60 + seconds;
+    }
+
+    final hMin = RegExp(
+      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b(?:\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b)?',
+    ).firstMatch(text);
+    if (hMin != null) {
+      final hours = double.tryParse(hMin.group(1) ?? '') ?? 0;
+      final minutes = double.tryParse(hMin.group(2) ?? '') ?? 0;
+      return (hours * 3600 + minutes * 60).round();
+    }
+
+    final minOnly = RegExp(
+      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b',
+    ).firstMatch(text);
+    if (minOnly != null) {
+      final minutes = double.tryParse(minOnly.group(1) ?? '') ?? 0;
+      return (minutes * 60).round();
+    }
+
+    final secOnly = RegExp(
+      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b',
+    ).firstMatch(text);
+    if (secOnly != null) {
+      final seconds = double.tryParse(secOnly.group(1) ?? '') ?? 0;
+      return seconds.round();
+    }
+
+    return null;
+  }
+
+  String _formatDurationLabel(int seconds) {
+    final safe = seconds < 0 ? 0 : seconds;
+    final hours = safe ~/ 3600;
+    final minutes = (safe % 3600) ~/ 60;
+    final secs = safe % 60;
+    if (hours > 0) {
+      return '${hours.toString()}:${minutes.toString().padLeft(2, '0')}:'
+          '${secs.toString().padLeft(2, '0')}';
+    }
+    return '${minutes.toString()}:${secs.toString().padLeft(2, '0')}';
   }
 
   List<StreamQuality> _extractStreams(String html, String base) {

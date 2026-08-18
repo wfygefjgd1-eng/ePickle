@@ -676,6 +676,56 @@ void main() {
       isFalse,
     );
   });
+
+  test('parses thumb and duration for XNXX-family listing cards', () async {
+    final cases = <SiteDef>[
+      SourceCatalog.xnxx,
+      SourceCatalog.xhamster,
+      SourceCatalog.tnaflix,
+      SourceCatalog.jable,
+    ];
+    for (final site in cases) {
+      final base = site.primaryHost.replaceAll(RegExp(r'/$'), '');
+      final path = switch (site.id) {
+        'xnxx' => '$base/search/new/1',
+        'xhamster' => '$base/newest/1',
+        'tnaflix' => '$base/new/?page=1',
+        'jable' => '$base/latest-updates/1/',
+        _ => throw StateError('unexpected site ${site.id}'),
+      };
+      final href = switch (site.id) {
+        'xnxx' => '/video-xnxxalpha/',
+        'xhamster' => '/videos/xhamster-alpha',
+        'tnaflix' => '/video/tnaflix-alpha/123456',
+        'jable' => '/videos/jable-alpha/',
+        _ => throw StateError('unexpected site ${site.id}'),
+      };
+      final adapter = _FixtureAdapter({
+        path: _FixtureResponse(
+          _html('''
+            <div class="video-card">
+              <a href="$href" title="${site.name} Alpha">
+                <div class="thumb"
+                  style="background-image:url('/thumbs/${site.id}-alpha.jpg')"></div>
+                <span class="duration" data-duration="12:34">12:34</span>
+              </a>
+            </div>
+          '''),
+        ),
+      });
+      final dio = Dio()..httpClientAdapter = adapter;
+      final feed = await GenericSiteApi(dio: dio).fetchFeed(
+        site,
+        tagId: 'new',
+        limit: 1,
+      );
+
+      expect(feed, hasLength(1), reason: site.id);
+      expect(feed.single.thumb, endsWith('/thumbs/${site.id}-alpha.jpg'),
+          reason: site.id);
+      expect(feed.single.duration, '12:34', reason: site.id);
+    }
+  });
 }
 
 String _html(String body) => '<!doctype html><html><head>$body</head><body>'

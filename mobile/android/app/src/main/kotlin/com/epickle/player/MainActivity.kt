@@ -7,6 +7,8 @@ import android.net.ProxyInfo
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebResourceError
@@ -541,6 +543,16 @@ class StripchatLiveView(
     private var pageLoadedAt = 0L
     private var focusAttempts = 0
     private var errorRetries = 0
+    private var livePaused = false
+    private val tapDetector = GestureDetector(
+        context,
+        object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                toggleLivePlayback()
+                return true
+            }
+        }
+    )
 
     private val statusTick = object : Runnable {
         override fun run() {
@@ -588,6 +600,11 @@ class StripchatLiveView(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
             android.view.ViewGroup.LayoutParams.MATCH_PARENT
         )
+        webView.setOnTouchListener { _, event ->
+            if (!isStripchat || disposed) return@setOnTouchListener false
+            tapDetector.onTouchEvent(event)
+            true
+        }
         overlay.layoutParams = android.widget.FrameLayout.LayoutParams(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
             android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -958,6 +975,7 @@ class StripchatLiveView(
 
     fun pauseLive() {
         if (disposed) return
+        livePaused = true
         try {
             webView.onPause()
             webView.evaluateJavascript(
@@ -968,10 +986,20 @@ class StripchatLiveView(
 
     fun resumeLive() {
         if (disposed) return
+        livePaused = false
         try {
             webView.onResume()
             kickPlayback()
         } catch (_: Exception) {}
+    }
+
+    private fun toggleLivePlayback() {
+        if (disposed || !isStripchat) return
+        if (livePaused) {
+            resumeLive()
+        } else {
+            pauseLive()
+        }
     }
 
     override fun getView(): android.view.View = root

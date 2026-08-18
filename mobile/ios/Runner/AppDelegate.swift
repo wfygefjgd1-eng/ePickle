@@ -381,6 +381,7 @@ private final class StripchatLivePlatformView: NSObject,
   private let retryButton: UIButton
   private let isStripchat: Bool
   private var muted: Bool
+  private var livePaused = false
   private var focusTimer: Timer?
   private var statusTimer: Timer?
   private var progressObservation: NSKeyValueObservation?
@@ -690,12 +691,14 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   func pauseLive() {
+    livePaused = true
     webView.evaluateJavaScript(
       "document.querySelectorAll('video').forEach(v=>{try{v.pause();}catch(_){}});"
     )
   }
 
   func resumeLive() {
+    livePaused = false
     if isStripchat {
       installVideoFocus()
     }
@@ -785,10 +788,11 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   @objc private func handleTap() {
-    setMuted(muted)
-    webView.evaluateJavaScript(
-      "document.querySelectorAll('video').forEach(v=>v.play().catch(()=>{}));"
-    )
+    if livePaused {
+      resumeLive()
+    } else {
+      pauseLive()
+    }
   }
 
   @objc private func pauseForBackground() {

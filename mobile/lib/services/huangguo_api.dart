@@ -24,7 +24,6 @@ class HuangGuoApi {
   static const String defaultBase = 'https://huangguoai.com';
 
   static const _singleRequestTimeout = Duration(seconds: 10);
-  static const _detailResolveTimeout = Duration(seconds: 20);
 
   HuangGuoApi({AppSettings? settings, Dio? dio, CancelToken? cancelToken})
       : _settings = settings,

@@ -2710,7 +2710,8 @@ class GenericSiteApi {
       chunks = html.split(RegExp(r'''(?=href=["'][^"']+["'])'''));
     }
 
-    for (final chunk in chunks) {
+    for (var chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      final chunk = chunks[chunkIndex];
       if (chunk.length < 40 || chunk.length > 12000) continue;
       String? href;
       for (final m in hrefRe.allMatches(chunk)) {
@@ -2743,13 +2744,18 @@ class GenericSiteApi {
       if (title.length < 2) continue;
       if (_isJunkTitle(title)) continue;
 
+      var metadataChunk = chunk;
+      if (chunkIndex + 1 < chunks.length &&
+          !hrefRe.hasMatch(chunks[chunkIndex + 1])) {
+        metadataChunk = '$metadataChunk${chunks[chunkIndex + 1]}';
+      }
       String? thumb;
-      final im = imgRe.firstMatch(chunk);
+      final im = imgRe.firstMatch(metadataChunk);
       if (im != null) {
         thumb = _normalizeThumbUrl(im.group(1), base);
       }
-      thumb ??= _extractThumbFromChunk(chunk, base);
-      final duration = _extractDurationLabel(chunk);
+      thumb ??= _extractThumbFromChunk(metadataChunk, base);
+      final duration = _extractDurationLabel(metadataChunk);
 
       out.add(
         VideoItem(

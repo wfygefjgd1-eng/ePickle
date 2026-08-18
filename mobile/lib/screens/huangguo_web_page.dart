@@ -11,10 +11,17 @@ import '../utils/playback_helpers.dart';
 import 'search_feed_screen.dart';
 
 /// 黄果短剧站内入口：仿 huangguoai.com web 移动端样式（卡片网格 + 频道导航 + 分页），
-/// 无底部 Tab 栏，点卡片进入既有播放器。
+/// 无底部 Tab 栏，点卡片进入既有播放器；[topicPath] 非空时直接进入专题列表页。
 class HuangGuoWebPage extends StatefulWidget {
-  const HuangGuoWebPage({super.key, required this.site});
+  const HuangGuoWebPage({
+    super.key,
+    required this.site,
+    this.topicPath,
+    this.topicTitle,
+  });
   final SiteDef site;
+  final String? topicPath;
+  final String? topicTitle;
 
   @override
   State<HuangGuoWebPage> createState() => _HuangGuoWebPageState();
@@ -45,6 +52,8 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
   final _cache = <String, _ChannelCache>{};
 
   String _channel = 'recommend';
+  String? _topicPath;
+  String? _topicTitle;
   String _query = '';
   List<VideoItem> _items = const [];
   int _page = 0;
@@ -65,6 +74,8 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    _topicPath = widget.topicPath;
+    _topicTitle = widget.topicTitle;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_load());
     });
@@ -84,21 +95,28 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     unawaited(_loadMore());
   }
 
+  String get _cacheKey {
+    if (_topicPath != null) return 'topic:$_topicPath';
+    if (_query.isNotEmpty) return 'search:$_query';
+    return 'channel:$_channel';
+  }
+
   void _rememberCache() {
     if (_items.isEmpty) return;
-    _cache[_channel] =
-        _ChannelCache(_items, _page, _hasMore, _scroll.offset);
+    _cache[_cacheKey] = _ChannelCache(_items, _page, _hasMore, _scroll.offset);
   }
 
   void _selectChannel(String id) {
-    if (id == _channel && _query.isEmpty) return;
+    if (id == _channel && _query.isEmpty && _topicPath == null) return;
     _rememberCache();
     setState(() {
       _query = '';
       _searchCtrl.clear();
       _channel = id;
+      _topicPath = null;
+      _topicTitle = null;
     });
-    final cached = _cache[id];
+    final cached = _cache[_cacheKey];
     if (cached != null) {
       setState(() {
         _items = cached.items;
@@ -127,6 +145,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
   Future<void> _load() async {
     final generation = ++_generation;
     final channel = _channel;
+    final topic = _topicPath;
     final query = _query;
     setState(() {
       _loading = true;
@@ -139,6 +158,8 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
       final List<VideoItem> list;
       if (query.isNotEmpty) {
         list = await api.search(query, page: 1);
+      } else if (topic != null) {
+        list = await api.fetchTopicList(topic, page: 1);
       } else {
         list = await api.fetchFeed(tagId: channel, page: 1);
       }
@@ -164,6 +185,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     if (_loading || _loadingMore || !_hasMore) return;
     final generation = _generation;
     final channel = _channel;
+    final topic = _topicPath;
     final query = _query;
     final page = _page;
     setState(() => _loadingMore = true);
@@ -172,6 +194,8 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
       final List<VideoItem> list;
       if (query.isNotEmpty) {
         list = await api.search(query, page: page + 1);
+      } else if (topic != null) {
+        list = await api.fetchTopicList(topic, page: page + 1);
       } else {
         list = await api.fetchFeed(
           tagId: channel,
@@ -194,11 +218,30 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
       });
     } catch (_) {
       if (!mounted || generation != _generation) return;
-      setState(() => _loadingMore = false);
+      setState(() {
+        _loadingMore = false;
+        // 专题无分页，翻页失败即止。
+        if (topic != null) _hasMore = false;
+      });
     }
   }
 
   Future<void> _openPlayer(int index) async {
+    final item = _items[index];
+    // 专题卡片：进入该专题的剧集列表页（复用本页）。
+    if (item.url.contains('/topics/')) {
+      final path = Uri.tryParse(item.url)?.path ?? '/topics/';
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => HuangGuoWebPage(
+            site: widget.site,
+            topicPath: path,
+            topicTitle: item.title,
+          ),
+        ),
+      );
+      return;
+    }
     final items = List<VideoItem>.from(_items);
     final title = _query.isEmpty ? _channelName : '\u641c\u7d22\u300a$_query\u300b';
     await Navigator.of(context).push(
@@ -228,7 +271,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
         child: Column(
           children: [
             _buildHeader(),
-            _buildNav(),
+            if (_topicPath == null) _buildNav(),
             _buildAnnounce(),
             Expanded(child: _buildBody()),
           ],
@@ -238,19 +281,45 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
   }
 
   Widget _buildHeader() {
+    final topic = _topicPath != null;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
       child: Row(
         children: [
-          const Text(
-            '\u9ec4\u679c\u77ed\u5267',
-            style: TextStyle(
-              color: _primary,
-              fontSize: 21,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1,
+          if (topic) ...[
+            InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () => Navigator.of(context).pop(),
+              child: const Padding(
+                padding: EdgeInsets.all(6),
+                child: Icon(Icons.arrow_back_ios_new,
+                    color: _primary, size: 18),
+              ),
             ),
-          ),
+            const SizedBox(width: 2),
+            Flexible(
+              child: Text(
+                _topicTitle ?? _topicPath ?? '',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _primary,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ] else
+            const Text(
+              '\u9ec4\u679c\u77ed\u5267',
+              style: TextStyle(
+                color: _primary,
+                fontSize: 21,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1,
+              ),
+            ),
           const SizedBox(width: 10),
           Expanded(
             child: TextField(

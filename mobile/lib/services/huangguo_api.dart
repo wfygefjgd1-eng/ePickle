@@ -143,6 +143,13 @@ class HuangGuoApi {
     int limit = 40,
     Set<String>? exclude,
   }) async {
+    if (tagId == 'topics') {
+      // 专题首页是 hg-topic-card，无分页；直接返回专题列表。
+      if (page > 1) return [];
+      final html = await _getHtml(_listUrlFor(tagId, page));
+      final topics = _parseTopicCards(html);
+      if (topics.isNotEmpty) return topics;
+    }
     final seen = <String>{...?exclude};
     final url = _listUrlFor(tagId, page);
     try {
@@ -183,6 +190,208 @@ class HuangGuoApi {
   }
 
   List<VideoItem> _parseList(String html, Set<String> seen) {
+    // 频道页只取当前激活面板（第一个网格），避免串入热播/随机等面板内容。
+    if (html.contains('hg-channel-page')) {
+      final grids = RegExp(r'<div class="hg-card-grid[^"]*"')
+          .allMatches(html)
+          .toList();
+      if (grids.isNotEmpty) {
+        final gStart = grids.first.start;
+        final gEnd = grids.length > 1 ? grids[1].start : html.length;
+        final items = _parseCardGrid(html.substring(gStart, gEnd), seen);
+        if (items.isNotEmpty) return items;
+      }
+      return _parseListLegacy(html, seen);
+    }
+    // 首页 / 排行榜 / 搜索结果：整页收集（data-track-* 同时覆盖剧卡与榜单条目）。
+    final items = _parsePageCards(html, seen);
+    if (items.isNotEmpty) return items;
+    return _parseListLegacy(html, seen);
+  }
+
+  /// 整页收集卡片：hg-drama-card 与 hg-rank-item 都带 data-track-id/title，
+  /// 另外补首页“为你推荐”的分类条目（hg-category-item）。
+  List<VideoItem> _parsePageCards(String html, Set<String> seen) {
+    final out = <VideoItem>[];
+    final tracks = RegExp(
+      r'''data-track-id="(\d+)"[^>]*data-track-title="([^"]*)"''',
+    ).allMatches(html).toList();
+    for (var i = 0; i < tracks.length; i++) {
+      final start = tracks[i].start;
+      final end = i + 1 < tracks.length
+          ? tracks[i + 1].start
+          : (start + 2400).clamp(start, html.length);
+      final ctx = html.substring(start, end);
+      if (ctx.length > 2400) continue;
+      final id = tracks[i].group(1)!;
+      if (!seen.add(id)) continue;
+      final title = _cleanTitle(tracks[i].group(2)!);
+      if (title.length < 2) continue;
+
+      String? thumb;
+      for (final im in RegExp(
+        r'''(?:data-src|src|data-original)\s*=\s*["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']''',
+        caseSensitive: false,
+      ).allMatches(ctx)) {
+        final t = im.group(1)!.replaceAll(r'\/', '/');
+        if (t.contains('cover-placeholder')) continue;
+        thumb = t;
+        break;
+      }
+      final score = RegExp(
+        r'''hg-drama-card__score[^>]*>\s*([^<]{1,40})<''',
+      ).firstMatch(ctx)?.group(1)?.trim();
+      final badge = RegExp(
+        r'''hg-drama-card__episode[^>]*>\s*([^<]{1,40})<''',
+      ).firstMatch(ctx)?.group(1)?.trim();
+
+      out.add(VideoItem(
+        url: '$base/detail/$id/',
+        title: title,
+        duration: '-',
+        thumb: thumb == null ? null : _abs(thumb),
+        score: score,
+        badge: badge,
+      ));
+    }
+
+    // 首页“为你推荐”分类条目。
+    final catRe = RegExp(
+      r'''<a class="hg-category-item" href="/detail/(\d+)/"[\s\S]*?</a>''',
+    );
+    for (final m in catRe.allMatches(html)) {
+      final id = m.group(1)!;
+      if (!seen.add(id)) continue;
+      final ctx = m.group(0)!;
+      final title = _cleanTitle(
+        RegExp(r'''hg-category-item__title">\s*([^<]{2,120})<''')
+            .firstMatch(ctx)
+            ?.group(1) ??
+            '',
+      );
+      if (title.length < 2) continue;
+      String? thumb;
+      for (final im in RegExp(
+        r'''(?:data-src|src|data-original)\s*=\s*["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']''',
+        caseSensitive: false,
+      ).allMatches(ctx)) {
+        final t = im.group(1)!.replaceAll(r'\/', '/');
+        if (t.contains('cover-placeholder')) continue;
+        thumb = t;
+        break;
+      }
+      out.add(VideoItem(
+        url: '$base/detail/$id/',
+        title: title,
+        duration: '-',
+        thumb: thumb == null ? null : _abs(thumb),
+      ));
+    }
+    return out;
+  }
+
+  /// 解析单个卡片网格里的 hg-drama-card（data-track-id/title + 卡片内封面/角标）。
+  List<VideoItem> _parseCardGrid(String seg, Set<String> seen) {
+    final out = <VideoItem>[];
+    final cards = RegExp(r'<div class="hg-drama-card"[^>]*>')
+        .allMatches(seg)
+        .toList();
+    for (var i = 0; i < cards.length; i++) {
+      final start = cards[i].start;
+      final end = i + 1 < cards.length
+          ? cards[i + 1].start
+          : (start + 2400).clamp(start, seg.length);
+      final ctx = seg.substring(start, end);
+      if (ctx.length > 2400) continue;
+      final idm = RegExp(r'data-track-id="(\d+)"').firstMatch(ctx);
+      if (idm == null) continue;
+      final id = idm.group(1)!;
+      if (!seen.add(id)) continue;
+      var title = _cleanTitle(
+        RegExp(r'data-track-title="([^"]*)"').firstMatch(ctx)?.group(1) ?? '',
+      );
+      if (title.length < 2) {
+        final tm = RegExp(
+          r'''hg-drama-card__title"[^>]*>\s*<a[^>]*>\s*([^<]{2,120})''',
+        ).firstMatch(ctx);
+        if (tm != null) title = _cleanTitle(tm.group(1)!);
+      }
+      if (title.length < 2) continue;
+
+      String? thumb;
+      for (final im in RegExp(
+        r'''(?:data-src|src|data-original)\s*=\s*["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']''',
+        caseSensitive: false,
+      ).allMatches(ctx)) {
+        final t = im.group(1)!.replaceAll(r'\/', '/');
+        if (t.contains('cover-placeholder')) continue;
+        thumb = t;
+        break;
+      }
+      final score = RegExp(
+        r'''hg-drama-card__score[^>]*>\s*([^<]{1,40})<''',
+      ).firstMatch(ctx)?.group(1)?.trim();
+      final badge = RegExp(
+        r'''hg-drama-card__episode[^>]*>\s*([^<]{1,40})<''',
+      ).firstMatch(ctx)?.group(1)?.trim();
+
+      out.add(VideoItem(
+        url: '$base/detail/$id/',
+        title: title,
+        duration: '-',
+        thumb: thumb == null ? null : _abs(thumb),
+        score: score,
+        badge: badge,
+      ));
+    }
+    return out;
+  }
+
+  /// 专题首页（/topics/）：hg-topic-card 列表。
+  List<VideoItem> _parseTopicCards(String html) {
+    final out = <VideoItem>[];
+    final cardRe = RegExp(r'''<a class="hg-topic-card" href="([^"]+)"[\s\S]*?</a>''');
+    for (final m in cardRe.allMatches(html)) {
+      final ctx = m.group(0)!;
+      final href = m.group(1)!.replaceAll(r'\/', '/');
+      final title = _cleanTitle(
+        RegExp(r'''hg-topic-card__title">\s*([^<]{2,120})<''')
+            .firstMatch(ctx)
+            ?.group(1) ??
+            '',
+      );
+      if (title.length < 2) continue;
+      String? thumb;
+      for (final im in RegExp(
+        r'''(?:data-src|src|data-original)\s*=\s*["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']''',
+        caseSensitive: false,
+      ).allMatches(ctx)) {
+        final t = im.group(1)!.replaceAll(r'\/', '/');
+        if (t.contains('cover-placeholder')) continue;
+        thumb = t;
+        break;
+      }
+      out.add(VideoItem(
+        url: _abs(href),
+        title: title,
+        duration: '-',
+        thumb: thumb == null ? null : _abs(thumb),
+      ));
+    }
+    return out;
+  }
+
+  /// 专题列表页（/topics/slug/），结构与频道页一致：卡片网格 + 分页。
+  Future<List<VideoItem>> fetchTopicList(String path, {int page = 1}) async {
+    var url = path.startsWith('http://') || path.startsWith('https://')
+        ? path
+        : '$base$path';
+    if (page > 1) url = url.replaceFirst(RegExp(r'/$'), '/$page/');
+    final html = await _getHtml(url);
+    return _parseList(html, <String>{});
+  }
+
+  List<VideoItem> _parseListLegacy(String html, Set<String> seen) {
     // 1) HTML 卡片元信息：封面 / 评分 / 集数徽标（按 detail id 缓存）。
     final thumbs = <String, String>{};
     final scores = <String, String>{};

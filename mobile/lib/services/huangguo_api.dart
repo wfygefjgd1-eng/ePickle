@@ -43,6 +43,13 @@ class HuangGuoApi {
   final Dio _dio;
   CancelToken _cancelToken;
 
+  /// 剧集缓存：detail url → 各集 VideoItem（第 1 集起，含直接播放地址）。
+  /// 播放器在详情抓取完成后展开成连续翻页条目。
+  final Map<String, List<VideoItem>> _episodesCache = {};
+
+  /// 已展开过的剧集 key（播放器侧还会再过滤一次，这里仅作为 API 层快取）。
+  List<VideoItem>? episodesFor(String url) => _episodesCache[url];
+
   /// 主域名（黄果规则），设置里可改；运行时读取，改完即时生效。
   String get base {
     final custom = _settings?.huangguoDomain.trim();
@@ -176,8 +183,61 @@ class HuangGuoApi {
   }
 
   List<VideoItem> _parseList(String html, Set<String> seen) {
+    // 1) HTML 卡片元信息：封面 / 评分 / 集数徽标（按 detail id 缓存）。
+    final thumbs = <String, String>{};
+    final scores = <String, String>{};
+    final badges = <String, String>{};
+    final hrefRe = RegExp(r'''href\s*=\s*["'](/detail/(\d+)/?)["']''');
+    for (final m in hrefRe.allMatches(html)) {
+      final id = m.group(2)!;
+      if (thumbs.containsKey(id) &&
+          scores.containsKey(id) &&
+          badges.containsKey(id)) {
+        continue;
+      }
+      final idx = m.start;
+      final start = idx > 700 ? idx - 700 : 0;
+      final end = (idx + 700).clamp(0, html.length);
+      final ctx = html.substring(start, end);
+      if (!thumbs.containsKey(id)) {
+        for (final im in RegExp(
+          r'''(?:data-src|src|data-original)\s*=\s*["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']''',
+          caseSensitive: false,
+        ).allMatches(ctx)) {
+          final th = im.group(1)!.replaceAll(r'\/', '/');
+          if (th.contains('cover-placeholder')) continue;
+          thumbs[id] = th;
+          break;
+        }
+      }
+      if (!scores.containsKey(id)) {
+        final sm = RegExp(
+          r'''hg-drama-card__score[^>]*>\s*([^<]{1,40})<''',
+        ).firstMatch(ctx);
+        if (sm != null) scores[id] = sm.group(1)!.trim();
+      }
+      if (!badges.containsKey(id)) {
+        final bm = RegExp(
+          r'''hg-drama-card__episode[^>]*>\s*([^<]{1,40})<''',
+        ).firstMatch(ctx);
+        if (bm != null) badges[id] = bm.group(1)!.trim();
+      }
+    }
+
     final out = <VideoItem>[];
-    // 标题/链接优先走 JSON-LD ItemList（name + url 成对，最干净）。
+    void addItem(String id, String name) {
+      if (!seen.add(id)) return;
+      out.add(VideoItem(
+        url: '$base/detail/$id/',
+        title: name,
+        duration: '-',
+        thumb: thumbs[id] == null ? null : _abs(thumbs[id]!),
+        score: scores[id],
+        badge: badges[id],
+      ));
+    }
+
+    // 2) 标题/链接优先走 JSON-LD ItemList（name + url 成对，最干净）。
     final ld = RegExp(
       r'"itemListElement"\s*:\s*\[([\s\S]*?)\]',
     ).firstMatch(html);
@@ -190,21 +250,13 @@ class HuangGuoApi {
         final href = m.group(2)!.replaceAll(r'\/', '/');
         final idm = RegExp(r'/(?:detail|video)/(\d+)').firstMatch(href);
         if (idm == null || name.length < 2) continue;
-        if (!seen.add(idm.group(1)!)) continue;
-        out.add(VideoItem(
-          url: _abs(href),
-          title: name,
-          duration: '-',
-          thumb: null,
-        ));
+        addItem(idm.group(1)!, name);
       }
       if (out.isNotEmpty) return out;
     }
 
-    // HTML 卡片兜底：/detail/ID/ 链接 + 附近 title/alt/data-src。
-    final hrefRe = RegExp(r'''href\s*=\s*["'](/detail/(\d+)/?)["']''');
+    // 3) HTML 卡片兜底：/detail/ID/ 链接 + 附近 title/alt/data-src。
     final titles = <String, String>{};
-    final thumbs = <String, String>{};
     for (final m in hrefRe.allMatches(html)) {
       final id = m.group(2)!;
       final idx = m.start;
@@ -242,27 +294,9 @@ class HuangGuoApi {
       if (bestTitle != null && !titles.containsKey(id)) {
         titles[id] = bestTitle;
       }
-
-      if (!thumbs.containsKey(id)) {
-        for (final im in RegExp(
-          r'''(?:data-src|src|data-original)\s*=\s*["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']''',
-          caseSensitive: false,
-        ).allMatches(ctx)) {
-          final th = im.group(1)!.replaceAll(r'\/', '/');
-          if (th.contains('cover-placeholder')) continue;
-          thumbs[id] = th;
-          break;
-        }
-      }
     }
     for (final id in titles.keys) {
-      if (!seen.add(id)) continue;
-      out.add(VideoItem(
-        url: '$base/detail/$id/',
-        title: titles[id]!,
-        duration: '-',
-        thumb: thumbs[id] == null ? null : _abs(thumbs[id]!),
-      ));
+      addItem(id, titles[id]!);
     }
     return out;
   }
@@ -317,6 +351,26 @@ class HuangGuoApi {
     final title = (data['title'] ?? '').toString().trim();
     final cover = (data['coverSrc'] ?? data['posterSrc'] ?? '').toString();
     final desc = (data['description'] ?? '').toString().trim();
+
+    // 缓存整部剧的集列表：连续翻页播放 1,2,3…N 集。
+    final seriesKey = url;
+    _episodesCache.remove(seriesKey);
+    final episodeItems = <VideoItem>[];
+    final seriesTitle = title.isEmpty ? pageUrl : title;
+    for (var i = 0; i < eps.length; i++) {
+      episodeItems.add(VideoItem(
+        url: seriesKey,
+        title: '$seriesTitle 第${i + 1}集',
+        duration: '-',
+        thumb: cover.isNotEmpty ? _abs(cover) : null,
+        episode: i + 1,
+        episodeTotal: eps.length,
+        directUrl: _abs(eps[i]).replaceAll('&amp;', '&'),
+      ));
+    }
+    if (episodeItems.isNotEmpty) {
+      _episodesCache[seriesKey] = List<VideoItem>.unmodifiable(episodeItems);
+    }
 
     var durationSec = 0;
     if (videoSrc.toLowerCase().contains('.m3u8')) {

@@ -4,14 +4,33 @@ class VideoItem {
   final String duration;
   final String? thumb;
 
+  /// 剧集信息：非空表示这是某短剧的第 N 集（第 1 集起）。
+  final int? episode;
+  final int? episodeTotal;
+
+  /// 直接可播地址（已解析好的 m3u8/mp4），无需再抓详情页。
+  final String? directUrl;
+
+  /// 网页卡片元信息：评分（如 "9.0分"）与集数徽标（如 "全5集"）。
+  final String? score;
+  final String? badge;
+
   const VideoItem({
     required this.url,
     required this.title,
     this.duration = '-',
     this.thumb,
+    this.episode,
+    this.episodeTotal,
+    this.directUrl,
+    this.score,
+    this.badge,
   });
 
   String get viewkey {
+    if (episode != null) {
+      return '${url}#ep$episode';
+    }
     final m = RegExp(r'viewkey=([^&#]+)').firstMatch(url);
     if (m != null) return m.group(1)!;
     // XVideos: /video.xxxxx/slug
@@ -28,12 +47,22 @@ class VideoItem {
     String? title,
     String? duration,
     String? thumb,
+    int? episode,
+    int? episodeTotal,
+    String? directUrl,
+    String? score,
+    String? badge,
   }) {
     return VideoItem(
       url: url ?? this.url,
       title: title ?? this.title,
       duration: duration ?? this.duration,
       thumb: thumb ?? this.thumb,
+      episode: episode ?? this.episode,
+      episodeTotal: episodeTotal ?? this.episodeTotal,
+      directUrl: directUrl ?? this.directUrl,
+      score: score ?? this.score,
+      badge: badge ?? this.badge,
     );
   }
 }

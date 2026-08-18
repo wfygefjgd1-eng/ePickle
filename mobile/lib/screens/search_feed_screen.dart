@@ -84,6 +84,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   final ValueNotifier<String> _curTime = ValueNotifier('0:00');
 
   final Map<int, VideoDetail> _detailCache = {};
+
+  /// 已展开成连续剧集的系列（key = 系列详情 url），防止重复插入。
+  final Set<String> _expandedSeries = {};
+
+  /// 列表结构版本：插入剧集条目后递增，使在途预取结果作废。
+  int _itemsEpoch = 0;
   int? _prefetchingIndex;
   int _preloadWaveSeq = 0;
   int _preloadWaveIndex = -1;
@@ -166,9 +172,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         );
       case SearchSource.huangguo:
         final s = widget.site;
-        final base = s?.primaryHost.replaceAll(RegExp(r'/$'), '') ??
-            (_settings?.huangguoDomain ?? HuangGuoApi.defaultBase)
-                .replaceAll(RegExp(r'/$'), '');
+        final base = (_settings?.huangguoDomain ??
+                s?.primaryHost ??
+                HuangGuoApi.defaultBase)
+            .replaceAll(RegExp(r'/$'), '');
         return {
           ...AppHttpHeaders.forMediaUrl(null, pageUrl: base),
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
@@ -630,13 +637,28 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
   }
 
-  Future<VideoDetail> _fetchDetail(String url) {
+  Future<VideoDetail> _fetchDetail(String url, {VideoItem? item}) {
     switch (widget.source) {
       case SearchSource.x:
         return context.read<XvideosApi>().getVideoDetail(url);
       case SearchSource.zhong:
         return context.read<MitaoApi>().getVideoDetail(url);
       case SearchSource.huangguo:
+        // 剧集条目已带直接播放地址，跳过详情抓取。
+        final direct = item?.directUrl;
+        if (direct != null && direct.isNotEmpty) {
+          return Future.value(
+            VideoDetail(
+              url: item!.url,
+              title: item.title,
+              durationSec: 0,
+              thumb: item.thumb,
+              streams: [
+                StreamQuality(width: 1280, height: 720, url: direct),
+              ],
+            ),
+          );
+        }
         return context.read<HuangGuoApi>().getVideoDetail(url);
       case SearchSource.ph:
         return context.read<PhubApi>().getVideoDetail(url);
@@ -827,7 +849,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         unawaited(
           PlaybackHelpers.skipIntro(
             preloaded,
-            enabled: context.read<AppSettings>().skipIntro,
+            enabled: context.read<AppSettings>().skipIntro &&
+                widget.source != SearchSource.huangguo,
             fallbackDurationSec: preloadDetail.durationSec,
           ),
         );
@@ -921,9 +944,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       if (_detailCache.containsKey(index)) {
         detail = _detailCache[index]!;
       } else {
-        detail = await _fetchDetail(item.url);
+        detail = await _fetchDetail(item.url, item: item);
         _detailCache[index] = detail;
       }
+      _maybeExpandSeries(item, index);
     } catch (e) {
       if (mounted && seq == _seq) {
         setState(() => _pageLoading = false);
@@ -1053,7 +1077,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     unawaited(
       PlaybackHelpers.skipIntro(
         player,
-        enabled: context.read<AppSettings>().skipIntro,
+        enabled: context.read<AppSettings>().skipIntro &&
+            widget.source != SearchSource.huangguo,
         fallbackDurationSec: detail.durationSec,
       ),
     );
@@ -1108,17 +1133,83 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (_prefetchingIndex == index) return;
     _prefetchingIndex = index;
     final seq = _seq;
-    final url = _items[index].url;
+    final epoch = _itemsEpoch;
+    final item = _items[index];
     try {
-      final d = await _fetchDetail(url);
-      if (seq != _seq || !_canRun) return;
+      final d = await _fetchDetail(item.url, item: item);
+      if (seq != _seq || !_canRun || epoch != _itemsEpoch) return;
       _detailCache[index] = d;
+      _maybeExpandSeries(item, index);
+      if (epoch != _itemsEpoch) return;
       _prunePageState(_index);
     } catch (_) {
       // Ignore errors in prefetch
     } finally {
       if (_prefetchingIndex == index) _prefetchingIndex = null;
     }
+  }
+
+  /// 黄果短剧是“整部剧”而非单个视频：详情抓取到集列表后，
+  /// 把 2..N 集插入当前条目之后，使上滑按 1,2,3… 顺序播放。
+  void _maybeExpandSeries(VideoItem item, int index) {
+    if (widget.source != SearchSource.huangguo) return;
+    if (item.episode != null) return;
+    if (index < 0 || index >= _items.length) return;
+    if (_items[index].url != item.url) return;
+    if (!_expandedSeries.add(item.url)) return;
+    final episodes = context.read<HuangGuoApi>().episodesFor(item.url);
+    if (episodes == null || episodes.length < 2) {
+      _expandedSeries.remove(item.url);
+      return;
+    }
+    final tail = episodes.sublist(1);
+    _itemsEpoch++;
+    if (mounted) {
+      setState(() {
+        _items.insertAll(index + 1, tail);
+      });
+    } else {
+      _items.insertAll(index + 1, tail);
+    }
+    // 插入后旧索引错位：清掉索引缓存与预载，按新列表重新预取。
+    _detailCache.removeWhere((k, _) => k > index);
+    _prefetchingIndex = null;
+    _preloadWaveSeq = -1;
+    _preloadWaveIndex = -1;
+    _dropAllPreloads();
+    _restartPreloading();
+  }
+
+  void _dropAllPreloads() {
+    void drop(VideoPlayerController? controller) {
+      if (controller == null) return;
+      unawaited(controller.pause().catchError((_) {}).whenComplete(() {
+        try {
+          controller.dispose();
+        } catch (_) {}
+      }));
+    }
+
+    drop(_preloadController);
+    _preloadController = null;
+    _preloadIndex = null;
+    _preloadStream = null;
+    _preloadRetries = 0;
+    drop(_preloadController2);
+    _preloadController2 = null;
+    _preloadIndex2 = null;
+    _preloadStream2 = null;
+    _preloadRetries2 = 0;
+    drop(_preloadController3);
+    _preloadController3 = null;
+    _preloadIndex3 = null;
+    _preloadStream3 = null;
+    _preloadRetries3 = 0;
+    drop(_preloadController4);
+    _preloadController4 = null;
+    _preloadIndex4 = null;
+    _preloadStream4 = null;
+    _preloadRetries4 = 0;
   }
 
   void _trimPreloadState(int currentIndex) {
@@ -1173,6 +1264,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
     if (_preloadIndex == index && _preloadController != null) return;
     final seq = _seq;
+    final epoch = _itemsEpoch;
     final detail = _detailCache[index];
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
@@ -1222,7 +1314,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries));
-        if (seq == _seq && _canRun) {
+        if (seq == _seq && epoch == _itemsEpoch && _canRun) {
           return _preloadNext(index);
         }
       }
@@ -1231,7 +1323,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _seq || !_canRun) {
+    if (seq != _seq || !_canRun || epoch != _itemsEpoch) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -1253,6 +1345,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
     if (_preloadIndex2 == index && _preloadController2 != null) return;
     final seq = _seq;
+    final epoch = _itemsEpoch;
     final detail = _detailCache[index];
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
@@ -1302,7 +1395,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries2));
-        if (seq == _seq && _canRun) {
+        if (seq == _seq && epoch == _itemsEpoch && _canRun) {
           return _preloadNext2(index);
         }
       }
@@ -1311,7 +1404,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _seq || !_canRun) {
+    if (seq != _seq || !_canRun || epoch != _itemsEpoch) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -1333,6 +1426,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
     if (_preloadIndex3 == index && _preloadController3 != null) return;
     final seq = _seq;
+    final epoch = _itemsEpoch;
     final detail = _detailCache[index];
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
@@ -1382,7 +1476,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries3));
-        if (seq == _seq && _canRun) {
+        if (seq == _seq && epoch == _itemsEpoch && _canRun) {
           return _preloadNext3(index);
         }
       }
@@ -1391,7 +1485,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _seq || !_canRun) {
+    if (seq != _seq || !_canRun || epoch != _itemsEpoch) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -1413,6 +1507,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
     if (_preloadIndex4 == index && _preloadController4 != null) return;
     final seq = _seq;
+    final epoch = _itemsEpoch;
     final detail = _detailCache[index];
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
@@ -1462,7 +1557,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries4));
-        if (seq == _seq && _canRun) {
+        if (seq == _seq && epoch == _itemsEpoch && _canRun) {
           return _preloadNext4(index);
         }
       }
@@ -1471,7 +1566,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _seq || !_canRun) {
+    if (seq != _seq || !_canRun || epoch != _itemsEpoch) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -1548,6 +1643,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         fallbackSec: fallback,
       );
       if (dur.inMilliseconds <= 0) return;
+      // 黄果短剧按剧集播放：一集播完自动接下一集（同一部剧 1,2,3…）。
+      if (widget.source == SearchSource.huangguo &&
+          ctrl.value.isPlaying &&
+          pos.inMilliseconds >= dur.inMilliseconds - 600) {
+        _maybeAutoNextEpisode();
+      }
       final now = DateTime.now().millisecondsSinceEpoch;
       final posMs = pos.inMilliseconds.toDouble();
       final ranges = ctrl.value.buffered;
@@ -1607,9 +1708,28 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     });
   }
 
+  /// 剧集结束自动接下一集（每集只触发一次，避免计时器重复调度）。
+  int? _autoAdvancedPage;
+
+  void _maybeAutoNextEpisode() {
+    final i = _index;
+    if (i >= _items.length - 1) return;
+    if (_autoAdvancedPage == i) return;
+    if (!mounted || !_pageCtrl.hasClients) return;
+    _autoAdvancedPage = i;
+    try {
+      _pageCtrl.animateToPage(
+        i + 1,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
+      );
+    } catch (_) {}
+  }
+
   void _onPageChanged(int page) {
     if (_resyncingPage) return;
     if (page == _index) return;
+    _autoAdvancedPage = null;
     // Stall auto-lower is per-item only.
     _sessionQualityCap = null;
     _stallLoweredForItem = false;

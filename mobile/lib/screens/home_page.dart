@@ -16,6 +16,7 @@ import '../services/xvideos_api.dart';
 import '../widgets/player_settings_sheet.dart';
 import '../widgets/site_logo.dart';
 import 'search_screen.dart';
+import 'huangguo_web_page.dart';
 import 'site_feed_page.dart';
 
 /// Primary home: site list + bottom search (always multi-site).
@@ -63,6 +64,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openSite(SiteDef site) {
+    if (site.id == 'huangguo') {
+      // 黄果站内入口：网页版卡片网格页（无底部 Tab），点卡片进播放器。
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => HuangGuoWebPage(site: site)),
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => SiteFeedPage(site: site)),
     );

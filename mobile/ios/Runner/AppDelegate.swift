@@ -264,7 +264,7 @@ import WebKit
         if let keyHex = aesKeyHex, let ivHex = aesIvHex,
            let key = AppDelegate.dataFromHex(keyHex), key.count == 16,
            let iv = AppDelegate.dataFromHex(ivHex), iv.count == 16,
-           let plain = aesDecryptCBCNoPadding(payload, key: key, iv: iv) {
+           let plain = self.aesDecryptCBCNoPadding(payload, key: key, iv: iv) {
           payload = plain
         }
         result(FlutterStandardTypedData(bytes: payload))

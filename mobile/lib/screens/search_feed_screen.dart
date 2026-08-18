@@ -98,6 +98,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   AppSettings? _settings;
 
   bool _showExitButton = false;
+  bool _speedBoostActive = false;
+  bool _manualPaused = false;
   double? _dragStartX;
   Duration? _dragStartPosition;
   Duration? _dragTargetPosition;
@@ -1726,10 +1728,20 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     } catch (_) {}
   }
 
+  /// 长按 3 倍速：按住加速，松手还原，左上角淡显“3倍速播放中”。
+  void _onLongPressBoost(bool active) {
+    if (mounted) setState(() => _speedBoostActive = active);
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    c.setPlaybackSpeed(active ? 3.0 : 1.0);
+  }
+
   void _onPageChanged(int page) {
     if (_resyncingPage) return;
     if (page == _index) return;
     _autoAdvancedPage = null;
+    _speedBoostActive = false;
+    _manualPaused = false;
     // Stall auto-lower is per-item only.
     _sessionQualityCap = null;
     _stallLoweredForItem = false;
@@ -1964,13 +1976,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                 if (c == null || !c.value.isInitialized) return;
                 if (c.value.isPlaying) {
                   c.pause();
+                  if (mounted) setState(() => _manualPaused = true);
                 } else {
                   c.play();
+                  if (mounted) setState(() => _manualPaused = false);
                 }
               }
             },
-            onLongPressStart: (_) => _controller?.setPlaybackSpeed(3.0),
-            onLongPressEnd: (_) => _controller?.setPlaybackSpeed(1.0),
+            onLongPressStart: (_) => _onLongPressBoost(true),
+            onLongPressEnd: (_) => _onLongPressBoost(false),
             onHorizontalDragStart: _onHorizontalDragStart,
             onHorizontalDragUpdate: _onHorizontalDragUpdate,
             onHorizontalDragEnd: _onHorizontalDragEnd,
@@ -2175,7 +2189,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: Colors.white54,
                               fontSize: 14,
                               shadows: [
                                 Shadow(color: Colors.black87, blurRadius: 4)
@@ -2187,11 +2201,34 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                               padding: const EdgeInsets.only(top: 4),
                               child: Text(
                                 _speedLabel,
-                                style: const TextStyle(
-                                  color: Color(0xFF66D9A0),
+                                style: TextStyle(
+                                  color: const Color(0xFF66D9A0)
+                                      .withValues(alpha: 0.45),
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
                                 ),
+                              ),
+                            ),
+                          if (_manualPaused &&
+                              (_controller?.value.isInitialized ?? false) &&
+                              !(_controller?.value.isPlaying ?? true))
+                            const Padding(
+                              padding: EdgeInsets.only(top: 4),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.pause_circle_outline,
+                                      size: 13,
+                                      color: Color(0x73FFFFFF)),
+                                  SizedBox(width: 3),
+                                  Text(
+                                    '已暂停',
+                                    style: TextStyle(
+                                      color: Color(0x73FFFFFF),
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                         ],
@@ -2214,15 +2251,16 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                         ),
                       ),
                     ),
-                  // 竖屏：设置按钮（半透明，无背景）
+                  // 竖屏：设置按钮（半透明，无背景；与标题同行）
                   Positioned(
                     right: 10,
-                    top: 52,
+                    top: 8,
                     child: SafeArea(
                       child: _MinimalButton(
                         storageKey: 'search_settings_button_normal',
                         defaultOffset: const Offset(10, 52),
                         icon: Icons.settings,
+                        iconAlpha: 0.18,
                         onTap: _openPlayerSettings,
                       ),
                     ),
@@ -2282,6 +2320,32 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                       ),
                     ),
                   ),
+                  // 长按 3 倍速提示（左上角，淡）
+                  if (_speedBoostActive)
+                    Positioned(
+                      left: 16,
+                      top: immersive ? 56 : 66,
+                      child: SafeArea(
+                        child: IgnorePointer(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              '3倍速播放中',
+                              style: TextStyle(
+                                color: Color(0x99FFFFFF),
+                                fontSize: 11,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ],
             ),

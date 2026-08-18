@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/video_item.dart';
 import '../services/huangguo_api.dart';
 import '../services/source_catalog.dart';
+import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 import 'search_feed_screen.dart';
 
@@ -565,7 +566,9 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     }
     return CachedNetworkImage(
       imageUrl: thumb,
+      httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
       fit: BoxFit.cover,
+      memCacheWidth: 420,
       placeholder: (_, __) => _coverPlaceholder(),
       errorWidget: (_, __, ___) => _coverPlaceholder(),
     );

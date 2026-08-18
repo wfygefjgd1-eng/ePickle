@@ -2212,23 +2212,26 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           if (_manualPaused &&
                               (_controller?.value.isInitialized ?? false) &&
                               !(_controller?.value.isPlaying ?? true))
-                            const Padding(
-                              padding: EdgeInsets.only(top: 4),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.pause_circle_outline,
-                                      size: 13,
-                                      color: Color(0x73FFFFFF)),
-                                  SizedBox(width: 3),
-                                  Text(
-                                    '已暂停',
-                                    style: TextStyle(
-                                      color: Color(0x73FFFFFF),
-                                      fontSize: 11,
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Text(
+                                      '已暂停',
+                                      style: TextStyle(
+                                        color: Color(0x73FFFFFF),
+                                        fontSize: 11,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                    SizedBox(width: 3),
+                                    Icon(Icons.pause_circle_outline,
+                                        size: 13,
+                                        color: Color(0x73FFFFFF)),
+                                  ],
+                                ),
                               ),
                             ),
                         ],

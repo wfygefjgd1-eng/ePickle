@@ -273,7 +273,6 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
           children: [
             _buildHeader(),
             if (_topicPath == null) _buildNav(),
-            _buildAnnounce(),
             Expanded(child: _buildBody()),
           ],
         ),
@@ -402,48 +401,6 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
             ),
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildAnnounce() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xC716100C),
-        border: Border.all(color: const Color(0x6BC48C30)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFFFF8A00), Color(0xFFFFD21A)],
-              ),
-              borderRadius: BorderRadius.all(Radius.circular(4)),
-            ),
-            child: const Text(
-              '\u516c\u544a',
-              style: TextStyle(
-                color: Colors.black87,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text(
-              '\u6d77\u91cfAI\u6210\u4eba\u77ed\u5267 \u00b7 \u6f2b\u5267 \u00b7 \u6362\u8138 \u00b7 \u9b54\u6539 \u9ad8\u6e05\u514d\u8d39\u5728\u7ebf\u89c2\u770b',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Color(0xFFE8C96A), fontSize: 12),
-            ),
-          ),
-        ],
       ),
     );
   }

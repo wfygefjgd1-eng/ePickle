@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../models/video_item.dart';
 import '../services/huangguo_api.dart';
 import '../services/source_catalog.dart';
+import '../utils/hg_cover_log.dart';
 import '../utils/http_headers.dart';
 import '../utils/native_browser_http.dart';
 import '../utils/playback_helpers.dart';
@@ -170,9 +171,9 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
       final thumbs = list
           .where((item) => item.thumb != null && item.thumb!.isNotEmpty)
           .length;
-      debugPrint('HGW load: channel=$channel query=$query topic=$topic '
-          'items=${list.length} thumbs=$thumbs/'
-          '${list.length} first=${list.isEmpty ? '-' : list.first.thumb}');
+      HgCoverLog.add('load: channel=$channel query=$query topic=$topic '
+          'items=${list.length} thumbs=$thumbs/${list.length} '
+          'first=${list.isEmpty ? '-' : list.first.thumb}');
       setState(() {
         _items = list;
         _page = 1;
@@ -603,12 +604,27 @@ class _HgCoverState extends State<_HgCover> {
   @override
   void initState() {
     super.initState();
+    HgCoverLog.retrySignal.addListener(_onRetrySignal);
     final hit = _mem[widget.url];
     if (hit != null) {
       _bytes = hit;
     } else {
       unawaited(_loadNative());
     }
+  }
+
+  @override
+  void dispose() {
+    HgCoverLog.retrySignal.removeListener(_onRetrySignal);
+    super.dispose();
+  }
+
+  void _onRetrySignal() {
+    if (!mounted || _bytes != null) return;
+    _failed = false;
+    _ioTried = false;
+    unawaited(_loadNative());
+    if (mounted) setState(() {});
   }
 
   @override
@@ -624,7 +640,7 @@ class _HgCoverState extends State<_HgCover> {
   }
 
   Future<void> _loadNative() async {
-    debugPrint('HGW cover native: ${widget.url}');
+    HgCoverLog.add('cover native try: ${widget.url}');
     final bytes = await NativeBrowserHttp.getBytes(
       widget.url,
       headers: AppHttpHeaders.forMediaUrl(widget.url),
@@ -632,31 +648,34 @@ class _HgCoverState extends State<_HgCover> {
     );
     if (!mounted) return;
     if (bytes != null && bytes.isNotEmpty) {
-      debugPrint('HGW cover native OK ${bytes.length}B: ${widget.url}');
+      HgCoverLog.add('cover native OK ${bytes.length}B: ${widget.url}');
       _mem[widget.url] = bytes;
       if (_mem.length > _memLimit) {
         _mem.remove(_mem.keys.first);
       }
       setState(() => _bytes = bytes);
     } else {
-      debugPrint('HGW cover native FAILED: ${widget.url}');
+      HgCoverLog.add('cover native FAILED: ${widget.url}');
       setState(() => _failed = true);
     }
   }
 
   Future<void> _loadIo() async {
     _ioTried = true;
-    if (mounted) debugPrint('HGW cover io fallback: ${widget.url}');
+    HgCoverLog.add('cover io try: ${widget.url}');
     // dart:io 直连仅作兜底与诊断（多数 CDN 会拒绝）。
     try {
       final resp = await HttpClientImage.download(widget.url);
       if (!mounted) return;
       if (resp != null && resp.isNotEmpty) {
+        HgCoverLog.add('cover io OK ${resp.length}B: ${widget.url}');
         _mem[widget.url] = resp;
         setState(() => _bytes = resp);
+      } else {
+        HgCoverLog.add('cover io EMPTY: ${widget.url}');
       }
     } catch (e) {
-      if (mounted) debugPrint('HGW cover io FAILED: ${widget.url} $e');
+      HgCoverLog.add('cover io FAILED: ${widget.url} $e');
     }
   }
 

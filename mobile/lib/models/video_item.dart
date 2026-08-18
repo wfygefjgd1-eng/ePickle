@@ -29,7 +29,7 @@ class VideoItem {
 
   String get viewkey {
     if (episode != null) {
-      return '${url}#ep$episode';
+      return '$url#ep$episode';
     }
     final m = RegExp(r'viewkey=([^&#]+)').firstMatch(url);
     if (m != null) return m.group(1)!;

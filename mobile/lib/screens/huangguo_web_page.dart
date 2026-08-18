@@ -516,7 +516,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.55),
+        color: Colors.black.withValues(alpha: 0.55),
         border: Border.all(color: Colors.white24),
         borderRadius: BorderRadius.circular(5),
       ),

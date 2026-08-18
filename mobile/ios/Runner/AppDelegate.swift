@@ -113,6 +113,13 @@ import WebKit
           timeoutMs: timeoutMs,
           result: result
         )
+      case "getBytes":
+        self.startBrowserGetBytes(
+          url: url,
+          headers: headers,
+          timeoutMs: timeoutMs,
+          result: result
+        )
       case "renderGet":
         self.startBrowserRender(
           url: url,
@@ -191,6 +198,49 @@ import WebKit
           "finalUrl": finalUrl.absoluteString,
           "cookies": cookies,
         ])
+      }
+    }
+    browserTasks[requestId] = task
+    task.resume()
+  }
+
+  private func startBrowserGetBytes(
+    url: URL,
+    headers: [String: String],
+    timeoutMs: Int,
+    result: @escaping FlutterResult
+  ) {
+    let requestId = UUID()
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.cachePolicy = .reloadIgnoringLocalCacheData
+    request.timeoutInterval = max(1, Double(timeoutMs) / 1000.0)
+    for (name, value) in headers {
+      request.setValue(value, forHTTPHeaderField: name)
+    }
+
+    let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+      DispatchQueue.main.async {
+        self?.browserTasks.removeValue(forKey: requestId)
+        if let error {
+          result(FlutterError(
+            code: "native_http_failed",
+            message: error.localizedDescription,
+            details: nil
+          ))
+          return
+        }
+        guard let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode),
+              let data, !data.isEmpty else {
+          result(FlutterError(
+            code: "native_http_bad_response",
+            message: "Bad HTTP response for \(url.absoluteString)",
+            details: nil
+          ))
+          return
+        }
+        result(FlutterStandardTypedData(bytes: data))
       }
     }
     browserTasks[requestId] = task

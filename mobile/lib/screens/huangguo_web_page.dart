@@ -1,6 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,6 +9,7 @@ import '../models/video_item.dart';
 import '../services/huangguo_api.dart';
 import '../services/source_catalog.dart';
 import '../utils/http_headers.dart';
+import '../utils/native_browser_http.dart';
 import '../utils/playback_helpers.dart';
 import 'search_feed_screen.dart';
 
@@ -165,6 +167,12 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
         list = await api.fetchFeed(tagId: channel, page: 1);
       }
       if (!mounted || generation != _generation) return;
+      final thumbs = list
+          .where((item) => item.thumb != null && item.thumb!.isNotEmpty)
+          .length;
+      debugPrint('HGW load: channel=$channel query=$query topic=$topic '
+          'items=${list.length} thumbs=$thumbs/'
+          '${list.length} first=${list.isEmpty ? '-' : list.first.thumb}');
       setState(() {
         _items = list;
         _page = 1;
@@ -521,14 +529,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     if (thumb == null || thumb.isEmpty) {
       return _coverPlaceholder();
     }
-    return CachedNetworkImage(
-      imageUrl: thumb,
-      httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
-      fit: BoxFit.cover,
-      memCacheWidth: 420,
-      placeholder: (_, __) => _coverPlaceholder(),
-      errorWidget: (_, __, ___) => _coverPlaceholder(),
-    );
+    return _HgCover(key: ValueKey(thumb), url: thumb);
   }
 
   Widget _coverPlaceholder() {
@@ -579,4 +580,112 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
       ),
     );
   }
+}
+
+/// 黄果封面加载器：优先走原生 URLSession（部分 CDN 拒绝 Dart HttpClient 的 TLS
+/// 指纹，webview 能显示而 Flutter 直连失败）；失败时记录日志并回退 dart:io 直连。
+class _HgCover extends StatefulWidget {
+  const _HgCover({super.key, required this.url});
+  final String url;
+
+  @override
+  State<_HgCover> createState() => _HgCoverState();
+}
+
+class _HgCoverState extends State<_HgCover> {
+  static final _mem = <String, Uint8List>{};
+  static const _memLimit = 600;
+
+  Uint8List? _bytes;
+  bool _failed = false;
+  bool _ioTried = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final hit = _mem[widget.url];
+    if (hit != null) {
+      _bytes = hit;
+    } else {
+      unawaited(_loadNative());
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _HgCover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      final hit = _mem[widget.url];
+      _bytes = hit;
+      _failed = false;
+      _ioTried = false;
+      if (hit == null) unawaited(_loadNative());
+    }
+  }
+
+  Future<void> _loadNative() async {
+    debugPrint('HGW cover native: ${widget.url}');
+    final bytes = await NativeBrowserHttp.getBytes(
+      widget.url,
+      headers: AppHttpHeaders.forMediaUrl(widget.url),
+      timeout: const Duration(seconds: 8),
+    );
+    if (!mounted) return;
+    if (bytes != null && bytes.isNotEmpty) {
+      debugPrint('HGW cover native OK ${bytes.length}B: ${widget.url}');
+      _mem[widget.url] = bytes;
+      if (_mem.length > _memLimit) {
+        _mem.remove(_mem.keys.first);
+      }
+      setState(() => _bytes = bytes);
+    } else {
+      debugPrint('HGW cover native FAILED: ${widget.url}');
+      setState(() => _failed = true);
+    }
+  }
+
+  Future<void> _loadIo() async {
+    _ioTried = true;
+    if (mounted) debugPrint('HGW cover io fallback: ${widget.url}');
+    // dart:io 直连仅作兜底与诊断（多数 CDN 会拒绝）。
+    try {
+      final resp = await HttpClientImage.download(widget.url);
+      if (!mounted) return;
+      if (resp != null && resp.isNotEmpty) {
+        _mem[widget.url] = resp;
+        setState(() => _bytes = resp);
+      }
+    } catch (e) {
+      if (mounted) debugPrint('HGW cover io FAILED: ${widget.url} $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final b = _bytes;
+    if (b != null) {
+      return Image.memory(b, fit: BoxFit.cover, gaplessPlayback: true);
+    }
+    if (_failed && !_ioTried) {
+      unawaited(_loadIo());
+    }
+    return const ColoredBox(color: Color(0xFF141414));
+  }
+}
+
+/// 极简 dart:io 下载：诊断/兜底用，不引入额外依赖。
+class HttpClientImage {
+  static Future<Uint8List?> download(String url) async {
+    final http = _client ??= HttpClient()..connectionTimeout = const Duration(seconds: 6);
+    final req = await http.getUrl(Uri.parse(url));
+    final resp = await req.close();
+    if (resp.statusCode != 200) return null;
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in resp) {
+      builder.add(chunk);
+    }
+    return builder.takeBytes();
+  }
+
+  static HttpClient? _client;
 }

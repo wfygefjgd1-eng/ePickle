@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 
 class NativeBrowserHttpResponse {
@@ -66,6 +68,28 @@ class NativeBrowserHttp {
       return null;
     } finally {
       _renderBusy = false;
+    }
+  }
+
+  /// Native GET returning raw binary bytes (URLSession), for image/CDN hosts
+  /// that reject Dart HttpClient's TLS stack. Same cookie/session as `get`.
+  static Future<Uint8List?> getBytes(
+    String url, {
+    required Map<String, String> headers,
+    required Duration timeout,
+  }) async {
+    try {
+      final raw = await _channel
+          .invokeMethod<Uint8List>('getBytes', {
+            'url': url,
+            'headers': headers,
+            'timeoutMs': timeout.inMilliseconds,
+          });
+      return raw;
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
     }
   }
 

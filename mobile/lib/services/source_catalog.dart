@@ -80,11 +80,14 @@ class SiteDef {
         'pornhub' => SourceCatalog.pornhub.tags,
         'xvideos' => SourceCatalog.xvideos.tags,
         'mitao' => SourceCatalog.mitao.tags,
+        'huangguo' => SourceCatalog.huangguoTags,
         _ => SourceCatalog.vodTags,
       },
-      directoryTags: parserId == 'stripchat' || parserId == 'chaturbate'
-          ? SourceCatalog.liveDirectoryTags
-          : SourceCatalog.vodDirectoryTags,
+      directoryTags: switch (parserId) {
+        'stripchat' || 'chaturbate' => SourceCatalog.liveDirectoryTags,
+        'huangguo' => SourceCatalog.huangguoDirectoryTags,
+        _ => SourceCatalog.vodDirectoryTags,
+      },
       ready: true,
       custom: true,
       parserId: parserId,
@@ -329,6 +332,61 @@ class SourceCatalog {
     directoryTags: vodDirectoryTags,
   );
 
+  /// 黄果短剧 (huangguoai.com) — 内置规则站，主域名可在设置(黄果规则)修改。
+  static const huangguoTags = <SiteTag>[
+    SiteTag(
+      id: 'duanju',
+      label: '\u77ed',
+      feedKind: VideoFeedKind.hot,
+      icon: Icons.movie_outlined,
+      iconSelected: Icons.movie,
+    ),
+    SiteTag(
+      id: 'rank',
+      label: '\u699c',
+      feedKind: VideoFeedKind.hot,
+      icon: Icons.emoji_events_outlined,
+      iconSelected: Icons.emoji_events,
+    ),
+    SiteTag(
+      id: 'recommend',
+      label: '\u63a8',
+      feedKind: VideoFeedKind.hot,
+      icon: Icons.recommend_outlined,
+      iconSelected: Icons.recommend,
+    ),
+    SiteTag(
+      id: 'topics',
+      label: '\u4e13',
+      feedKind: VideoFeedKind.hot,
+      icon: Icons.collections_bookmark_outlined,
+      iconSelected: Icons.collections_bookmark,
+    ),
+  ];
+
+  static const huangguoDirectoryTags = <SiteTag>[
+    SiteTag(id: 'recommend', label: '\u9996\u9875', icon: Icons.home_outlined, iconSelected: Icons.home),
+    SiteTag(id: 'duanju', label: 'AI\u77ed\u5267', icon: Icons.movie_outlined, iconSelected: Icons.movie),
+    SiteTag(id: 'manju', label: 'AI\u6f2b\u5267', icon: Icons.auto_awesome_outlined, iconSelected: Icons.auto_awesome),
+    SiteTag(id: 'huanlian', label: 'AI\u6362\u8138', icon: Icons.face_retouching_natural_outlined, iconSelected: Icons.face_retouching_natural),
+    SiteTag(id: 'mogai', label: 'AI\u9b54\u6539', icon: Icons.auto_fix_high_outlined, iconSelected: Icons.auto_fix_high),
+    SiteTag(id: 'topics', label: '\u4e13\u9898', icon: Icons.collections_bookmark_outlined, iconSelected: Icons.collections_bookmark),
+    SiteTag(id: 'rank', label: '\u6392\u884c\u699c', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
+  ];
+
+  static const huangguo = SiteDef(
+    id: 'huangguo',
+    name: '\u9ec4\u679c\u77ed\u5267',
+    kind: SiteKind.video,
+    color: 0xFFFFD21C,
+    letter: 'H',
+    mirrors: [
+      'https://huangguoai.com',
+    ],
+    tags: huangguoTags,
+    directoryTags: huangguoDirectoryTags,
+  );
+
   static const mitao = SiteDef(
     id: 'mitao',
     name: 'mitaohk.com',
@@ -480,6 +538,7 @@ class SourceCatalog {
     pornhub,
     xvideos,
     mitao,
+    huangguo,
     xnxx,
     xhamster,
     tnaflix,

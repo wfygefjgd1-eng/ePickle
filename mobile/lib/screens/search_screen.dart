@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/video_item.dart';
 import '../services/generic_site_api.dart';
+import '../services/huangguo_api.dart';
 import '../services/layout_settings.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
@@ -119,7 +120,8 @@ class _SearchScreenState extends State<SearchScreen> {
     _enQuery = en;
 
     for (final site in sites) {
-      final query = site.id == 'mitao' ? q : en;
+      final query =
+          (site.id == 'mitao' || site.id == 'huangguo') ? q : en;
       // ignore: unawaited_futures
       _searchOne(site, query, 1, replace: true, gen: gen);
     }
@@ -134,6 +136,9 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     if (site.id == 'mitao') {
       return context.read<MitaoApi>().search(query, page: page);
+    }
+    if (site.id == 'huangguo') {
+      return context.read<HuangGuoApi>().search(query, page: page);
     }
     return context.read<GenericSiteApi>().search(site, query, page: page);
   }
@@ -190,6 +195,11 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_hasMore[id] == false) return;
     final next = (_page[id] ?? 1) + 1;
     final q = site.id == 'mitao' ? _lastQuery : (_enQuery ?? _lastQuery);
+    if (site.id == 'huangguo') {
+      // 黄果为中文站，搜索词保持原样。
+      await _searchOne(site, _lastQuery, next, replace: false, gen: _searchGen);
+      return;
+    }
     await _searchOne(site, q, next, replace: false, gen: _searchGen);
   }
 
@@ -200,6 +210,7 @@ class _SearchScreenState extends State<SearchScreen> {
       'xvideos' => SearchSource.x,
       'mitao' => SearchSource.zhong,
       'pornhub' => SearchSource.ph,
+      'huangguo' => SearchSource.huangguo,
       _ => SearchSource.generic,
     };
     Navigator.of(context).push(
@@ -436,7 +447,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   backgroundColor: const Color(0xFFFF6B35),
                 ),
                 onPressed: () {
-                  final q = site.id == 'mitao'
+                  final q = (site.id == 'mitao' || site.id == 'huangguo')
                       ? _lastQuery
                       : (_enQuery ?? _lastQuery);
                   if (q.isEmpty) {

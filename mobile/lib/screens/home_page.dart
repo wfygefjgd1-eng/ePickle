@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/video_item.dart';
 import '../services/feed_list_cache.dart';
 import '../services/generic_site_api.dart';
+import '../services/huangguo_api.dart';
 import '../services/layout_settings.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
@@ -129,8 +130,12 @@ class _HomePageState extends State<HomePage> {
         return context.read<PhubApi>().fetchRecommend(limit: 12, maxUrls: 2);
       case 'xvideos':
         return context.read<XvideosApi>().fetchFeed(limit: 12, maxUrls: 2);
-      case 'mitao':
+case 'mitao':
         return context.read<MitaoApi>().fetchZhong(limit: 12, maxPages: 2);
+      case 'huangguo':
+        return context
+            .read<HuangGuoApi>()
+            .fetchFeed(tagId: tag.id, page: 1, limit: 12);
       default:
         return context.read<GenericSiteApi>().fetchFeed(
               site,

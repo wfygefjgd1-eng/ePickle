@@ -22,6 +22,7 @@ class AppSettings extends ChangeNotifier {
   static const _kAutoRotate = 'auto_rotate_landscape';
   static const _kPromptOnStall = 'auto_lower_on_stall';
   static const _kAutoSkipUnavailable = 'auto_skip_unavailable';
+  static const _kHuangguoDomain = 'huangguo_domain_v1';
 
   bool _skipIntro = true;
   bool _muted = false;
@@ -43,6 +44,10 @@ class AppSettings extends ChangeNotifier {
   bool _autoLowerOnStall = true;
   bool _autoSkipUnavailable = true;
 
+  /// 黄果规则主域名（换域名时在设置里修改，无需更新 App）。
+  static const huangguoDefaultDomain = 'https://huangguoai.com';
+  String _huangguoDomain = huangguoDefaultDomain;
+
   bool get skipIntro => _skipIntro;
   bool get muted => _muted;
   int get qualityCap => _qualityCap;
@@ -59,6 +64,7 @@ class AppSettings extends ChangeNotifier {
   bool get autoRotate => _autoRotate;
   bool get autoLowerOnStall => _autoLowerOnStall;
   bool get autoSkipUnavailable => _autoSkipUnavailable;
+  String get huangguoDomain => _huangguoDomain;
 
   bool get hasProxyEndpoint =>
       _proxyHost.isNotEmpty && _proxyPort > 0 && _proxyPort < 65536;
@@ -135,9 +141,12 @@ class AppSettings extends ChangeNotifier {
       _showFullscreenButton =
           p.getBool(_kShowFullscreenButton) ?? !iosDefault;
       _showMuteButton = p.getBool(_kShowMuteButton) ?? !iosDefault;
-      _autoRotate = p.getBool(_kAutoRotate) ?? true;
+_autoRotate = p.getBool(_kAutoRotate) ?? true;
       _autoLowerOnStall = p.getBool(_kPromptOnStall) ?? true;
       _autoSkipUnavailable = p.getBool(_kAutoSkipUnavailable) ?? true;
+      _huangguoDomain = _normalizeHuangguoDomain(
+        p.getString(_kHuangguoDomain) ?? huangguoDefaultDomain,
+      );
 
       // Default to DIRECT (TUN handles routing at system level).
       // Only enable proxy if the user explicitly configured one (clears stale auto-detect).
@@ -152,7 +161,7 @@ class AppSettings extends ChangeNotifier {
         _proxyHost = '';
         _proxyPort = 0;
       }
-    } catch (_) {
+} catch (_) {
       _skipIntro = true;
       _muted = false;
       _qualityCap = 0;
@@ -165,6 +174,7 @@ class AppSettings extends ChangeNotifier {
       _autoRotate = true;
       _autoLowerOnStall = true;
       _autoSkipUnavailable = true;
+      _huangguoDomain = huangguoDefaultDomain;
       _proxyEnabled = false;
       _proxyHost = '';
       _proxyPort = 0;
@@ -248,6 +258,36 @@ class AppSettings extends ChangeNotifier {
       final p = await SharedPreferences.getInstance();
       await p.setBool(_kAutoSkipUnavailable, v);
     } catch (_) {}
+  }
+
+  /// 设置黄果规则主域名（自动补全 https:// 并去掉结尾斜杠）。
+  Future<void> setHuangguoDomain(String v) async {
+    final normalized = _normalizeHuangguoDomain(v);
+    if (normalized == _huangguoDomain) return;
+    _huangguoDomain = normalized;
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_kHuangguoDomain, normalized);
+    } catch (_) {}
+  }
+
+  Future<void> resetHuangguoDomain() => setHuangguoDomain(huangguoDefaultDomain);
+
+  static String _normalizeHuangguoDomain(String raw) {
+    var value = raw.trim();
+    if (value.isEmpty) return huangguoDefaultDomain;
+    if (!value.startsWith('http://') && !value.startsWith('https://')) {
+      value = 'https://$value';
+    }
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.host.isEmpty) return huangguoDefaultDomain;
+    return Uri(
+      scheme: uri.scheme == 'http' ? 'http' : 'https',
+      host: uri.host,
+      port: uri.hasPort ? uri.port : null,
+      path: uri.path == '/' ? '' : uri.path.replaceFirst(RegExp(r'/+$'), ''),
+    ).toString();
   }
 
   Future<void> setQualityCap(int v) async {

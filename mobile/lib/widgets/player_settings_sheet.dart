@@ -170,7 +170,27 @@ Future<void> showPlayerSettingsSheet(
                         onChanged: settings.setAutoSkipUnavailable,
                       ),
                       if (defaultTargetPlatform == TargetPlatform.iOS) ...[
-                        const Divider(color: Colors.white12),
+const Divider(color: Colors.white12),
+                      ListTile(
+                        title: const Text(
+                          '黄果短剧域名',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        subtitle: Text(
+                          settings.huangguoDomain,
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 12,
+                          ),
+                        ),
+                        trailing: const Icon(
+                          Icons.edit_location_alt,
+                          color: Color(0xFFFF6B35),
+                        ),
+                        onTap: () =>
+                            _showHuangguoDomainDialog(ctx, settings),
+                      ),
+                      const Divider(color: Colors.white12),
                         const ListTile(
                           title: Text(
                             '按钮显示',
@@ -544,6 +564,10 @@ Future<void> _showAddSiteDialog(
                       child: Text('点播 · Mitao 解析'),
                     ),
                     DropdownMenuItem(
+                      value: 'huangguo',
+                      child: Text('点播 · 黄果短剧 解析'),
+                    ),
+                    DropdownMenuItem(
                       value: 'xnxx',
                       child: Text('点播 · XNXX 解析'),
                     ),
@@ -607,11 +631,60 @@ Future<void> _showAddSiteDialog(
   await layout.addCustomSite(split[1], parser: split[0]);
 }
 
+Future<void> _showHuangguoDomainDialog(
+  BuildContext context,
+  AppSettings settings,
+) async {
+  final controller = TextEditingController(
+    text: settings.huangguoDomain.replaceAll(RegExp(r'^https?://'), ''),
+  );
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: const Color(0xFF2A2A2A),
+      title: const Text('黄果短剧域名', style: TextStyle(color: Colors.white)),
+      content: TextField(
+        controller: controller,
+        keyboardType: TextInputType.url,
+        style: const TextStyle(color: Colors.white),
+        decoration: const InputDecoration(
+          labelText: '域名',
+          hintText: 'huangguoai.com',
+          labelStyle: TextStyle(color: Colors.white70),
+          hintStyle: TextStyle(color: Colors.white38),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            settings.resetHuangguoDomain();
+            Navigator.pop(dialogContext);
+          },
+          child: const Text('重置'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () {
+            settings.setHuangguoDomain(controller.text.trim());
+            Navigator.pop(dialogContext);
+          },
+          child: const Text('保存'),
+        ),
+      ],
+    ),
+  );
+  controller.dispose();
+}
+
 String _customParserLabel(String parser) => switch (parser) {
       'generic_vod' => '点播 · 通用解析',
       'pornhub' => '点播 · Pornhub 解析',
       'xvideos' => '点播 · XVideos 解析',
       'mitao' => '点播 · Mitao 解析',
+      'huangguo' => '点播 · 黄果短剧 解析',
       'xnxx' => '点播 · XNXX 解析',
       'xhamster' => '点播 · xHamster 解析',
       'tnaflix' => '点播 · TNAFlix 解析',

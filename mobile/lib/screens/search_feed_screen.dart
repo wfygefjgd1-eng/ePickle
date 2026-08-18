@@ -11,6 +11,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/video_item.dart';
 import '../services/generic_site_api.dart';
+import '../services/huangguo_api.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
 import '../services/translator.dart';
@@ -25,7 +26,7 @@ import '../utils/playback_helpers.dart';
 import '../widgets/player_settings_sheet.dart';
 
 /// Which backend to use for detail / headers.
-enum SearchSource { ph, x, zhong, generic }
+enum SearchSource { ph, x, zhong, huangguo, generic }
 
 /// Vertical swipe player for search results.
 /// Single active player + one silent pre-buffered next-video controller
@@ -163,6 +164,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           null,
           pageUrl: 'https://www.pornhub.com',
         );
+      case SearchSource.huangguo:
+        final s = widget.site;
+        final base = s?.primaryHost.replaceAll(RegExp(r'/$'), '') ??
+            (_settings?.huangguoDomain ?? HuangGuoApi.defaultBase)
+                .replaceAll(RegExp(r'/$'), '');
+        return {
+          ...AppHttpHeaders.forMediaUrl(null, pageUrl: base),
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        };
       case SearchSource.generic:
         final s = widget.site;
         if (s != null) {
@@ -537,6 +547,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     context.read<PhubApi>().cancelRequests('app backgrounded');
     context.read<XvideosApi>().cancelRequests('app backgrounded');
     context.read<MitaoApi>().cancelRequests('app backgrounded');
+    context.read<HuangGuoApi>().cancelRequests('app backgrounded');
     context.read<GenericSiteApi>().cancelRequests('app backgrounded');
     _disposeInitializingPlayersSync();
     _disposePreloadSync();
@@ -625,6 +636,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         return context.read<XvideosApi>().getVideoDetail(url);
       case SearchSource.zhong:
         return context.read<MitaoApi>().getVideoDetail(url);
+      case SearchSource.huangguo:
+        return context.read<HuangGuoApi>().getVideoDetail(url);
       case SearchSource.ph:
         return context.read<PhubApi>().getVideoDetail(url);
       case SearchSource.generic:

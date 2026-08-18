@@ -1340,6 +1340,9 @@ class GenericSiteApi {
       ];
     }
     if (streams.isEmpty) {
+      streams = _extractVideoInitialDataStreams(html, url);
+    }
+    if (streams.isEmpty) {
       streams = _extractStreams(html, url);
     }
 
@@ -1917,6 +1920,61 @@ class GenericSiteApi {
           );
         }
       } catch (_) {}
+    }
+    return out;
+  }
+
+  /// Some Chinese-drama / JS-player sites embed a <script id="videoInitialData">
+  /// JSON block with per-episode HLS URLs (epPlaySrcs) or a single videoSrc.
+  List<StreamQuality> _extractVideoInitialDataStreams(String html, String url) {
+    final m = RegExp(
+      r'''<script[^>]*id=["']videoInitialData["'][^>]*>(.*?)</script>''',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(html);
+    if (m == null) return const [];
+    Object? data;
+    try {
+      data = jsonDecode(m.group(1)!.trim());
+    } catch (_) {
+      return const [];
+    }
+    if (data is! Map<String, dynamic>) return const [];
+    final candidates = <String>{};
+    void absorb(Object? v) {
+      if (v is String && v.trim().isNotEmpty) candidates.add(v.trim());
+      if (v is List) {
+        for (final e in v) {
+          absorb(e);
+        }
+      }
+      if (v is Map) {
+        for (final e in v.values) {
+          absorb(e);
+        }
+      }
+    }
+
+    absorb(data['epPlaySrcs']);
+    absorb(data['videoSrc']);
+    final out = <StreamQuality>[];
+    final base =
+        Uri.tryParse(url)?.hasScheme == true ? Uri.parse(url).origin : '';
+    final checked = <String>{};
+    for (final c in candidates) {
+      final resolved =
+          c.startsWith('/') && base.isNotEmpty ? '$base$c' : c;
+      if (!checked.add(resolved)) continue;
+      final low = resolved.toLowerCase();
+      if (low.contains('.m3u8') || low.contains('.mp4')) {
+        out.add(
+          StreamQuality(
+            width: 1280,
+            height: low.contains('m3u8') ? 720 : 480,
+            url: resolved,
+          ),
+        );
+      }
     }
     return out;
   }

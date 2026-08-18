@@ -13,7 +13,7 @@ class LayoutSettings extends ChangeNotifier {
   static const _kCustomUrls = 'layout_custom_urls_v1';
   static const _kCustomSites = 'layout_custom_sites_v2';
   static const _kHiddenSites = 'layout_hidden_sites_v1';
-  static const _catalogVer = 12;
+  static const _catalogVer = 13;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);

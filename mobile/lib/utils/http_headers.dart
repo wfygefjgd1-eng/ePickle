@@ -41,6 +41,10 @@ class AppHttpHeaders {
         u.contains('mitaohk') ||
         u.contains('jipinvipplay')) {
       siteOrigin = 'https://mitaohk.com';
+    } else if (u.contains('huangguoai') ||
+        u.contains('yd-hls') ||
+        u.contains('yrfmba')) {
+      siteOrigin = 'https://huangguoai.com';
     } else if (u.contains('pornhub') ||
         u.contains('phncdn') ||
         u.contains('porncdn')) {

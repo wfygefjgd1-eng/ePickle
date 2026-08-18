@@ -11,6 +11,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/feed_kind.dart';
 import '../models/video_item.dart';
 import '../services/generic_site_api.dart';
+import '../services/huangguo_api.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
 import '../services/translator.dart';
@@ -569,6 +570,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     context.read<PhubApi>().cancelRequests('app backgrounded');
     context.read<XvideosApi>().cancelRequests('app backgrounded');
     context.read<MitaoApi>().cancelRequests('app backgrounded');
+    context.read<HuangGuoApi>().cancelRequests('app backgrounded');
     context.read<GenericSiteApi>().cancelRequests('app backgrounded');
     _disposeInitializingPlayersSync();
     _disposePreloadSync();
@@ -777,13 +779,29 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   bool get _useGeneric {
     final s = widget.site;
     if (s == null) return false;
-    return s.id != 'pornhub' && s.id != 'xvideos' && s.id != 'mitao';
+    return s.id != 'pornhub' &&
+        s.id != 'xvideos' &&
+        s.id != 'mitao' &&
+        s.id != 'huangguo';
   }
 
   Future<List<VideoItem>> _fetchBatch({required bool isCold}) async {
     // Cold: few URLs, fail fast (less spinner). Warm: more variety.
     final limit = isCold ? 10 : 30;
     final maxUrls = isCold ? 2 : 5;
+    if (widget.site?.id == 'huangguo' && widget.site != null) {
+      final requestedPage = _genericPage;
+      final list = await context.read<HuangGuoApi>().fetchFeed(
+            tagId: widget.tagId ?? 'duanju',
+            page: requestedPage,
+            exclude: _seen,
+            limit: limit,
+          );
+      if (list.isNotEmpty && requestedPage == _genericPage) {
+        _genericPage++;
+      }
+      return list;
+    }
     if (_useGeneric && widget.site != null) {
       final requestedPage = _genericPage;
       final genericApi = context.read<GenericSiteApi>();
@@ -851,6 +869,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   Future<VideoDetail> _fetchDetail(String url) {
     // Prefer host-based adapters when FreePorn (or other directories) link out.
     final low = url.toLowerCase();
+    if (widget.site?.id == 'huangguo' || low.contains('huangguoai')) {
+      return context.read<HuangGuoApi>().getVideoDetail(url);
+    }
     if (low.contains('xvideos.com') || low.contains('xvideos.es')) {
       return context.read<XvideosApi>().getVideoDetail(url);
     }

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../models/video_item.dart';
 import '../services/generic_site_api.dart';
+import '../services/huangguo_api.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
 import '../services/source_catalog.dart';
@@ -81,6 +82,9 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
     if (site.id == 'mitao') {
       return context.read<MitaoApi>().search(query, page: page);
     }
+    if (site.id == 'huangguo') {
+      return context.read<HuangGuoApi>().search(query, page: page);
+    }
     return context.read<GenericSiteApi>().search(site, query, page: page);
   }
 
@@ -119,6 +123,8 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
         return SearchSource.zhong;
       case 'pornhub':
         return SearchSource.ph;
+      case 'huangguo':
+        return SearchSource.huangguo;
       default:
         return SearchSource.generic;
     }

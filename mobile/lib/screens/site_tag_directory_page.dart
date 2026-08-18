@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../models/video_item.dart';
 import '../services/generic_site_api.dart';
+import '../services/huangguo_api.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
 import '../services/source_catalog.dart';
@@ -190,6 +191,13 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         return context
             .read<MitaoApi>()
             .search(_queryForTag(tag.id), page: page);
+      case 'huangguo':
+        return context.read<HuangGuoApi>().fetchFeed(
+              tagId: tag.id,
+              page: page,
+              limit: 40,
+              exclude: exclude,
+            );
       default:
         return api.fetchFeed(
           widget.site,
@@ -226,6 +234,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         'pornhub' => SearchSource.ph,
         'xvideos' => SearchSource.x,
         'mitao' => SearchSource.zhong,
+        'huangguo' => SearchSource.huangguo,
         _ => SearchSource.generic,
       };
 

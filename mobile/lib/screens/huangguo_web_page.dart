@@ -597,7 +597,6 @@ class _HgCoverState extends State<_HgCover> {
   static const _memLimit = 600;
 
   Uint8List? _bytes;
-  bool _failed = false;
 
   @override
   void initState() {
@@ -619,7 +618,6 @@ class _HgCoverState extends State<_HgCover> {
 
   void _onRetrySignal() {
     if (!mounted || _bytes != null) return;
-    _failed = false;
     unawaited(_loadNative());
     if (mounted) setState(() {});
   }
@@ -630,7 +628,6 @@ class _HgCoverState extends State<_HgCover> {
     if (oldWidget.url != widget.url) {
       final hit = _mem[widget.url];
       _bytes = hit;
-      _failed = false;
       if (hit == null) unawaited(_loadNative());
     }
   }
@@ -661,7 +658,7 @@ class _HgCoverState extends State<_HgCover> {
       setState(() => _bytes = bytes);
     } else {
       HgCoverLog.add('cover native FAILED: ${widget.url}');
-      setState(() => _failed = true);
+      setState(() {});
     }
   }
 

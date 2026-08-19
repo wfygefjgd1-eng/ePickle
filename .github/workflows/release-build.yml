@@ -102,9 +102,6 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Enable Flutter Swift Package Manager
-        run: flutter config --enable-swift-package-manager
-
       - name: pub get
         working-directory: mobile
         run: flutter pub get

@@ -31,9 +31,9 @@ class HuangGuoApi {
   static const _singleRequestTimeout = Duration(seconds: 10);
 
   HuangGuoApi({AppSettings? settings, Dio? dio, CancelToken? cancelToken})
-      : _settings = settings,
-        _cancelToken = cancelToken ?? CancelToken(),
+      : _cancelToken = cancelToken ?? CancelToken(),
         _dio = dio ?? AppHttpClient.create() {
+    _settings = settings;
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
@@ -44,7 +44,7 @@ class HuangGuoApi {
     );
   }
 
-  final AppSettings? _settings;
+  AppSettings? _settings;
   final Dio _dio;
   CancelToken _cancelToken;
 

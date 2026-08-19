@@ -567,19 +567,42 @@ class HuangGuoApi {
     final desc = (data['description'] ?? '').toString().trim();
 
     // 缓存整部剧的集列表：连续翻页播放 1,2,3…N 集。
+    // 站点每页只内嵌“当前+下一集”的直链（epPlaySrcs ≈ 2 条），整剧集数取自
+    // 选集链接（data-ep-id 与 /video/{id}/ep-N/）。补齐 N 集；缺直链的集
+    // 各自动抓 /video/{id}/ep-N/ 详情页取真实播放地址。
     final seriesKey = url;
     _episodesCache.remove(seriesKey);
+    final idm = RegExp(r'/(?:detail|video)/(\d+)').firstMatch(pageUrl);
+    final seriesId = idm?.group(1);
+    var total = eps.length;
+    if (seriesId != null) {
+      final n = _maxEpisodeFromHtml(html);
+      if (n > total) total = n;
+    }
+    if (total < 1) total = 1;
+    final epByNum = <int, String>{};
+    if (epPlaySrcs is Map) {
+      for (final e in epPlaySrcs.entries) {
+        final v = e.value.toString().trim();
+        if (v.isNotEmpty) epByNum[_epNum(e.key)] = _abs(v);
+      }
+    }
     final episodeItems = <VideoItem>[];
     final seriesTitle = title.isEmpty ? pageUrl : title;
-    for (var i = 0; i < eps.length; i++) {
+    for (var i = 1; i <= total; i++) {
+      final episodeUrl = seriesId == null
+          ? seriesKey
+          : '$base/video/$seriesId/${i > 1 ? 'ep-$i/' : ''}';
+      final directUrl = epByNum[i];
       episodeItems.add(VideoItem(
-        url: seriesKey,
-        title: '$seriesTitle 第${i + 1}集',
+        url: episodeUrl,
+        title: '$seriesTitle 第$i集',
         duration: '-',
         thumb: cover.isNotEmpty ? _abs(cover) : null,
-        episode: i + 1,
-        episodeTotal: eps.length,
-        directUrl: _abs(eps[i]).replaceAll('&amp;', '&'),
+        episode: i,
+        episodeTotal: total,
+        directUrl:
+            directUrl == null ? null : directUrl.replaceAll('&amp;', '&'),
       ));
     }
     if (episodeItems.isNotEmpty) {
@@ -695,6 +718,23 @@ class HuangGuoApi {
   int _epNum(dynamic key) {
     final n = int.tryParse('$key') ?? -1;
     return n >= 0 ? n : max(0, -1 - n);
+  }
+
+  /// 从视频页/选集 DOM 推断整剧集数（data-ep-id 与 /video/{id}/ep-N/ 链接）。
+  int _maxEpisodeFromHtml(String html) {
+    var maxEp = 0;
+    for (final m in RegExp(r'''data-ep-id="(\d+)"''').allMatches(html)) {
+      final n = int.tryParse(m.group(1)!);
+      if (n != null && n > maxEp) maxEp = n;
+    }
+    for (final m in RegExp(
+      r'''/video/\d+/ep-(\d+)/?''',
+      caseSensitive: false,
+    ).allMatches(html)) {
+      final n = int.tryParse(m.group(1)!);
+      if (n != null && n > maxEp) maxEp = n;
+    }
+    return maxEp;
   }
 
   String _abs(String path) {

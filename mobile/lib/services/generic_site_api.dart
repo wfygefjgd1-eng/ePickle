@@ -2098,6 +2098,9 @@ class GenericSiteApi {
           if (tagId == 'asian') (b) => '$b/?k=asian&p=$p',
           if (tagId == 'best') (b) => '$b/best/$p',
           if (tagId == 'hot') (b) => '$b/hits/$p',
+          // 其余标签按 XNXX 标签页/搜索页处理：/tags/{name}/ 或 /search/{name}/。
+          (b) => '$b/tags/$tagId/${p > 1 ? '$p' : ''}',
+          (b) => '$b/search/$tagId/${p > 1 ? '$p' : ''}',
           (b) => '$b/search/hot/$p',
         ];
       case 'xhamster':
@@ -2107,8 +2110,13 @@ class GenericSiteApi {
           if (tagId == 'japanese') (b) => '$b/categories/japanese/$p',
           if (tagId == 'hentai') (b) => '$b/categories/hentai/$p',
           if (tagId == 'milf') (b) => '$b/categories/milf/$p',
+          if (tagId == 'amateur') (b) => '$b/categories/amateur/$p',
+          if (tagId == 'lesbian') (b) => '$b/categories/lesbian/$p',
+          if (tagId == 'mature') (b) => '$b/categories/mature/$p',
+          if (tagId == 'cartoon') (b) => '$b/categories/cartoon/$p',
           if (tagId == 'best') (b) => '$b/best/$p',
           if (tagId == 'hot') (b) => '$b/hottest/$p',
+          (b) => '$b/categories/$tagId/$p',
           (b) => '$b/?page=$p',
         ];
       case 'eporner':
@@ -2126,6 +2134,8 @@ class GenericSiteApi {
           if (tagId == 'asian') (b) => '$b/categories/chinese-subtitle/$p/',
           if (tagId == 'best') (b) => '$b/hot/$p/',
           if (tagId == 'hot') (b) => '$b/categories/hot/$p/',
+          (b) => '$b/categories/$tagId/$p/',
+          (b) => '$b/tags/$tagId/${p > 1 ? '$p/' : ''}',
           (b) => '$b/latest-updates/$p/',
           (b) => '$b/new-release/$p/',
           (b) => '$b/',
@@ -2239,6 +2249,8 @@ class GenericSiteApi {
           if (tagId == 'asian') (b) => '$b/search.php?what=asian&page=$p',
           if (tagId == 'best') (b) => '$b/toprated/?page=$p',
           if (tagId == 'hot') (b) => '$b/?page=$p',
+          (b) => '$b/search.php?what=$tagId&page=$p',
+          (b) => '$b/categories/$tagId/?page=$p',
           (b) => '$b/popular/?page=$p',
           (b) => '$b/',
         ];

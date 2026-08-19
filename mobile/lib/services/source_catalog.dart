@@ -218,7 +218,7 @@ class SourceCatalog {
     SiteTag(id: 'trending', label: '\u8d8b\u52bf', icon: Icons.whatshot_outlined, iconSelected: Icons.whatshot),
   ];
 
-  /// Pornhub 目录标签：热门/精选/亚洲/最新（fetchRecommend/fetchAsian 直连，其余走站内搜索）。
+  /// Pornhub 目录标签：热门/精选/亚洲/最新/日本/素人/熟女/情侣/高清（fetchRecommend/fetchAsian 直连，其余站内搜索）。
   static const pornhubDirectoryTags = <SiteTag>[
     SiteTag(id: 'hot', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
     SiteTag(id: 'best', label: '\u7cbe\u9009', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
@@ -227,9 +227,12 @@ class SourceCatalog {
     SiteTag(id: 'japanese', label: '\u65e5\u672c', icon: Icons.flag_outlined, iconSelected: Icons.flag),
     SiteTag(id: 'amateur', label: '\u7d20\u4eba', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
     SiteTag(id: 'mature', label: '\u6210\u719f', icon: Icons.person_outline, iconSelected: Icons.person),
+    SiteTag(id: 'couples', label: '\u60c5\u4fa3', icon: Icons.people_outline, iconSelected: Icons.people),
+    SiteTag(id: 'hd', label: '\u9ad8\u6e05', icon: Icons.hd_outlined, iconSelected: Icons.hd),
+    SiteTag(id: 'lesbian', label: '\u540c\u6027', icon: Icons.favorite_outline, iconSelected: Icons.favorite),
   ];
 
-  /// XVideos 目录标签：热门/精选/最新/亚洲/日本/素人。
+  /// XVideos 目录标签：热门/精选/最新/亚洲/日本/素人/熟女/同性/高清。
   static const xvideosDirectoryTags = <SiteTag>[
     SiteTag(id: 'hot', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
     SiteTag(id: 'best', label: '\u7cbe\u9009', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
@@ -237,6 +240,9 @@ class SourceCatalog {
     SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
     SiteTag(id: 'japanese', label: '\u65e5\u672c', icon: Icons.flag_outlined, iconSelected: Icons.flag),
     SiteTag(id: 'amateur', label: '\u7d20\u4eba', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'mature', label: '\u6210\u719f', icon: Icons.face_outlined, iconSelected: Icons.face),
+    SiteTag(id: 'lesbian', label: '\u540c\u6027', icon: Icons.favorite_outline, iconSelected: Icons.favorite),
+    SiteTag(id: 'hd', label: '\u9ad8\u6e05', icon: Icons.hd_outlined, iconSelected: Icons.hd),
   ];
 
   /// Mitao 目录标签：热门/最新/中字/亚洲/日本/素人。
@@ -246,41 +252,65 @@ class SourceCatalog {
     SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
     SiteTag(id: 'japanese', label: '\u65e5\u672c', icon: Icons.flag_outlined, iconSelected: Icons.flag),
     SiteTag(id: 'amateur', label: '\u7d20\u4eba', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'chinese', label: '\u4e2d\u6587', icon: Icons.translate_outlined, iconSelected: Icons.translate),
   ];
 
-  /// XNXX 目录标签：仅 _listPaths 有独立路径的热/新/亚/榜。
+  /// XNXX 目录标签：热/新/亚/榜 + 常见标签页（/tags/{name}/ 与 /search/{name}/）。
   static const xnxxDirectoryTags = <SiteTag>[
     SiteTag(id: 'hot', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
     SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
     SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
     SiteTag(id: 'best', label: '\u7cbe\u9009', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
+    SiteTag(id: 'japanese', label: '\u65e5\u672c', icon: Icons.flag_outlined, iconSelected: Icons.flag),
+    SiteTag(id: 'amateur', label: '\u7d20\u4eba', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'milf', label: '\u719f\u5973', icon: Icons.person_outline, iconSelected: Icons.person),
+    SiteTag(id: 'mature', label: '\u6210\u719f', icon: Icons.face_outlined, iconSelected: Icons.face),
+    SiteTag(id: 'lesbian', label: '\u540c\u6027', icon: Icons.favorite_outline, iconSelected: Icons.favorite),
+    SiteTag(id: 'anal', label: '\u540e\u5ead', icon: Icons.airline_seat_recline_normal_outlined, iconSelected: Icons.airline_seat_recline_normal),
+    SiteTag(id: 'hentai', label: '\u52a8\u6f2b', icon: Icons.animation_outlined, iconSelected: Icons.animation),
+    SiteTag(id: 'creampie', label: '\u5185\u5c04', icon: Icons.water_drop_outlined, iconSelected: Icons.water_drop),
   ];
 
-  /// xHamster 目录标签：热(hottest)/新(newest)/亚/日/熟/动/精选（分类页已验证）。
+  /// xHamster 目录标签：热/新/亚/日/熟/动/素/同/精选（分类页均已验证）。
   static const xhamsterDirectoryTags = <SiteTag>[
     SiteTag(id: 'hot', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
     SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
     SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
     SiteTag(id: 'japanese', label: '\u65e5\u672c', icon: Icons.flag_outlined, iconSelected: Icons.flag),
     SiteTag(id: 'milf', label: '\u719f\u5973', icon: Icons.person_outline, iconSelected: Icons.person),
+    SiteTag(id: 'amateur', label: '\u7d20\u4eba', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'lesbian', label: '\u540c\u6027', icon: Icons.favorite_outline, iconSelected: Icons.favorite),
     SiteTag(id: 'hentai', label: '\u52a8\u6f2b', icon: Icons.animation_outlined, iconSelected: Icons.animation),
+    SiteTag(id: 'mature', label: '\u6210\u719f', icon: Icons.face_outlined, iconSelected: Icons.face),
+    SiteTag(id: 'cartoon', label: '\u5361\u901a', icon: Icons.brush_outlined, iconSelected: Icons.brush),
     SiteTag(id: 'best', label: '\u7cbe\u9009', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
   ];
 
-  /// TNAFlix 目录标签：新/榜/推/亚（_listPaths 独立路径）。
+  /// TNAFlix 目录标签：新/榜/推/亚 + 常见分类（/search.php?what= 与 /categories/）。
   static const tnaflixDirectoryTags = <SiteTag>[
     SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
     SiteTag(id: 'best', label: '\u7cbe\u9009', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
     SiteTag(id: 'hot', label: '\u63a8\u8350', icon: Icons.recommend_outlined, iconSelected: Icons.recommend),
     SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
+    SiteTag(id: 'japanese', label: '\u65e5\u672c', icon: Icons.flag_outlined, iconSelected: Icons.flag),
+    SiteTag(id: 'amateur', label: '\u7d20\u4eba', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'milf', label: '\u719f\u5973', icon: Icons.person_outline, iconSelected: Icons.person),
+    SiteTag(id: 'mature', label: '\u6210\u719f', icon: Icons.face_outlined, iconSelected: Icons.face),
+    SiteTag(id: 'lesbian', label: '\u540c\u6027', icon: Icons.favorite_outline, iconSelected: Icons.favorite),
+    SiteTag(id: 'anal', label: '\u540e\u5ead', icon: Icons.airline_seat_recline_normal_outlined, iconSelected: Icons.airline_seat_recline_normal),
+    SiteTag(id: 'hentai', label: '\u52a8\u6f2b', icon: Icons.animation_outlined, iconSelected: Icons.animation),
   ];
 
-  /// Jable 目录标签：新(latest-updates)/热(hot)/中字(chinese-subtitle)/精选(best→hot)。
+  /// Jable 目录标签：新/热/中字/精选 + 常见 JAV 分类。
   static const jableDirectoryTags = <SiteTag>[
     SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
     SiteTag(id: 'hot', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
     SiteTag(id: 'asian', label: '\u4e2d\u5b57', icon: Icons.subtitles_outlined, iconSelected: Icons.subtitles),
     SiteTag(id: 'best', label: '\u7cbe\u9009', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
+    SiteTag(id: 'japanese', label: '\u65e5\u672c', icon: Icons.flag_outlined, iconSelected: Icons.flag),
+    SiteTag(id: 'uncensored', label: '\u65e0\u7801', icon: Icons.no_photography_outlined, iconSelected: Icons.no_photography),
+    SiteTag(id: 'amateur', label: '\u7d20\u4eba', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'anal', label: '\u540e\u5ead', icon: Icons.airline_seat_recline_normal_outlined, iconSelected: Icons.airline_seat_recline_normal),
   ];
 
   static const stripchatTags = <SiteTag>[

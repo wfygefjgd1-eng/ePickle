@@ -294,7 +294,6 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         'funny' => 'funny',
         'reality' => 'reality',
         'party' => 'party',
-        'massage' => 'massage',
         'school' => 'school',
         'hospital' => 'hospital',
         'nurse' => 'nurse',

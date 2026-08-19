@@ -11,19 +11,11 @@ import WebKit
   private var browserTasks: [UUID: URLSessionDataTask] = [:]
   private var browserRenderRequests: [UUID: BrowserRenderRequest] = [:]
 
-  /// Hex string → Data (lowercase hex only, no prefix). Returns nil if invalid.
-  private static func dataFromHex(_ hex: String) -> Data? {
-    guard hex.count % 2 == 0 else { return nil }
-    var bytes = [UInt8]()
-    bytes.reserveCapacity(hex.count / 2)
-    var idx = hex.startIndex
-    while idx < hex.endIndex {
-      let next = hex.index(idx, offsetBy: 2)
-      let pair = hex[idx..<next]
-      guard let b = UInt8(pair, radix: 16) else { return nil }
-      bytes.append(b)
-      idx = next
-    }
+  /// 站点 worker 里的 media_key / media_iv 是 16 字符 ASCII 原文
+  /// （如 "f5d965df75336270"），即 16 字节 UTF-8 key/iv，不是 hex。
+  private static func dataFromAscii(_ ascii: String) -> Data? {
+    let bytes = Array(ascii.utf8)
+    guard bytes.count == 16 else { return nil }
     return Data(bytes)
   }
 
@@ -262,8 +254,8 @@ import WebKit
           return
         }
         if let keyHex = aesKeyHex, let ivHex = aesIvHex,
-           let key = AppDelegate.dataFromHex(keyHex), key.count == 16,
-           let iv = AppDelegate.dataFromHex(ivHex), iv.count == 16,
+           let key = AppDelegate.dataFromAscii(keyHex), key.count == 16,
+           let iv = AppDelegate.dataFromAscii(ivHex), iv.count == 16,
            let plain = self?.aesDecryptCBCNoPadding(payload, key: key, iv: iv) {
           payload = plain
         }

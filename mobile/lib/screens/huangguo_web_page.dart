@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/video_item.dart';
@@ -277,13 +278,71 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0D),
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            _buildHeader(),
-            if (_topicPath == null) _buildNav(),
-            Expanded(child: _buildBody()),
+            Column(
+              children: [
+                _buildHeader(),
+                if (_topicPath == null) _buildNav(),
+                Expanded(child: _buildBody()),
+              ],
+            ),
+            // 半透明悬浮诊断按钮：点击复制缩略图日志到剪贴板。
+            Positioned(
+              right: 10,
+              bottom: 10,
+              child: IgnorePointer(
+                ignoring: false,
+                child: GestureDetector(
+                  onTap: _copyDiagnostics,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.copy_all_outlined,
+                            size: 13, color: Colors.white38),
+                        SizedBox(width: 4),
+                        Text(
+                          '\u8bca\u65ad',
+                          style: TextStyle(
+                            color: Colors.white38,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _copyDiagnostics() async {
+    HgCoverLog.add(
+      'user dump: items=${_items.length} channel=$_channel '
+      'topic=$_topicPath query=$_query',
+    );
+    final logs = HgCoverLog.dump();
+    await Clipboard.setData(ClipboardData(text: logs));
+    HgCoverLog.requestRetry();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '\u65e5\u5fd7\u5df2\u590d\u5236\u5230\u526a\u8d34\u677f\uff08${logs.length} \u5b57\u7b26\uff09\uff0c\u76f4\u63a5\u7c98\u8d34\u53d1\u9001\u5373\u53ef',
+        ),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

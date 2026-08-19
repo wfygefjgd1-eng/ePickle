@@ -1714,6 +1714,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   int? _autoAdvancedPage;
 
   void _maybeAutoNextEpisode() {
+    if (widget.source == SearchSource.huangguo) return;
     final i = _index;
     if (i >= _items.length - 1) return;
     if (_autoAdvancedPage == i) return;

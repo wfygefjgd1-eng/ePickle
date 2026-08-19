@@ -70,6 +70,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _frozenStreamHeight = 0;
   String? _browserLiveUrl;
   bool _browserIsStripchat = false;
+  bool _livePaused = false;
   int _currentIndex = 0;
   int _loadSeq = 0;
 
@@ -430,6 +431,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
     _browserLiveUrl = null;
     _browserIsStripchat = false;
+    _livePaused = false;
 
     final players = <VideoPlayerController>[
       if (_controller != null) _controller!,
@@ -646,6 +648,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       }
       if (_browserLiveUrl != null) {
         unawaited(StripchatLiveView.pauseLive());
+        _livePaused = false;
       }
       WakelockPlus.disable();
       // iOS freezes progress in background — never treat as stall on return.
@@ -714,6 +717,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _syncAutoRotateListening();
     if (_browserLiveUrl != null) {
       unawaited(StripchatLiveView.resumeLive());
+      if (_livePaused && mounted) {
+        setState(() => _livePaused = false);
+      } else {
+        _livePaused = false;
+      }
       WakelockPlus.enable();
       return;
     }
@@ -762,6 +770,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
     if (hadBrowserLive) {
       await StripchatLiveView.pauseLive();
+      _livePaused = false;
     }
     WakelockPlus.disable();
     if (releasePlayers) {
@@ -1517,6 +1526,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           _pageLoading = false;
           _browserLiveUrl = null;
           _browserIsStripchat = false;
+          _livePaused = false;
         });
         PlaybackHelpers.toast(context, 'Stripchat 主播房间地址无效');
         return;
@@ -1535,6 +1545,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     _browserLiveUrl = null;
     _browserIsStripchat = false;
+    _livePaused = false;
 
     // Check if we have this index preloaded in any slot
     VideoPlayerController? preloaded;
@@ -1951,6 +1962,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _pageLoading = false;
         _browserLiveUrl = null;
         _browserIsStripchat = false;
+        _livePaused = false;
       });
       PlaybackHelpers.toast(context, '无法打开页面地址');
       return;
@@ -1958,6 +1970,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _currentIndex = index;
     _currentDetail = detail;
     _browserLiveUrl = url;
+    _livePaused = false;
     // Both providers can restore a promotional/full-site shell after an iOS
     // background round-trip. Keep their WebViews in controlled player mode.
     final focusLive = live &&
@@ -1977,6 +1990,19 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _liveWatchdog?.cancel();
       _liveWatchdog = null;
     }
+  }
+
+  Future<void> _toggleBrowserLivePlayback() async {
+    if (_browserLiveUrl == null) return;
+    try {
+      if (_livePaused) {
+        await StripchatLiveView.resumeLive();
+        if (mounted) setState(() => _livePaused = false);
+      } else {
+        await StripchatLiveView.pauseLive();
+        if (mounted) setState(() => _livePaused = true);
+      }
+    } catch (_) {}
   }
 
   /// Soft-recover stalled Stripchat/WebView live without full page reload.
@@ -2460,6 +2486,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           context,
           GestureDetector(
             onTap: () {
+              if (_browserLiveUrl != null) {
+                unawaited(_toggleBrowserLivePlayback());
+                return;
+              }
               final c = _controller;
               if (c == null || !c.value.isInitialized) return;
               if (c.value.isPlaying) {
@@ -2485,12 +2515,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               speedLabel: _speedLabel,
               browserLiveUrl: _browserLiveUrl,
               browserIsStripchat: _browserIsStripchat,
+              livePaused: _livePaused,
               onPageChanged: _onPageChanged,
               onMute: _toggleMute,
               onFastForward: _fastForward,
               onFullscreen: _toggleFullscreen,
               onBack: _exitAfterStopping,
               onOpenSettings: _openPlayerSettings,
+              onLiveToggle: () => unawaited(_toggleBrowserLivePlayback()),
               onSeekPreview: _onSeekPreview,
               onSeekStart: () => _seeking = true,
               onSeekEnd: _onSeekCommit,

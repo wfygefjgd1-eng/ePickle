@@ -28,12 +28,14 @@ class VideoPlayerPage extends StatefulWidget {
     required this.speedLabel,
     this.browserLiveUrl,
     this.browserIsStripchat = false,
+    required this.livePaused,
     required this.onPageChanged,
     required this.onMute,
     required this.onFastForward,
     required this.onFullscreen,
     required this.onBack,
     required this.onOpenSettings,
+    required this.onLiveToggle,
     required this.onSeekPreview,
     required this.onSeekStart,
     required this.onSeekEnd,
@@ -53,6 +55,7 @@ class VideoPlayerPage extends StatefulWidget {
   final ValueNotifier<String> speedLabel;
   final String? browserLiveUrl;
   final bool browserIsStripchat;
+  final bool livePaused;
 
   final ValueChanged<int> onPageChanged;
   final VoidCallback onMute;
@@ -60,6 +63,7 @@ class VideoPlayerPage extends StatefulWidget {
   final VoidCallback onFullscreen;
   final VoidCallback onBack;
   final VoidCallback onOpenSettings;
+  final VoidCallback onLiveToggle;
   final ValueChanged<double> onSeekPreview;
   final VoidCallback onSeekStart;
   final ValueChanged<double> onSeekEnd;
@@ -168,6 +172,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   void _onTapScreen() {
+    final browserLiveUrl = widget.browserLiveUrl;
+    if (browserLiveUrl != null && browserLiveUrl.isNotEmpty) {
+      widget.onLiveToggle();
+      return;
+    }
     if (widget.immersive) {
       setState(() {
         _showExitButton = !_showExitButton;
@@ -197,10 +206,48 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     if (browserLiveUrl != null && browserLiveUrl.isNotEmpty) {
       return ColoredBox(
         color: Colors.black,
-        child: StripchatLiveView(
-          roomUrl: browserLiveUrl,
-          muted: widget.muted,
-          stripchatMode: widget.browserIsStripchat,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            IgnorePointer(
+              child: StripchatLiveView(
+                roomUrl: browserLiveUrl,
+                muted: widget.muted,
+                stripchatMode: widget.browserIsStripchat,
+              ),
+            ),
+            if (widget.livePaused)
+              IgnorePointer(
+                child: Center(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Padding(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.pause_circle_outline,
+                              color: Color(0xCCFFFFFF), size: 24),
+                          SizedBox(width: 8),
+                          Text(
+                            '已暂停',
+                            style: TextStyle(
+                              color: Color(0xCCFFFFFF),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       );
     }

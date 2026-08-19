@@ -2744,18 +2744,19 @@ class GenericSiteApi {
       if (title.length < 2) continue;
       if (_isJunkTitle(title)) continue;
 
-      var metadataChunk = chunk;
-      if (chunkIndex + 1 < chunks.length &&
-          !hrefRe.hasMatch(chunks[chunkIndex + 1])) {
-        metadataChunk = '$metadataChunk${chunks[chunkIndex + 1]}';
-      }
       String? thumb;
-      final im = imgRe.firstMatch(metadataChunk);
+      final im = imgRe.firstMatch(chunk);
       if (im != null) {
         thumb = _normalizeThumbUrl(im.group(1), base);
       }
-      thumb ??= _extractThumbFromChunk(metadataChunk, base);
-      final duration = _extractDurationLabel(metadataChunk);
+      thumb ??= _extractThumbFromChunk(chunk, base);
+      if (thumb == null && chunkIndex + 1 < chunks.length) {
+        thumb ??= _extractThumbFromChunk(
+          '$chunk${chunks[chunkIndex + 1]}',
+          base,
+        );
+      }
+      final duration = _extractDurationFromChunks(chunks, chunkIndex, chunk);
 
       out.add(
         VideoItem(
@@ -3007,7 +3008,7 @@ class GenericSiteApi {
   String? _extractThumbFromChunk(String chunk, String base) {
     final candidates = <RegExp>[
       RegExp(
-        r'''(?:data-src|data-original|data-thumb|data-poster|data-lazy-src|data-image|src|poster)\s*=\s*["']([^"']+)["']''',
+        r'''(?:data-src|data-original|data-thumb|data-poster|data-lazy-src|data-image|data-sfwthumb|data-mzl|poster)\s*=\s*["']([^"']+)["']''',
         caseSensitive: false,
       ),
       RegExp(
@@ -3018,27 +3019,31 @@ class GenericSiteApi {
         r'''style\s*=\s*["'][^"']*background(?:-image)?\s*:\s*url\((?:'|")?([^"')]+)(?:'|")?\)[^"']*["']''',
         caseSensitive: false,
       ),
+      RegExp(
+        r'''(?:src)\s*=\s*["']([^"']+)["']''',
+        caseSensitive: false,
+      ),
     ];
     for (final pattern in candidates) {
-      final match = pattern.firstMatch(chunk);
-      if (match == null) continue;
-      var raw = match.group(1)!.replaceAll(r'\/', '/').trim();
-      if (pattern.pattern.contains('srcset')) {
-        raw = raw.split(',').first.trim().split(' ').first.trim();
-      }
-      var thumb = _normalizeThumbUrl(raw, base);
-      if (thumb == null) continue;
-      final low = thumb.toLowerCase();
-      if (RegExp(r'\.(?:jpg|jpeg|png|webp|gif)(?:[?#]|$)').hasMatch(low) ||
-          low.contains('thumb') ||
-          low.contains('thumbnail') ||
-          low.contains('cover') ||
-          low.contains('poster') ||
-          low.contains('preview') ||
-          low.contains('image') ||
-          low.contains('photo') ||
-          low.contains('img')) {
-        return thumb;
+      for (final match in pattern.allMatches(chunk)) {
+        var raw = match.group(1)!.replaceAll(r'\/', '/').trim();
+        if (pattern.pattern.contains('srcset')) {
+          raw = raw.split(',').first.trim().split(' ').first.trim();
+        }
+        var thumb = _normalizeThumbUrl(raw, base);
+        if (thumb == null) continue;
+        final low = thumb.toLowerCase();
+        if (RegExp(r'\.(?:jpg|jpeg|png|webp|gif)(?:[?#]|$)').hasMatch(low) ||
+            low.contains('thumb') ||
+            low.contains('thumbnail') ||
+            low.contains('cover') ||
+            low.contains('poster') ||
+            low.contains('preview') ||
+            low.contains('image') ||
+            low.contains('photo') ||
+            low.contains('img')) {
+          return thumb;
+        }
       }
     }
     return null;
@@ -3059,6 +3064,25 @@ class GenericSiteApi {
       r'''(?<!\d)(\d{1,2}:\d{2}(?::\d{2})?)(?!\d)''',
     ).firstMatch(html)?.group(1);
     if (explicit != null) return explicit;
+    return null;
+  }
+
+  String? _extractDurationFromChunks(
+    List<String> chunks,
+    int chunkIndex,
+    String chunk,
+  ) {
+    final candidates = <String>[
+      chunk,
+      if (chunkIndex + 1 < chunks.length) '$chunk${chunks[chunkIndex + 1]}',
+      if (chunkIndex > 0) '${chunks[chunkIndex - 1]}$chunk',
+      if (chunkIndex + 2 < chunks.length)
+        '$chunk${chunks[chunkIndex + 1]}${chunks[chunkIndex + 2]}',
+    ];
+    for (final candidate in candidates) {
+      final duration = _extractDurationLabel(candidate);
+      if (duration != null) return duration;
+    }
     return null;
   }
 

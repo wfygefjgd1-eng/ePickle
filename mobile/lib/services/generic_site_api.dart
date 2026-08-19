@@ -864,6 +864,39 @@ class GenericSiteApi {
     required DateTime deadline,
   }) async {
     final out = <VideoItem>[];
+    final genderTags = const {'girls', 'male', 'men', 'trans', 'couples'};
+    if (!genderTags.contains(tagId) && tagId != 'new' && tagId != 'more') {
+      // 主题标签走服务端渲染页 /girls/{tag}（页面内嵌 models JSON）。
+      final paths = <String Function(String)>[
+        (b) => '$b/girls/$tagId/${page > 1 ? '$page' : ''}',
+        (b) => '$b/$tagId/${page > 1 ? '$page' : ''}',
+        (b) => '$b/tags/$tagId/${page > 1 ? '$page' : ''}',
+      ];
+      for (final pathFn in paths) {
+        try {
+          final html = await _fetchPageWithMirrors(
+            site,
+            pathFn,
+            deadline: deadline,
+            accept: (body, base) => _stripchatModelsJson(body) != null,
+          );
+          final models = _stripchatModelsJson(html.html);
+          if (models == null) continue;
+          final base = _mirrorsFor(
+            site,
+          )[_mirrorIndex[site.id] ?? 0]
+              .replaceAll(RegExp(r'/$'), '');
+          out.addAll(
+            _parseLiveJson(models, base, seen, site, tagId: tagId),
+          );
+          if (out.isNotEmpty) return out;
+        } catch (e) {
+          if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        }
+      }
+      // SSR 失败时回退到女生频道 API（内容无法按主题精确过滤，但至少可看）。
+      tagId = 'girls';
+    }
     final offset = (page - 1) * limit + (tagId == 'more' ? 60 : 0);
     final primaryTag = switch (tagId) {
       'couples' => 'couples',
@@ -898,6 +931,57 @@ class GenericSiteApi {
       }
     }
     return out;
+  }
+
+  /// 从 Stripchat 服务端渲染页中提取内嵌的 models JSON 文本。
+  String? _stripchatModelsJson(String html) {
+    final mark = RegExp(
+      r'("models"\s*:\s*\[)',
+      caseSensitive: false,
+    ).firstMatch(html);
+    if (mark == null) return null;
+    final start = mark.start;
+    // 平衡括号扫描，定位整个 JSON 对象（"models":[...] 所属的顶层对象）。
+    var depth = 0;
+    var end = -1;
+    var inString = false;
+    var escaped = false;
+    for (var i = start; i < html.length; i++) {
+      final ch = html[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch == r'\') {
+          escaped = true;
+        } else if (ch == '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch == '"') {
+        inString = true;
+      } else if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+        if (depth == 0) {
+          end = i + 1;
+          break;
+        }
+      }
+    }
+    if (end <= start) return null;
+    final candidate = html.substring(mark.start, end);
+    try {
+      final decoded = jsonDecode(candidate);
+      if (decoded is Map && decoded['models'] != null) return candidate;
+    } catch (_) {}
+    // 兼容少了顶层花括号的情况：直接尝试解析 "models":[...] 这段 JSON 值。
+    try {
+      final decoded = jsonDecode('{$candidate}');
+      if (decoded is Map && decoded['models'] != null) return '{$candidate}';
+    } catch (_) {}
+    return null;
   }
 
   List<VideoItem> _parseGenericJsonList(
@@ -2297,6 +2381,15 @@ class GenericSiteApi {
           (b) => '$b/?page=$p',
         ];
       case 'stripchat':
+        final genderTags = const {'girls', 'male', 'men', 'trans', 'couples'};
+        if (!genderTags.contains(tagId) && tagId != 'new' && tagId != 'more') {
+          return [
+            (b) => '$b/girls/$tagId/',
+            (b) => '$b/$tagId/',
+            (b) => '$b/api/front/models?limit=60&primaryTag=girls&sortBy=stripRanking',
+            (b) => '$b/?page=$p',
+          ];
+        }
         final sortBy = tagId == 'new' ? 'newModels' : 'stripRanking';
         final offset = (p - 1) * 60 + (tagId == 'more' ? 60 : 0);
         // models API 的 primaryTag 只接受性别组：girls/couples/men/trans。
@@ -2304,11 +2397,14 @@ class GenericSiteApi {
           'couples' => 'couples',
           'men' || 'male' => 'men',
           'trans' => 'trans',
+          'girls' || 'new' || 'more' => 'girls',
           _ => 'girls',
         };
         return [
           (b) =>
               '$b/api/front/models?limit=60&offset=$offset&primaryTag=$spTag&sortBy=$sortBy',
+          (b) =>
+              '$b/api/front/models?limit=60&offset=$offset&primaryTag=$spTag',
         ];
       case 'chaturbate':
         final categoryQuery = switch (tagId) {

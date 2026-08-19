@@ -601,8 +601,7 @@ class HuangGuoApi {
         thumb: cover.isNotEmpty ? _abs(cover) : null,
         episode: i,
         episodeTotal: total,
-        directUrl:
-            directUrl == null ? null : directUrl.replaceAll('&amp;', '&'),
+        directUrl: directUrl?.replaceAll('&amp;', '&'),
       ));
     }
     if (episodeItems.isNotEmpty) {

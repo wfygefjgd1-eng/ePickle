@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
@@ -8,7 +7,6 @@ import '../services/app_settings.dart';
 import '../services/cache_manager.dart';
 import '../services/layout_settings.dart';
 import '../services/watch_history.dart';
-import '../utils/hg_cover_log.dart';
 import '../utils/privacy_wipe.dart';
 import '../screens/hidden_sites_page.dart';
 
@@ -483,48 +481,6 @@ const Divider(color: Colors.white12),
                           },
                         ),
                       const SizedBox(height: 16),
-                      const Divider(color: Colors.white12),
-                      ListTile(
-                        dense: true,
-                        title: const Text(
-                          '隐藏 · 缩略图',
-                          style: TextStyle(
-                            color: Colors.white38,
-                            fontSize: 12,
-                          ),
-                        ),
-                        subtitle: const Text(
-                          '黄果短剧缩略图未显示时点击：复制诊断日志到剪贴板，并触发封面重新加载。',
-                          style: TextStyle(
-                            color: Colors.white24,
-                            fontSize: 11,
-                          ),
-                        ),
-                        trailing: const Icon(
-                          Icons.copy_all_outlined,
-                          color: Colors.white24,
-                          size: 18,
-                        ),
-                        onTap: () async {
-                          final domain = ctx.read<AppSettings>().huangguoDomain;
-                          HgCoverLog.add(
-                            'user dump (domain=$domain)',
-                          );
-                          final logs = HgCoverLog.dump();
-                          await Clipboard.setData(ClipboardData(text: logs));
-                          HgCoverLog.requestRetry();
-                          if (ctx.mounted) {
-                            ScaffoldMessenger.of(ctx).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '日志已复制到剪贴板（${logs.length} 字符），直接粘贴发送即可',
-                                ),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          }
-                        },
-                      ),
                       const Divider(color: Colors.white12),
                       const Center(
                         child: Padding(

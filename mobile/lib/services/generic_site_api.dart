@@ -2104,6 +2104,9 @@ class GenericSiteApi {
         return [
           if (tagId == 'new') (b) => '$b/newest/$p',
           if (tagId == 'asian') (b) => '$b/categories/asian/$p',
+          if (tagId == 'japanese') (b) => '$b/categories/japanese/$p',
+          if (tagId == 'hentai') (b) => '$b/categories/hentai/$p',
+          if (tagId == 'milf') (b) => '$b/categories/milf/$p',
           if (tagId == 'best') (b) => '$b/best/$p',
           if (tagId == 'hot') (b) => '$b/hottest/$p',
           (b) => '$b/?page=$p',

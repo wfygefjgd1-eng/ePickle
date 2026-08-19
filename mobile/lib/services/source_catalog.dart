@@ -241,6 +241,149 @@ class SourceCatalog {
         iconSelected: Icons.public),
   ];
 
+  static const xvideosTags = <SiteTag>[
+    SiteTag(
+      id: 'hot',
+      label: '\u70ed',
+      feedKind: VideoFeedKind.x,
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: 'new',
+      label: '\u65b0',
+      feedKind: VideoFeedKind.x,
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'asian',
+      label: '\u4e9a',
+      feedKind: VideoFeedKind.x,
+      icon: Icons.public_outlined,
+      iconSelected: Icons.public,
+    ),
+    SiteTag(
+      id: 'best',
+      label: '\u699c',
+      feedKind: VideoFeedKind.x,
+      icon: Icons.emoji_events_outlined,
+      iconSelected: Icons.emoji_events,
+    ),
+  ];
+
+  /// XNXX 独有标签：热(hits)/新(search-new)/亚(?k=asian)/榜(best)。
+  static const xnxxTags = <SiteTag>[
+    SiteTag(
+      id: 'hot',
+      label: '\u70ed',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: 'new',
+      label: '\u65b0',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'asian',
+      label: '\u4e9a',
+      icon: Icons.public_outlined,
+      iconSelected: Icons.public,
+    ),
+    SiteTag(
+      id: 'best',
+      label: '\u699c',
+      icon: Icons.emoji_events_outlined,
+      iconSelected: Icons.emoji_events,
+    ),
+  ];
+
+  /// xHamster 独有标签：热(hottest)/新(newest)/日(japanese)/亚(categories/asian)。
+  static const xhamsterTags = <SiteTag>[
+    SiteTag(
+      id: 'hot',
+      label: '\u70ed',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: 'new',
+      label: '\u65b0',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'japanese',
+      label: '\u65e5',
+      icon: Icons.flag_outlined,
+      iconSelected: Icons.flag,
+    ),
+    SiteTag(
+      id: 'asian',
+      label: '\u4e9a',
+      icon: Icons.public_outlined,
+      iconSelected: Icons.public,
+    ),
+  ];
+
+  /// TNAFlix 独有标签：新(new)/榜(toprated)/推(popular home)/亚(search asian)。
+  static const tnaflixTags = <SiteTag>[
+    SiteTag(
+      id: 'new',
+      label: '\u65b0',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'best',
+      label: '\u699c',
+      icon: Icons.emoji_events_outlined,
+      iconSelected: Icons.emoji_events,
+    ),
+    SiteTag(
+      id: 'hot',
+      label: '\u63a8',
+      icon: Icons.recommend_outlined,
+      iconSelected: Icons.recommend,
+    ),
+    SiteTag(
+      id: 'asian',
+      label: '\u4e9a',
+      icon: Icons.public_outlined,
+      iconSelected: Icons.public,
+    ),
+  ];
+
+  /// Jable 独有标签：新(latest-updates)/热(hot)/中(categories/chinese-subtitle)/榜(best→hot 精选)。
+  static const jableTags = <SiteTag>[
+    SiteTag(
+      id: 'new',
+      label: '\u65b0',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'hot',
+      label: '\u70ed',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: 'asian',
+      label: '\u4e2d',
+      icon: Icons.subtitles_outlined,
+      iconSelected: Icons.subtitles,
+    ),
+    SiteTag(
+      id: 'best',
+      label: '\u699c',
+      icon: Icons.emoji_events_outlined,
+      iconSelected: Icons.emoji_events,
+    ),
+  ];
+
   static const pornhub = SiteDef(
     id: 'pornhub',
     name: 'Pornhub',
@@ -299,36 +442,7 @@ class SourceCatalog {
       'https://www.xvideos.es',
       'https://www.xvideos.net',
     ],
-    tags: [
-      SiteTag(
-        id: 'hot',
-        label: '\u70ed',
-        feedKind: VideoFeedKind.x,
-        icon: Icons.local_fire_department_outlined,
-        iconSelected: Icons.local_fire_department,
-      ),
-      SiteTag(
-        id: 'new',
-        label: '\u65b0',
-        feedKind: VideoFeedKind.x,
-        icon: Icons.fiber_new_outlined,
-        iconSelected: Icons.fiber_new,
-      ),
-      SiteTag(
-        id: 'asian',
-        label: '\u4e9a',
-        feedKind: VideoFeedKind.x,
-        icon: Icons.public_outlined,
-        iconSelected: Icons.public,
-      ),
-      SiteTag(
-        id: 'best',
-        label: '\u699c',
-        feedKind: VideoFeedKind.x,
-        icon: Icons.emoji_events_outlined,
-        iconSelected: Icons.emoji_events,
-      ),
-    ],
+    tags: xvideosTags,
     directoryTags: vodDirectoryTags,
   );
 
@@ -442,7 +556,7 @@ class SourceCatalog {
       'https://www.xnxx.tv',
       'https://www.xnxx.es',
     ],
-    tags: vodTags,
+    tags: xnxxTags,
   );
 
   static const xhamster = SiteDef(
@@ -458,7 +572,7 @@ class SourceCatalog {
       'https://xhamster2.com',
       'https://zh.xhamster.com',
     ],
-    tags: vodTags,
+    tags: xhamsterTags,
   );
 
   // Removed from catalog (unstable / blocked for most users):
@@ -476,7 +590,7 @@ class SourceCatalog {
       'https://www.tnaflix.com',
       'https://tnaflix.com',
     ],
-    tags: vodTags,
+    tags: tnaflixTags,
   );
 
   static const jable = SiteDef(
@@ -491,7 +605,7 @@ class SourceCatalog {
       'https://www.jable.tv',
       'https://jable.one',
     ],
-    tags: vodTags,
+    tags: jableTags,
   );
 
   // Removed: our55, xqq88 (unstable for users).

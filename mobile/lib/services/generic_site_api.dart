@@ -867,8 +867,9 @@ class GenericSiteApi {
     final offset = (page - 1) * limit + (tagId == 'more' ? 60 : 0);
     final primaryTag = switch (tagId) {
       'couples' => 'couples',
-      'girls' || 'female' || 'new' || 'popular' || 'more' => 'girls',
-      _ => tagId,
+      'men' || 'male' => 'men',
+      'trans' => 'trans',
+      _ => 'girls',
     };
     final sortBy = tagId == 'new' ? 'newModels' : 'stripRanking';
     final endpoints = <String Function(String)>[
@@ -2131,9 +2132,23 @@ class GenericSiteApi {
       case 'jable':
         return [
           if (tagId == 'new') (b) => '$b/latest-updates/$p/',
-          if (tagId == 'asian') (b) => '$b/categories/chinese-subtitle/$p/',
+          if (tagId == 'chinese-subtitle')
+            (b) => '$b/categories/chinese-subtitle/$p/',
+          if (tagId == 'uncensored')
+            (b) => '$b/categories/uncensored/$p/',
           if (tagId == 'best') (b) => '$b/hot/$p/',
-          if (tagId == 'hot') (b) => '$b/categories/hot/$p/',
+          if (tagId == 'hot') (b) => '$b/hot/$p/',
+          if (tagId == 'sex-only') (b) => '$b/categories/sex-only/$p/',
+          if (tagId == 'roleplay') (b) => '$b/categories/roleplay/$p/',
+          if (tagId == 'uniform') (b) => '$b/categories/uniform/$p/',
+          if (tagId == 'insult') (b) => '$b/categories/insult/$p/',
+          if (tagId == 'bdsm') (b) => '$b/categories/bdsm/$p/',
+          if (tagId == 'pov') (b) => '$b/categories/pov/$p/',
+          if (tagId == 'groupsex') (b) => '$b/categories/groupsex/$p/',
+          if (tagId == 'pantyhose') (b) => '$b/categories/pantyhose/$p/',
+          if (tagId == 'lesbian') (b) => '$b/categories/lesbian/$p/',
+          if (tagId == 'private-cam')
+            (b) => '$b/categories/private-cam/$p/',
           (b) => '$b/categories/$tagId/$p/',
           (b) => '$b/tags/$tagId/${p > 1 ? '$p/' : ''}',
           (b) => '$b/latest-updates/$p/',
@@ -2282,21 +2297,31 @@ class GenericSiteApi {
           (b) => '$b/?page=$p',
         ];
       case 'stripchat':
-        final primaryTag = tagId == 'couples' ? tagId : 'girls';
         final sortBy = tagId == 'new' ? 'newModels' : 'stripRanking';
         final offset = (p - 1) * 60 + (tagId == 'more' ? 60 : 0);
+        // models API 的 primaryTag 只接受性别组：girls/couples/men/trans。
+        final spTag = switch (tagId) {
+          'couples' => 'couples',
+          'men' || 'male' => 'men',
+          'trans' => 'trans',
+          _ => 'girls',
+        };
         return [
           (b) =>
-              '$b/api/front/models?limit=60&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy',
+              '$b/api/front/models?limit=60&offset=$offset&primaryTag=$spTag&sortBy=$sortBy',
         ];
       case 'chaturbate':
         final categoryQuery = switch (tagId) {
           'couples' => '&genders=c',
+          'trans' => '&genders=t',
+          'male' => '&genders=m',
           'new' => '&genders=f&sort_order=new',
           'asian' => '&genders=f&tags=asian',
+          // Chaturbate 用 outdoors 而非 outdoor。
           'outdoor' => '&genders=f&tags=outdoors',
           'hd' => '&genders=f&tags=hd',
-          _ => '&genders=f',
+          // 其余标签走 tags 参数（room-list API 支持任意话题标签）。
+          _ => '&genders=f&tags=$tagId',
         };
         return [
           (b) =>

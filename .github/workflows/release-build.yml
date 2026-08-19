@@ -2,6 +2,16 @@ name: Build & Release APK+IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: '要构建的平台（默认 all）'
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - ios
+          - android
   push:
     tags:
       - 'v*'
@@ -35,6 +45,7 @@ jobs:
 
   android:
     needs: quality
+    if: ${{ github.event_name == 'push' || github.event.inputs.platforms != 'ios' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -80,6 +91,7 @@ jobs:
 
   ios:
     needs: quality
+    if: ${{ github.event_name == 'push' || github.event.inputs.platforms != 'android' }}
     runs-on: macos-14
     timeout-minutes: 60
     steps:
@@ -89,6 +101,9 @@ jobs:
         with:
           channel: stable
           cache: true
+
+      - name: Enable Flutter Swift Package Manager
+        run: flutter config --enable-swift-package-manager
 
       - name: pub get
         working-directory: mobile
@@ -236,6 +251,7 @@ jobs:
 
   publish:
     needs: [quality, android, ios]
+    if: ${{ github.event_name == 'push' || github.event.inputs.platforms == 'all' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -260,7 +276,7 @@ jobs:
           TAG="v${VER}"
 
           NOTES=$(cat <<EOF
-          ## 稳定版
+          ## 稳定版 ePickle v${VER}
 
           ## 下载
 
@@ -271,46 +287,24 @@ jobs:
 
           ## 更新说明 (v${VER})
 
-          ### UI 修复
-          - 移除播放页重复返回按钮
-          - 设置 / 全屏按钮上移至与标题平齐
-          - 左上角返回按钮透明度与全屏按钮一致，去除阴影
+          请参阅仓库 CHANGELOG.md 与 RELEASE_NOTES 获取本次更新内容。
 
-          ### 体积优化
-          - Android 仅 arm64 架构，剔除 x86 / arm32，体积显著缩小
-          - R8 代码压缩 + 资源压缩 (shrinkResources)
-          - useLegacyPackaging，移除 cupertino_icons
-
-          ### 性能优化
-          - MinimalButton / 播放时长 / 倍速采用 ValueNotifier 精准刷新，避免整页重建
-          - VideoCard 包裹 RepaintBoundary，减少重绘范围
-
-          ### 稳定性
-          - CacheManager 扫描加并发上限，防止内存暴涨
-
-          ### 设置页
-          - 关闭按钮与标题下移，风格统一
-          - 顶部下拉手势直接退出设置页
-
-          ### 产品
-          - 应用名：**ePickle**（多源播放器）
-
-          ### 使用
+          ## 使用
           - 需系统 VPN 访问源站
-          - 自用 debug 签名即可
+          - 自用侧载签名即可
 
-          ### 源码
-          https://github.com/wfygefjgd/ePickle
+          ## 源码
+          https://github.com/wfygefjgd1-eng/ePickle
           EOF
           )
 
           if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "${{ github.repository }}" \
-              --title "v${VER} — ePickle UI修复版本" \
+              --title "v${VER} — ePickle 稳定版" \
               --notes "$NOTES"
           else
             gh release edit "$TAG" --repo "${{ github.repository }}" \
-              --title "v${VER} — ePickle UI修复版本" \
+              --title "v${VER} — ePickle 稳定版" \
               --notes "$NOTES"
           fi
 

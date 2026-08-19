@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class NativeBrowserHttpResponse {
@@ -21,7 +24,29 @@ class NativeBrowserHttp {
   NativeBrowserHttp._();
 
   static const _channel = MethodChannel('epickle/browser_http');
-  static bool _renderBusy = false;
+
+  /// WKWebView renders are memory-heavy: bound concurrency with a small slot
+  /// pool (FIFO) instead of a global mutex that silently dropped concurrent
+  /// fallbacks for other feeds.
+  static const _maxConcurrentRenders = 2;
+  static int _activeRenders = 0;
+  static final List<Completer<void>> _renderWaiters = [];
+
+  static Future<void> _acquireRenderSlot() async {
+    while (_activeRenders >= _maxConcurrentRenders) {
+      final gate = Completer<void>();
+      _renderWaiters.add(gate);
+      await gate.future;
+    }
+    _activeRenders++;
+  }
+
+  static void _releaseRenderSlot() {
+    _activeRenders--;
+    if (_renderWaiters.isNotEmpty) {
+      _renderWaiters.removeAt(0).complete();
+    }
+  }
 
   static Future<NativeBrowserHttpResponse?> get(
     String url, {
@@ -36,7 +61,8 @@ class NativeBrowserHttp {
       });
       if (raw == null) return null;
       return _parse(url, raw);
-    } on PlatformException {
+    } on PlatformException catch (e) {
+      debugPrint('NativeBrowserHttp.get failed for $url: ${e.message}');
       return null;
     } on MissingPluginException {
       return null;
@@ -50,8 +76,7 @@ class NativeBrowserHttp {
     required Map<String, String> headers,
     required Duration timeout,
   }) async {
-    if (_renderBusy) return null;
-    _renderBusy = true;
+    await _acquireRenderSlot();
     try {
       final raw = await _channel.invokeMapMethod<String, dynamic>('renderGet', {
         'url': url,
@@ -60,12 +85,13 @@ class NativeBrowserHttp {
       });
       if (raw == null) return null;
       return _parse(url, raw);
-    } on PlatformException {
+    } on PlatformException catch (e) {
+      debugPrint('NativeBrowserHttp.render failed for $url: ${e.message}');
       return null;
     } on MissingPluginException {
       return null;
     } finally {
-      _renderBusy = false;
+      _releaseRenderSlot();
     }
   }
 
@@ -91,7 +117,13 @@ class NativeBrowserHttp {
             if (aesIvHex != null) 'aesIvHex': aesIvHex,
           });
       return raw;
-    } on PlatformException {
+    } on PlatformException catch (e) {
+      // Includes native "native_http_decrypt_failed" (AES key/iv mismatch or
+      // broken ciphertext) — surfaces as null so callers fall back gracefully.
+      debugPrint(
+        'NativeBrowserHttp.getBytes failed for $url'
+        ' (aes=${aesKeyHex != null}): ${e.message}',
+      );
       return null;
     } on MissingPluginException {
       return null;

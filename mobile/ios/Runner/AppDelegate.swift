@@ -10,6 +10,7 @@ import WebKit
   private var stripchatControlChannel: FlutterMethodChannel?
   private var browserTasks: [UUID: URLSessionDataTask] = [:]
   private var browserRenderRequests: [UUID: BrowserRenderRequest] = [:]
+  private var privacyOverlay: UIView?
 
   /// 站点 worker 里的 media_key / media_iv 是 16 字符 ASCII 原文
   /// （如 "f5d965df75336270"），即 16 字节 UTF-8 key/iv，不是 hex。
@@ -156,11 +157,70 @@ import WebKit
         result(FlutterMethodNotImplemented)
       }
     }
+
+    let fileUtilsChannel = FlutterMethodChannel(
+      name: "epickle/file_utils",
+      binaryMessenger: messenger
+    )
+    fileUtilsChannel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "excludeFromBackup":
+        guard let path = call.arguments as? String, !path.isEmpty else {
+          result(false)
+          return
+        }
+        var url = URL(fileURLWithPath: path)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        do {
+          try url.setResourceValues(values)
+          result(true)
+        } catch {
+          result(false)
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  override func applicationWillResignActive(_ application: UIApplication) {
+    // Cover the app-switcher snapshot with an opaque overlay so sensitive
+    // player content is never visible in the task switcher / screenshots.
+    installPrivacyOverlay()
+    super.applicationWillResignActive(application)
+  }
+
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    removePrivacyOverlay()
+    super.applicationDidBecomeActive(application)
   }
 
   override func applicationDidEnterBackground(_ application: UIApplication) {
-    cancelBrowserRequests()
+    // Do NOT cancel in-flight browser requests here: iOS fires this on nearly
+    // every brief backgrounding (Control Center, calls, app switcher), and
+    // cancelling made feed loads fail silently while backgrounded. Requests
+    // carry their own timeout; completed callbacks are delivered on resume.
     super.applicationDidEnterBackground(application)
+  }
+
+  override func applicationWillTerminate(_ application: UIApplication) {
+    cancelBrowserRequests()
+    super.applicationWillTerminate(application)
+  }
+
+  private func installPrivacyOverlay() {
+    guard privacyOverlay == nil, let window = activeWindow else { return }
+    let overlay = UIView(frame: window.bounds)
+    overlay.backgroundColor = .black
+    overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    window.addSubview(overlay)
+    privacyOverlay = overlay
+  }
+
+  private func removePrivacyOverlay() {
+    privacyOverlay?.removeFromSuperview()
+    privacyOverlay = nil
   }
 
   private func startBrowserGet(
@@ -226,7 +286,9 @@ import WebKit
     let requestId = UUID()
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
-    request.cachePolicy = .reloadIgnoringLocalCacheData
+    // Media bytes (images) benefit from the shared URL cache; feeds still use
+    // reload-ignoring policy in startBrowserGet to stay fresh.
+    request.cachePolicy = .useProtocolCachePolicy
     request.timeoutInterval = max(1, Double(timeoutMs) / 1000.0)
     for (name, value) in headers {
       request.setValue(value, forHTTPHeaderField: name)
@@ -253,10 +315,19 @@ import WebKit
           ))
           return
         }
-        if let keyHex = aesKeyHex, let ivHex = aesIvHex,
-           let key = AppDelegate.dataFromAscii(keyHex), key.count == 16,
-           let iv = AppDelegate.dataFromAscii(ivHex), iv.count == 16,
-           let plain = self?.aesDecryptCBCNoPadding(payload, key: key, iv: iv) {
+        if let keyHex = aesKeyHex, let ivHex = aesIvHex {
+          guard let key = AppDelegate.dataFromAscii(keyHex), key.count == 16,
+                let iv = AppDelegate.dataFromAscii(ivHex), iv.count == 16,
+                let plain = self?.aesDecryptCBCNoPadding(payload, key: key, iv: iv) else {
+            NSLog("[ePickle] AES decrypt failed for %@ (keyLen=%d ivLen=%d dataLen=%d)",
+                  url.absoluteString, keyHex.count, ivHex.count, payload.count)
+            result(FlutterError(
+              code: "native_http_decrypt_failed",
+              message: "AES decrypt failed for \(url.absoluteString)",
+              details: nil
+            ))
+            return
+          }
           payload = plain
         }
         result(FlutterStandardTypedData(bytes: payload))
@@ -828,11 +899,16 @@ private final class StripchatLivePlatformView: NSObject,
           `;
           document.documentElement.appendChild(style);
         }
-        const ageButtons = Array.from(document.querySelectorAll('button, a'));
-        const ageButton = ageButtons.find(node =>
-          /18|enter|agree|continue/i.test((node.textContent || '').trim())
-        );
-        if (ageButton && !document.querySelector('video')) ageButton.click();
+        if (!window.__epickleAgeClicked) {
+          const ageButtons = Array.from(document.querySelectorAll('button, a'));
+          const ageButton = ageButtons.find(node =>
+            /18|enter|agree|continue/i.test((node.textContent || '').trim())
+          );
+          if (ageButton && !document.querySelector('video')) {
+            ageButton.click();
+            window.__epickleAgeClicked = true;
+          }
+        }
         const videos = Array.from(document.querySelectorAll('video'));
         const rankedVideos = videos
           .map(v => {
@@ -850,9 +926,10 @@ private final class StripchatLivePlatformView: NSObject,
         while (node) {
           const parent = node.parentElement;
           if (parent) Array.from(parent.children).forEach(sibling => {
-            if (sibling !== node) {
+            if (sibling !== node && sibling.dataset.epickleHidden !== '1') {
               sibling.style.setProperty('display', 'none', 'important');
               sibling.style.setProperty('pointer-events', 'none', 'important');
+              sibling.dataset.epickleHidden = '1';
             }
           });
           node.style.setProperty('position', 'fixed', 'important');
@@ -1076,6 +1153,10 @@ private final class BrowserRenderRequest: NSObject, WKNavigationDelegate {
           .trimmingCharacters(in: CharacterSet(charactersIn: "."))
         if host == domain || host.hasSuffix(".\(domain)") {
           cookieMap[cookie.name] = cookie.value
+          // Keep URLSession (epickle/browser_http get/getBytes) in sync with
+          // the WKWebView session so the native fallback and render share
+          // cookies for the same host.
+          HTTPCookieStorage.shared.setCookie(cookie)
         }
       }
       self.completed = true

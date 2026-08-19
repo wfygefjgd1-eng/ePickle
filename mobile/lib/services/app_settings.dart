@@ -141,7 +141,7 @@ class AppSettings extends ChangeNotifier {
       _showFullscreenButton =
           p.getBool(_kShowFullscreenButton) ?? !iosDefault;
       _showMuteButton = p.getBool(_kShowMuteButton) ?? !iosDefault;
-_autoRotate = p.getBool(_kAutoRotate) ?? true;
+      _autoRotate = p.getBool(_kAutoRotate) ?? true;
       _autoLowerOnStall = p.getBool(_kPromptOnStall) ?? true;
       _autoSkipUnavailable = p.getBool(_kAutoSkipUnavailable) ?? true;
       _huangguoDomain = _normalizeHuangguoDomain(

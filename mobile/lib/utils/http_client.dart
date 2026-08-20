@@ -34,7 +34,6 @@ class AppHttpClient {
   /// Cached detection result for UIs that only need to display it.
   static String? get systemHost => _systemHost;
   static int get systemPort => _systemPort;
-  static String get systemType => _systemType;
 
   static void applyProxyConfig({
     required bool enabled,

@@ -18,7 +18,10 @@ class Translator {
   final Dio _dio;
   final Map<String, String> _cache = {};
   static const _diskKey = 'translator_disk_v1';
-  static const _maxDiskEntries = 400;
+  // 200 keeps translation coverage for a long session while keeping the
+  // per-flush SharedPreferences write small (the whole cache is re-encoded
+  // as one string on every burst of title translations).
+  static const _maxDiskEntries = 200;
   bool _diskLoaded = false;
   Timer? _persistTimer;
   bool _persisting = false;
@@ -30,19 +33,32 @@ class Translator {
 
   Future<void> _ensureDisk() async {
     if (_diskLoaded) return;
-    _diskLoaded = true;
     try {
       final p = await SharedPreferences.getInstance();
       final raw = p.getString(_diskKey);
-      if (raw == null || raw.isEmpty) return;
-      final map = jsonDecode(raw);
-      if (map is Map) {
-        map.forEach((k, v) {
-          if (k is String && v is String && k.isNotEmpty && v.isNotEmpty) {
-            _cache.putIfAbsent(k, () => v);
-          }
-        });
+      if (raw != null && raw.isNotEmpty) {
+        final map = jsonDecode(raw);
+        if (map is Map) {
+          map.forEach((k, v) {
+            if (k is String && v is String && k.isNotEmpty && v.isNotEmpty) {
+              _cache.putIfAbsent(k, () => v);
+            }
+          });
+        }
       }
+      // Enforce the cap on load too: if the disk file somehow holds more than
+      // max entries, keep only the newest tail so the 1-add/1-remove eviction
+      // can never pin the cache above the cap for the whole session.
+      if (_cache.length > _maxDiskEntries) {
+        final keys = _cache.keys.toList();
+        for (final k in keys.take(keys.length - _maxDiskEntries)) {
+          _cache.remove(k);
+        }
+      }
+      // Only a successful load arms the disk cache; a one-off transient
+      // failure (plugin missing / store locked) must not disable it for the
+      // entire session.
+      _diskLoaded = true;
     } catch (_) {}
   }
 

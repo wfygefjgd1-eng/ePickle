@@ -1,4 +1,3 @@
-﻿import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:epickle/utils/http_headers.dart';
 import 'package:epickle/utils/playback_helpers.dart';
@@ -24,7 +23,6 @@ void main() {
   });
 
   test('all platforms use three preload decoder slots', () {
-    expect(PlaybackHelpers.preloadSlotCount(TargetPlatform.iOS), 3);
-    expect(PlaybackHelpers.preloadSlotCount(TargetPlatform.android), 3);
+    expect(PlaybackHelpers.preloadSlotCount, 3);
   });
 }

@@ -228,15 +228,6 @@ class _SiteFeedPageState extends State<SiteFeedPage>
                         ),
                         label: '\u6807\u7b7e',
                       ),
-                      if (site.searchable && site.id == '__legacy_search__')
-                        const NavigationDestination(
-                          icon: Icon(Icons.search),
-                          selectedIcon: Icon(
-                            Icons.search,
-                            color: Color(0xFFFF6B35),
-                          ),
-                          label: '搜',
-                        ),
                     ],
                   ),
                 ),

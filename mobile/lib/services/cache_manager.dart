@@ -84,16 +84,15 @@ class CacheManager {
       // flutter_cache_manager files and any temp downloads, so the 500 MB
       // threshold could never react. (WebView/URLCache growth is handled
       // natively by clearOnLaunch on every start.)
+      // The listing is async (`await for`), so it never blocks the UI thread;
+      // stopping early here would silently under-count a huge dir and the
+      // size cap could never fire. Early-out caps apply to the DELETE passes.
       int totalSize = 0;
-      int scanned = 0;
-      // 上限保护：异常目录（海量小文件）不会无限阻塞 UI 线程。
       await for (final entity
           in tempDir.list(recursive: true, followLinks: false)) {
         if (entity is File) {
           try {
             totalSize += await entity.length();
-            scanned++;
-            if (scanned >= 200000) break;
           } catch (_) {}
         }
       }

@@ -161,7 +161,13 @@ class MainActivity : FlutterActivity() {
                     val url = params?.get("url") as? String ?: "https://stripchat.com/"
                     val muted = params?.get("muted") as? Boolean ?: true
                     val stripchatMode = params?.get("stripchatMode") as? Boolean ?: true
-                    val view = StripchatLiveView(context, url, muted, stripchatMode)
+                    val view = StripchatLiveView(context, url, muted, stripchatMode) {
+                        // Release the strong Activity-side reference once
+                        // Flutter disposes the view; otherwise the destroyed
+                        // view (and its WebView) is pinned until the
+                        // activity dies.
+                        stripchatView = null
+                    }
                     stripchatView = view
                     return view
                 }
@@ -307,8 +313,8 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {}
         // Preserve the mirror-speed ranking across the wipe: it holds only
         // latency stats (no browsing/cookie/user data) and should survive
-        // cleanup. Snapshot its keys, delete the prefs files, then restore
-        // just those keys.
+        // cleanup. Snapshot its keys, drop the per-process cache, delete the
+        // prefs files, then restore just those keys.
         val rankingPrefsName = "FlutterSharedPreferences"
         val survivingRanking = mutableMapOf<String, String>()
         try {
@@ -318,6 +324,12 @@ class MainActivity : FlutterActivity() {
                     survivingRanking[k] = v.toString()
                 }
             }
+            // Clearing the *instance the plugin holds* matters: deleting only
+            // the XML files leaves the in-memory map intact, and the next
+            // put() from Dart rewrites the entire old map — resurrecting
+            // every wiped preference. commit() forces the wipe through
+            // before the dirs below are deleted.
+            p.edit().clear().commit()
         } catch (_: Exception) {}
         val dataDir = applicationInfo.dataDir
         File(dataDir, "app_webview").deleteRecursively()
@@ -548,7 +560,8 @@ class StripchatLiveView(
     private val context: Context,
     private val roomUrl: String,
     private var muted: Boolean,
-    private val isStripchat: Boolean
+    private val isStripchat: Boolean,
+    private val onDisposed: (() -> Unit)? = null
 ) : PlatformView {
     private val root = android.widget.FrameLayout(context)
     private val webView: WebView = WebView(context)
@@ -1032,10 +1045,8 @@ class StripchatLiveView(
         if (disposed) return
         disposed = true
         handler.removeCallbacksAndMessages(null)
-        // Clear global ref if we are the active one.
-        if (MainActivityRef.stripchat === this) {
-            MainActivityRef.stripchat = null
-        }
+        // Let the factory (MainActivity) drop its strong reference.
+        onDisposed?.invoke()
         try {
             webView.stopLoading()
             webView.loadUrl("about:blank")
@@ -1048,11 +1059,6 @@ class StripchatLiveView(
             }
         } catch (_: Exception) {}
     }
-}
-
-/** Weak indirection so create() can clear without holding MainActivity. */
-object MainActivityRef {
-    @Volatile var stripchat: StripchatLiveView? = null
 }
 
 /** Bridge so overlay "跳过" can notify Flutter without holding Activity ref tightly. */

@@ -74,6 +74,34 @@ class HuangGuoApi {
   }
 
   Future<String> _getHtml(String url, {Duration? timeout}) async {
+    // Live outcomes feed the ranker (used when no custom domain is set);
+    // cancellations are control flow, never failures.
+    final base = _originOf(url) ?? this.base;
+    final watch = Stopwatch()..start();
+    try {
+      final html = await _getHtmlOnce(url, timeout: timeout);
+      MirrorRanker.instance.onFetchOutcome(
+        SourceCatalog.huangguo.id,
+        base,
+        ok: true,
+        ms: watch.elapsedMilliseconds,
+      );
+      return html;
+    } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) {
+        rethrow;
+      }
+      MirrorRanker.instance.onFetchOutcome(
+        SourceCatalog.huangguo.id,
+        base,
+        ok: false,
+        ms: watch.elapsedMilliseconds,
+      );
+      rethrow;
+    }
+  }
+
+  Future<String> _getHtmlOnce(String url, {Duration? timeout}) async {
     final token = CancelToken();
     // Cascade the instance-level cancel (page exit / tab switch).
     if (!_cancelToken.isCancelled) {
@@ -114,7 +142,7 @@ class HuangGuoApi {
     }
     final status = res.statusCode ?? 0;
     if (status == 401 || status == 403) {
-      throw PhubException('访问被拒绝 (403)，请检查网络环境');
+      throw PhubException('访问被拒绝 ($status)，请检查网络环境');
     }
     if (status == 404) {
       throw PhubException('页面不存在 (404)，可能域名已变更');
@@ -131,6 +159,7 @@ class HuangGuoApi {
   }
 
   /// 黄果频道 → 列表页路径（tagId: duanju/manju/huanlian/mogai/rank/recommend/topics）。
+  /// 首页/排行/专题无分页：翻页时直接退回短剧列表，避免重复同一页。
   String _listUrlFor(String tagId, int page) {
     final p = page < 1 ? 1 : page;
     return switch (tagId) {
@@ -138,8 +167,8 @@ class HuangGuoApi {
       'manju' => '$base/ai-manju/${p > 1 ? '$p/' : ''}',
       'huanlian' => '$base/ai-huanlian/${p > 1 ? '$p/' : ''}',
       'mogai' => '$base/ai-mogai/${p > 1 ? '$p/' : ''}',
-      'rank' => '$base/ranks/hot/',
-      'topics' => '$base/topics/',
+      'rank' => p > 1 ? '$base/ai-duanju/$p/' : '$base/ranks/hot/',
+      'topics' => p > 1 ? '$base/ai-duanju/$p/' : '$base/topics/',
       _ => '$base/${p > 1 ? 'ai-duanju/$p/' : ''}',
     };
   }
@@ -160,9 +189,11 @@ class HuangGuoApi {
     }
     final seen = <String>{...?exclude};
     final url = _listUrlFor(tagId, page);
+    List<VideoItem> capped(List<VideoItem> items) =>
+        items.length > limit ? items.sublist(0, limit) : items;
     try {
       final html = await _getHtml(url);
-      return _parseList(html, seen);
+      return capped(_parseList(html, seen));
     } catch (e) {
       if (e is DioException && CancelToken.isCancel(e)) rethrow;
       // 首页/排行/专题无分页，翻页时退回短剧列表，避免空翻页。
@@ -172,7 +203,7 @@ class HuangGuoApi {
           final html = await _getHtml(
             '$base/ai-duanju/${page > 1 ? '$page/' : ''}',
           );
-          return _parseList(html, seen);
+          return capped(_parseList(html, seen));
         } catch (e) {
           if (e is DioException && CancelToken.isCancel(e)) rethrow;
         }
@@ -229,8 +260,12 @@ class HuangGuoApi {
       final end = i + 1 < tracks.length
           ? tracks[i + 1].start
           : (start + 2400).clamp(start, html.length);
-      final ctx = html.substring(start, end);
-      if (ctx.length > 2400) continue;
+      // Sparse pages (big promo blocks between cards) must not drop the card:
+      // cap the context instead of skipping it.
+      final ctx = html.substring(
+        start,
+        end > start + 2400 ? start + 2400 : end,
+      );
       final id = tracks[i].group(1)!;
       if (!seen.add(id)) continue;
       final title = _cleanTitle(tracks[i].group(2)!);
@@ -309,8 +344,11 @@ class HuangGuoApi {
       final end = i + 1 < cards.length
           ? cards[i + 1].start
           : (start + 2400).clamp(start, seg.length);
-      final ctx = seg.substring(start, end);
-      if (ctx.length > 2400) continue;
+      // Cap, don't skip: sparse grids must not drop cards.
+      final ctx = seg.substring(
+        start,
+        end > start + 2400 ? start + 2400 : end,
+      );
       final idm = RegExp(r'data-track-id="(\d+)"').firstMatch(ctx);
       if (idm == null) continue;
       final id = idm.group(1)!;

@@ -96,6 +96,19 @@ class GenericSiteApi {
       if (cookieHeader != null) 'Cookie': cookieHeader,
       if (headers != null) ...headers,
     };
+    // When callers pass a deadline-derived budget (shorter than
+    // [_requestTimeout]), that budget is the TOTAL for the whole pipeline.
+    // Without decay, a blocked mirror burns dio timeout + native GET + native
+    // render ≈ 3× the declared limit before the caller's deadline check sees
+    // it. Each later step gets only what's left.
+    final started = DateTime.now();
+    Duration stepBudget() {
+      final left = timeout - DateTime.now().difference(started);
+      return left > const Duration(milliseconds: 250)
+          ? left
+          : const Duration(milliseconds: 250);
+    }
+
     final token = cancelToken ?? CancelToken();
     _activeRequests.add(token);
     late final Response<String> res;
@@ -130,7 +143,7 @@ class GenericSiteApi {
           url,
           origin: origin,
           headers: requestHeaders,
-          timeout: timeout,
+          timeout: stepBudget(),
         );
         if (native != null) return native;
       }
@@ -138,7 +151,7 @@ class GenericSiteApi {
     } finally {
       _activeRequests.remove(token);
     }
-    _storeCookies(origin, res.headers);
+    _storeCookies(_originOf(res.realUri.toString()), res.headers);
     final status = res.statusCode ?? 0;
     onStatus?.call(status);
     if (res.statusCode == 403 || res.statusCode == 404) {
@@ -147,7 +160,7 @@ class GenericSiteApi {
         url,
         origin: origin,
         headers: requestHeaders,
-        timeout: timeout,
+        timeout: stepBudget(),
       );
       if (native != null && native.trim().isNotEmpty) return native;
       if (res.statusCode == 403) {
@@ -160,7 +173,7 @@ class GenericSiteApi {
         url,
         origin: origin,
         headers: requestHeaders,
-        timeout: timeout,
+        timeout: stepBudget(),
       );
       if (native != null && native.trim().isNotEmpty) return native;
       throw PhubException('站点返回异常状态 ($status)');
@@ -170,7 +183,7 @@ class GenericSiteApi {
         url,
         origin: origin,
         headers: requestHeaders,
-        timeout: timeout,
+        timeout: stepBudget(),
       );
       if (native != null && native.trim().isNotEmpty) return native;
       throw PhubException('空响应');
@@ -181,7 +194,7 @@ class GenericSiteApi {
         url,
         origin: origin,
         headers: requestHeaders,
-        timeout: timeout,
+        timeout: stepBudget(),
       );
       if (native != null &&
           native.trim().isNotEmpty &&
@@ -366,11 +379,24 @@ class GenericSiteApi {
   }) {
     final previous = _mirrorHealth[site.id]?[base];
     final failure = error == null ? null : _failureKind(error);
-    // A later fallback path must not hide a stronger HTTP failure recorded
-    // for the same mirror during this fetch cycle.
-    if (previous?.failure == MirrorFailureKind.forbidden &&
-        failure == MirrorFailureKind.network) {
-      return;
+    // A later record must never downgrade a stronger failure observed for the
+    // same mirror (e.g. forbidden → network): keep the most telling status.
+    const priority = <MirrorFailureKind, int>{
+      // Same ordering as [_bestMirrorError] — lower number is stronger.
+      MirrorFailureKind.forbidden: 0,
+      MirrorFailureKind.blocked: 1,
+      MirrorFailureKind.structureChanged: 2,
+      MirrorFailureKind.dns: 3,
+      MirrorFailureKind.timeout: 4,
+      MirrorFailureKind.network: 5,
+    };
+    if (previous?.failure != null &&
+        previous!.failure != MirrorFailureKind.cancelled &&
+        failure != null &&
+        failure != MirrorFailureKind.cancelled) {
+      final prevRank = priority[previous.failure] ?? 99;
+      final newRank = priority[failure] ?? 99;
+      if (prevRank < newRank) return;
     }
     final status = MirrorHealth(
       url: base,
@@ -638,6 +664,16 @@ class GenericSiteApi {
         (site.kind == SiteKind.video && results.length < limit);
     if (shouldTryHtml) {
       final paths = _listPaths(site, tagId, safePage);
+      // The accept predicate runs twice per probe (once to decide whether a
+      // native render is needed, once to validate the final html). It parses
+      // against the real [seen], so the second pass must not re-parse against
+      // an already-fed [seen] — memoize the parse per base so a page that
+      // parsed fine is never reported as "structure changed".
+      final memo = <String, List<VideoItem>>{};
+      // [seen] snapshot before this loop: the first page's own items are new
+      // relative to it (so they survive), while items re-offered by later
+      // paths/sources (already consumed upstream) fall out.
+      final startSeen = <String>{...seen};
       // The accept predicate already parses the winning page; remember the
       // result so the winner isn't parsed a second time.
       final parsedByBase = <String, List<VideoItem>>{};
@@ -649,28 +685,27 @@ class GenericSiteApi {
             pathFn,
             deadline: deadline,
             accept: (html, base) {
-              final items = _parseFeedResponse(
-                html,
+              final items = memo.putIfAbsent(
                 base,
-                <String>{...seen},
-                site,
-                tagId: tagId,
+                () => _parseFeedResponse(
+                  html,
+                  base,
+                  seen,
+                  site,
+                  tagId: tagId,
+                ),
               );
               if (items.isEmpty) return false;
               parsedByBase[base] = items;
               return true;
             },
           );
-          results.addAll(
-            parsedByBase[fetched.base] ??
-                _parseFeedResponse(
-                  fetched.html,
-                  fetched.base,
-                  seen,
-                  site,
-                  tagId: tagId,
-                ),
-          );
+          final items = parsedByBase[fetched.base] ?? const <VideoItem>[];
+          final fresh = <VideoItem>[];
+          for (final it in items) {
+            if (startSeen.add(it.viewkey)) fresh.add(it);
+          }
+          results.addAll(fresh);
         } catch (e) {
           if (e is DioException && CancelToken.isCancel(e)) rethrow;
           lastError = e;
@@ -768,8 +803,12 @@ class GenericSiteApi {
       _ => 'top-weekly',
     };
     final out = <VideoItem>[];
-    for (final base in _mirrorsFor(site)) {
-      final b = base.replaceAll(RegExp(r'/$'), '');
+    // Fastest-known mirror first (persistent ranking), remaining mirrors after.
+    var ordered = _ranker.rankedMirrors(site);
+    if (ordered.isEmpty) ordered = List<String>.from(_mirrorsFor(site));
+    for (final baseRaw in ordered) {
+      final b = baseRaw.replaceAll(RegExp(r'/$'), '');
+      final watch = Stopwatch()..start();
       final url = '$b/api/v2/video/search/?query=${Uri.encodeQueryComponent(q)}'
           '&per_page=${limit.clamp(1, 60)}&page=$page&thumbsize=big'
           '&order=$order&gay=0&lq=1&format=json';
@@ -782,6 +821,7 @@ class GenericSiteApi {
           },
           timeout: _requestBudget(deadline),
         );
+        _recordMirror(site, b, watch);
         // Prefer structured JSON (url/title/default_thumb.src).
         try {
           final decoded = jsonDecode(raw);
@@ -811,7 +851,7 @@ class GenericSiteApi {
             if (out.length >= limit) break;
           }
           if (out.isNotEmpty) {
-            _mirrorIndex[site.id] = _mirrorsFor(site).indexOf(base);
+            _mirrorIndex[site.id] = _mirrorsFor(site).indexOf(baseRaw);
             return out;
           }
         } catch (_) {}
@@ -845,11 +885,12 @@ class GenericSiteApi {
           if (out.length >= limit) break;
         }
         if (out.isNotEmpty) {
-          _mirrorIndex[site.id] = _mirrorsFor(site).indexOf(base).clamp(0, 99);
+          _mirrorIndex[site.id] = _mirrorsFor(site).indexOf(baseRaw);
           return out;
         }
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        _recordMirror(site, b, watch, error: e);
         continue;
       }
     }
@@ -1003,19 +1044,53 @@ class GenericSiteApi {
   }
 
   /// 从 Stripchat 服务端渲染页中提取内嵌的 models JSON 文本。
+  /// 先定位 "models" 数组的结束，再回溯到包含它的顶层对象并取出整个对象，
+  /// 避免"从数组中间开始扫描、首个模型 } 即误判为对象结束"的截断。
   String? _stripchatModelsJson(String html) {
     final mark = RegExp(
-      r'("models"\s*:\s*\[)',
+      r'("models"\s*:\s*[\[{])',
       caseSensitive: false,
     ).firstMatch(html);
     if (mark == null) return null;
-    final start = mark.start;
-    // 平衡括号扫描，定位整个 JSON 对象（"models":[...] 所属的顶层对象）。
-    var depth = 0;
-    var end = -1;
+    // 1) 从 "models:[" 处向前扫描，找到整个数组的结束 "]"（字符串感知）。
+    var bracketDepth = 0;
     var inString = false;
     var escaped = false;
-    for (var i = start; i < html.length; i++) {
+    var arrayEnd = -1;
+    for (var i = mark.start; i < html.length; i++) {
+      final ch = html[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch == r'\') {
+          escaped = true;
+        } else if (ch == '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch == '"') {
+        inString = true;
+      } else if (ch == '{' || ch == '[') {
+        bracketDepth++;
+      } else if (ch == '}' || ch == ']') {
+        bracketDepth--;
+        if (bracketDepth == 0) {
+          arrayEnd = i + 1;
+          break;
+        }
+      }
+    }
+    if (arrayEnd <= mark.start) return null;
+    // 2) 回溯到包含该数组的顶层对象起始 "{"
+    final objStart = html.lastIndexOf('{', mark.start);
+    if (objStart < 0) return null;
+    // 3) 从对象起始扫描到配对的顶层 "}"
+    var objDepth = 0;
+    inString = false;
+    escaped = false;
+    var objEnd = -1;
+    for (var i = objStart; i < html.length; i++) {
       final ch = html[i];
       if (inString) {
         if (escaped) {
@@ -1030,22 +1105,22 @@ class GenericSiteApi {
       if (ch == '"') {
         inString = true;
       } else if (ch == '{') {
-        depth++;
+        objDepth++;
       } else if (ch == '}') {
-        depth--;
-        if (depth == 0) {
-          end = i + 1;
+        objDepth--;
+        if (objDepth == 0) {
+          objEnd = i + 1;
           break;
         }
       }
     }
-    if (end <= start) return null;
-    final candidate = html.substring(mark.start, end);
+    if (objEnd <= objStart) return null;
+    final candidate = html.substring(objStart, objEnd);
     try {
       final decoded = jsonDecode(candidate);
       if (decoded is Map && decoded['models'] != null) return candidate;
     } catch (_) {}
-    // 兼容少了顶层花括号的情况：直接尝试解析 "models":[...] 这段 JSON 值。
+    // 兼容没有顶层花括号的片段：直接包装 "models" 这一节。
     try {
       final decoded = jsonDecode('{$candidate}');
       if (decoded is Map && decoded['models'] != null) return '{$candidate}';
@@ -1168,33 +1243,46 @@ class GenericSiteApi {
     final enc = Uri.encodeQueryComponent(q);
     final paths = _searchPaths(site, enc, page);
     final seen = <String>{};
+    // Snapshot before the loop so the first page's own items survive the
+    // freshness filter while later paths' duplicates drop.
+    final startSeen = <String>{...seen};
     for (final pathFn in paths) {
       try {
         final parsedByBase = <String, List<VideoItem>>{};
+        // Memoize per base: the accept runs twice per probe and re-parsing
+        // against an already-fed [seen] would report a false empty page.
+        final memo = <String, List<VideoItem>>{};
         final fetched = await _fetchPageWithMirrors(
           site,
           pathFn,
           deadline: deadline,
           accept: (html, base) {
-            final items = _parseSearchResponse(html, base, <String>{}, site);
+            final items = memo.putIfAbsent(
+              base,
+              () => _parseSearchResponse(html, base, seen, site),
+            );
             if (items.isEmpty) return false;
             parsedByBase[base] = items;
             return true;
           },
         );
-        final list = parsedByBase[fetched.base] ??
-            _parseSearchResponse(
-              fetched.html,
-              fetched.base,
-              seen,
-              site,
-            );
-        if (list.isNotEmpty) return list;
+        final list = parsedByBase[fetched.base] ?? const <VideoItem>[];
+        final fresh = <VideoItem>[];
+        for (final it in list) {
+          if (startSeen.add(it.viewkey)) fresh.add(it);
+        }
+        if (fresh.isNotEmpty) return fresh;
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
-        if (DateTime.now().isAfter(deadline)) break;
+        if (DateTime.now().isAfter(deadline)) {
+          throw PhubException('搜索超时，请重试或切换网络');
+        }
         continue;
       }
+    }
+    if (DateTime.now().isAfter(deadline)) {
+      // A timed-out search must not masquerade as "no results".
+      throw PhubException('搜索超时，请重试或切换网络');
     }
     return [];
   }

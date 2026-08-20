@@ -220,6 +220,10 @@ class _SearchScreenState extends State<SearchScreen> {
           source: source,
           initialIndex: index,
           title: site.name,
+          // Generic sites need the real SiteDef so detail resolution keeps the
+          // site-specific parser branches AND mirror failover (instead of
+          // degrading to a synthetic custom-site detail query).
+          site: source == SearchSource.generic ? site : null,
           onLoadMore: () async {
             final before = (_results[site.id] ?? []).length;
             await _loadMore(site);

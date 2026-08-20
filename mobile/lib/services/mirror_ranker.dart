@@ -205,24 +205,9 @@ class MirrorRanker {
     }
   }
 
-  /// HEAD-probe every mirror of [site] through the shared proxy wiring.
-  /// Any HTTP 2xx/3xx proves the host answers; 4xx proves it answers but is
-  /// blocked for us (counted as a failure so it sinks in ranking).
-  Future<void> probeSite(SiteDef site) async {
-    if (site.mirrors.isEmpty) return;
-    final gate = <Future<void>>[];
-    for (final raw in site.mirrors) {
-      if (raw.trim().isEmpty) continue;
-      if (gate.length >= probeConcurrency) {
-        await Future.wait(gate);
-        gate.clear();
-      }
-      gate.add(_probeOne(site.id, raw));
-    }
-    await Future.wait(gate);
-    _schedulePersist();
-  }
-
+  /// HEAD-probe one site's mirrors through the shared proxy wiring.
+  /// 2xx/3xx = host answers (ok); 4xx = answers but blocked for us → counted
+  /// as a failure so it sinks in ranking; 5xx/timeouts also failures.
   Future<void> _probeOne(String siteId, String raw) async {
     final base = raw.replaceAll(RegExp(r'/$'), '');
     final sw = Stopwatch()..start();
@@ -244,7 +229,7 @@ class MirrorRanker {
       onFetchOutcome(
         siteId,
         base,
-        ok: code >= 200 && code < 500,
+        ok: code >= 200 && code < 400,
         ms: sw.elapsedMilliseconds,
       );
     } catch (_) {

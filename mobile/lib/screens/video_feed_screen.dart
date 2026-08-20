@@ -86,17 +86,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   StreamQuality? _preloadStream2;
   int _preloadRetries2 = 0;
 
-  // Legacy slots are retained for state migration/cleanup, but the runtime
-  // cap below never schedules them.
   VideoPlayerController? _preloadController3;
   int? _preloadIndex3;
   StreamQuality? _preloadStream3;
   int _preloadRetries3 = 0;
 
-  VideoPlayerController? _preloadController4;
-  int? _preloadIndex4;
-  StreamQuality? _preloadStream4;
-  int _preloadRetries4 = 0;
+  /// Consecutive failed plays (no signal / blocked / unavailable) before
+  /// auto-skip gives up — prevents an infinite skip loop on a dead feed.
+  int _consecutiveFailures = 0;
 
   bool _loading = false;
   bool _loadingMore = false;
@@ -169,8 +166,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   /// Keep the decoder budget identical on iOS and Android.
-  int get _preloadSlotCount =>
-      PlaybackHelpers.preloadSlotCount(defaultTargetPlatform);
+  int get _preloadSlotCount => PlaybackHelpers.preloadSlotCount;
 
   bool get _canRun => mounted && _active && _appInForeground;
 
@@ -341,7 +337,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
             setState(() {});
             _schedulePageResync();
           }
-        });
+        }).catchError((_) {});
       case AutoRotateAction.exitLandscape:
         if (!chrome.immersive) {
           _autoRotate?.confirmAction(action);
@@ -354,7 +350,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
             setState(() {});
             _schedulePageResync();
           }
-        });
+        }).catchError((_) {});
     }
   }
 
@@ -440,7 +436,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (_preloadController != null) _preloadController!,
       if (_preloadController2 != null) _preloadController2!,
       if (_preloadController3 != null) _preloadController3!,
-      if (_preloadController4 != null) _preloadController4!,
       ..._initializingControllers,
     ];
     _controller = null;
@@ -458,10 +453,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _preloadIndex3 = null;
     _preloadStream3 = null;
     _preloadRetries3 = 0;
-    _preloadController4 = null;
-    _preloadIndex4 = null;
-    _preloadStream4 = null;
-    _preloadRetries4 = 0;
     _initializingControllers.clear();
     for (final player in players.toSet()) {
       unawaited(_mutePauseDispose(player));
@@ -516,16 +507,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _preloadStream3 = null;
     _preloadRetries3 = 0;
     if (p3 != null) {
-      unawaited(p3.pause().catchError((_) {}).whenComplete(() => p3.dispose()));
-    }
-
-    final p4 = _preloadController4;
-    _preloadController4 = null;
-    _preloadIndex4 = null;
-    _preloadStream4 = null;
-    _preloadRetries4 = 0;
-    if (p4 != null) {
-      unawaited(p4.pause().catchError((_) {}).whenComplete(() => p4.dispose()));
+      // ignore: unawaited_futures
+      p3.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p3.dispose();
+        } catch (_) {}
+      });
     }
   }
 
@@ -560,6 +547,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   void _cancelBackgroundWork() {
     _preloadCycle++;
+    // Reset the wave marker so a resumed app re-arms preloading instead of
+    // short-circuiting on the stale (cycle, index) guard.
+    _preloadWaveIndex = -1;
     _progressTimer?.cancel();
     _progressTimer = null;
     _retryTimer?.cancel();
@@ -581,17 +571,22 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   Future<void> _toggleFullscreen() async {
     final chrome = context.read<PlayerChrome>();
-    if (chrome.immersive) {
-      await chrome.exitFullscreen();
-      _autoRotate?.syncLandscapeMode(false, fromUser: true);
-    } else {
-      final side = _autoRotate?.lastSide;
-      await chrome.enterFullscreen(preferredOrientation: side);
-      _autoRotate?.syncLandscapeMode(true, fromUser: true, side: side);
-    }
-    if (mounted) {
-      setState(() {});
-      _schedulePageResync();
+    try {
+      if (chrome.immersive) {
+        await chrome.exitFullscreen();
+        _autoRotate?.syncLandscapeMode(false, fromUser: true);
+      } else {
+        final side = _autoRotate?.lastSide;
+        await chrome.enterFullscreen(preferredOrientation: side);
+        _autoRotate?.syncLandscapeMode(true, fromUser: true, side: side);
+      }
+      if (mounted) {
+        setState(() {});
+        _schedulePageResync();
+      }
+    } catch (_) {
+      // Orientation/fullscreen channel can throw mid-transition; never let it
+      // surface as an unhandled async error.
     }
   }
 
@@ -697,10 +692,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         await _preloadNext(index);
       } else if (slot == 1) {
         await _preloadNext2(index);
-      } else if (slot == 2) {
-        await _preloadNext3(index);
       } else {
-        await _preloadNext4(index);
+        await _preloadNext3(index);
       }
     } catch (_) {
     }
@@ -856,6 +849,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               maxUrls: maxUrls,
             );
       case VideoFeedKind.hot:
+        if (widget.tagId == 'new') {
+          // "新" tab: newest uploads (o=cm), not the same trending feed as 热.
+          return context.read<PhubApi>().fetchNewest(
+                exclude: _seen,
+                limit: limit,
+                maxUrls: maxUrls,
+              );
+        }
         return context.read<PhubApi>().fetchRecommend(
               exclude: _seen,
               limit: limit,
@@ -1005,13 +1006,25 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   /// Auto-skip is an always-on behavior (previously toggleable in settings).
-  void _scheduleSkipToNext(int fromIndex) {
+  /// Gives up after [_consecutiveFailures] reaches 3 so a dead feed (no
+  /// network / every detail failing) parks instead of looping forever.
+  void _scheduleSkipToNext(int fromIndex, {String? message}) {
     if (!_canRun) return;
-    if (_items.length < 2) return;
+    _consecutiveFailures++;
+    if (_items.length < 2) {
+      if (mounted) setState(() => _pageLoading = false);
+      PlaybackHelpers.toast(context, message ?? '当前频道无信号');
+      return;
+    }
+    if (_consecutiveFailures >= 3) {
+      if (mounted) setState(() => _pageLoading = false);
+      PlaybackHelpers.toast(context, message ?? '当前频道无信号，已停止自动切换');
+      return;
+    }
     final next = (fromIndex + 1) % _items.length;
     PlaybackHelpers.toast(
       context,
-      '当前频道无信号，正在切换下一个。',
+      message ?? '当前频道无信号，正在切换下一个。',
     );
     _retryTimer?.cancel();
     _retryTimer = Timer(const Duration(milliseconds: 700), () {
@@ -1086,13 +1099,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _preloadStream3 = null;
       _preloadRetries3 = 0;
     }
-    if (_preloadSlotCount >= 4 && !keep(_preloadIndex4)) {
-      drop(_preloadController4);
-      _preloadController4 = null;
-      _preloadIndex4 = null;
-      _preloadStream4 = null;
-      _preloadRetries4 = 0;
-    }
   }
 
   void _disposePreload() {
@@ -1130,16 +1136,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _preloadStream3 = null;
     _preloadRetries3 = 0;
     if (p3 != null) {
-      unawaited(p3.pause().catchError((_) {}).whenComplete(() => p3.dispose()));
-    }
-
-    final p4 = _preloadController4;
-    _preloadController4 = null;
-    _preloadIndex4 = null;
-    _preloadStream4 = null;
-    _preloadRetries4 = 0;
-    if (p4 != null) {
-      unawaited(p4.pause().catchError((_) {}).whenComplete(() => p4.dispose()));
+      // ignore: unawaited_futures
+      p3.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p3.dispose();
+        } catch (_) {}
+      });
     }
   }
 
@@ -1393,90 +1395,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     } catch (_) {}
   }
 
-  // ignore: unused_element
-  Future<void> _preloadNext4(int index) async {
-    if (!_canRun ||
-        index < 0 ||
-        index >= _items.length ||
-        index == _currentIndex) {
-      return;
-    }
-    if (_preloadIndex4 == index && _preloadController4 != null) return;
-    final seq = _loadSeq;
-    final detail = _detailCache[index];
-    if (detail == null) return;
-    if (detail.countryBlocked || detail.unavailable) return;
-    final cap = _effectiveQualityCap;
-    final stream = PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
-    if (stream == null) return;
-    if (_preloadIndex4 == index &&
-        _preloadController4 != null &&
-        _preloadStream4?.url == stream.url) {
-      return;
-    }
-    final existing = _preloadController4;
-    final existingIndex = _preloadIndex4;
-    _preloadController4 = null;
-    _preloadIndex4 = null;
-    _preloadStream4 = null;
-    _preloadRetries4 = 0;
-    if (existing != null && existingIndex != index) {
-      // ignore: unawaited_futures
-      existing.pause().catchError((_) {}).whenComplete(() {
-        try {
-          existing.dispose();
-        } catch (_) {}
-      });
-    }
-    if (seq != _loadSeq || !_canRun) return;
-    final player = _createNetworkPlayer(stream, detail.url);
-    try {
-      await player.initialize().timeout(const Duration(seconds: 12));
-      _initializingControllers.remove(player);
-      if (PlaybackHelpers.isLikelyPreview(
-        player,
-        detail,
-        siteId: widget.site?.id,
-        isLive: widget.site?.kind == SiteKind.live,
-      )) {
-        await player.dispose();
-        return;
-      }
-      _preloadRetries4 = 0;
-    } catch (e) {
-      _initializingControllers.remove(player);
-      // Retry up to 2 times for transient failures
-      if (_preloadRetries4 < 2 && seq == _loadSeq && _canRun) {
-        _preloadRetries4++;
-        try {
-          await player.dispose();
-        } catch (_) {}
-        await Future.delayed(Duration(milliseconds: 300 * _preloadRetries4));
-        if (seq == _loadSeq && _canRun) {
-          return _preloadNext4(index);
-        }
-      }
-      try {
-        await player.dispose();
-      } catch (_) {}
-      return;
-    }
-    if (seq != _loadSeq || !_canRun) {
-      try {
-        await player.dispose();
-      } catch (_) {}
-      return;
-    }
-    _preloadController4 = player;
-    _preloadIndex4 = index;
-    _preloadStream4 = stream;
-    _preloadRetries4 = 0;
-    try {
-      await player.pause();
-      player.setVolume(0);
-    } catch (_) {}
-  }
-
   /// Failure-safe play: any error escaping the play path (e.g. a stale
   /// controller state on a rapid swipe) must never surface as an unhandled
   /// async error from a Timer/PageView callback — that kills the whole feed.
@@ -1574,14 +1492,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       preloadDetail = _detailCache[index];
       preloadStream = _preloadStream3;
       preloadSlot = 3;
-    } else if (_preloadSlotCount >= 4 &&
-        _preloadIndex4 == index &&
-        _preloadController4 != null &&
-        _preloadController4!.value.isInitialized) {
-      preloaded = _preloadController4!;
-      preloadDetail = _detailCache[index];
-      preloadStream = _preloadStream4;
-      preloadSlot = 4;
     }
 
     if (preloaded != null) {
@@ -1607,10 +1517,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _preloadController3 = null;
         _preloadIndex3 = null;
         _preloadStream3 = null;
-      } else if (preloadSlot == 4) {
-        _preloadController4 = null;
-        _preloadIndex4 = null;
-        _preloadStream4 = null;
       }
 
       if (previous != null && !identical(previous, preloaded)) {
@@ -1682,6 +1588,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _recordWatch(item);
       _startProgressTimer();
       WakelockPlus.enable();
+      _consecutiveFailures = 0;
       if (preloadDetail != null) {
         // ignore: unawaited_futures
         _translateTitleOnly(preloadDetail.title);
@@ -1698,14 +1605,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           _preloadIndex2 = _preloadIndex3;
           _preloadStream2 = _preloadStream3;
           _preloadRetries2 = _preloadRetries3;
-          _preloadController3 = _preloadController4;
-          _preloadIndex3 = _preloadIndex4;
-          _preloadStream3 = _preloadStream4;
-          _preloadRetries3 = _preloadRetries4;
-          _preloadController4 = null;
-          _preloadIndex4 = null;
-          _preloadStream4 = null;
-          _preloadRetries4 = 0;
+          _preloadController3 = null;
+          _preloadIndex3 = null;
+          _preloadStream3 = null;
+          _preloadRetries3 = 0;
         } else {
           // ignore: unawaited_futures
           _preloadNext(index + 1);
@@ -1713,13 +1616,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         final n = _preloadSlotCount;
         if (n >= 2) unawaited(_preloadNext2(index + 2));
         if (n >= 3) unawaited(_preloadNext3(index + 3));
-        if (n >= 4) unawaited(_preloadNext4(index + 4));
       }
 
       _trimPreloadState(index);
 
       // Clean up old detail cache to prevent memory growth
-      _cleanupDetailCache(index);
+      _prunePageState(index);
       return;
     }
 
@@ -1766,12 +1668,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     if (detail.countryBlocked) {
       setState(() => _pageLoading = false);
-      PlaybackHelpers.toast(context, '该视频在当前地区不可用（不自动跳过）');
+      _scheduleSkipToNext(index, message: '该视频在当前地区不可用，正在切换下一个。');
       return;
     }
     if (detail.unavailable) {
       setState(() => _pageLoading = false);
-      PlaybackHelpers.toast(context, '视频标记为不可用（不自动跳过）');
+      _scheduleSkipToNext(index, message: '视频标记为不可用，正在切换下一个。');
       return;
     }
 
@@ -1924,16 +1826,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       await ready.dispose();
       return;
     }
-    if (_multiPreload) {
-      final n = _preloadSlotCount;
-      unawaited(_preloadNext(index + 1));
-      if (n >= 2) unawaited(_preloadNext2(index + 2));
-      if (n >= 3) unawaited(_preloadNext3(index + 3));
-      if (n >= 4) unawaited(_preloadNext4(index + 4));
-    } else {
-      unawaited(_preloadNext(index + 1));
-      unawaited(_prefetchDetail(index + 2));
-    }
+    // The preload wave launched by _restartPreloading() above already covers
+    // index+1..+3; scheduling the same slots again here would race it and leak
+    // a second initialized controller per swipe.
+    _consecutiveFailures = 0;
     _recordWatch(item);
     _startProgressTimer();
     WakelockPlus.enable();
@@ -1941,7 +1837,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (mounted) setState(() {});
 
     CacheManager.onVideoPlayed();
-    _cleanupDetailCache(index);
+    _prunePageState(index);
   }
 
   /// Play a site page inside App WKWebView (Stripchat-style), not system Safari.
@@ -2049,6 +1945,33 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _detailCache
       ..clear()
       ..addAll(rebased);
+    // Rebased indices invalidate frozen/preload slots keyed by old indices:
+    // a stale alias could replay a trimmed-away item's stream under a new
+    // item's title. Drop all slots; they re-arm on the next play/preload wave.
+    final stalePlayers = <VideoPlayerController>[
+      if (_frozenController != null) _frozenController!,
+      if (_preloadController != null) _preloadController!,
+      if (_preloadController2 != null) _preloadController2!,
+      if (_preloadController3 != null) _preloadController3!,
+    ];
+    _frozenController = null;
+    _frozenIndex = null;
+    _frozenStreamHeight = 0;
+    _preloadController = null;
+    _preloadIndex = null;
+    _preloadStream = null;
+    _preloadRetries = 0;
+    _preloadController2 = null;
+    _preloadIndex2 = null;
+    _preloadStream2 = null;
+    _preloadRetries2 = 0;
+    _preloadController3 = null;
+    _preloadIndex3 = null;
+    _preloadStream3 = null;
+    _preloadRetries3 = 0;
+    for (final p in stalePlayers) {
+      unawaited(_mutePauseDispose(p));
+    }
     if (_pageCtrl.hasClients) {
       try {
         _pageCtrl.jumpToPage(_currentIndex);
@@ -2056,13 +1979,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
   }
 
-  Future<void> _disposeController({
-    VideoPlayerController? exclude,
-  }) async {
+  Future<void> _disposeController() async {
     _progressTimer?.cancel();
     _progressTimer = null;
     final c = _controller;
-    if (c == null || identical(c, exclude)) return;
+    if (c == null) return;
     // Detach only if field still points here (avoid racing a newer play).
     if (identical(_controller, c)) {
       _controller = null;
@@ -2178,6 +2099,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (_browserLiveUrl != null) {
       _liveWatchdog?.cancel();
       _liveWatchdog = null;
+      // Leaving a browser-live page: pause the old WebView immediately or it
+      // keeps streaming audio until a later rebuild.
+      unawaited(StripchatLiveView.pauseLive().catchError((_) {}));
+      _browserLiveUrl = null;
+      _browserIsStripchat = false;
+      _livePaused = false;
     }
     // Stall auto-lower is per-item only.
     _sessionQualityCap = null;
@@ -2478,7 +2405,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               setState(() {});
               _schedulePageResync();
             }
-          });
+          }).catchError((_) {});
           return;
         }
         // ignore: unawaited_futures
@@ -2535,11 +2462,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         ),
       ),
     );
-  }
-
-  /// Clean up detail cache that's far from current position to prevent memory growth
-  void _cleanupDetailCache(int currentIndex) {
-    _prunePageState(currentIndex);
   }
 
   Future<void> _freezePrevious(

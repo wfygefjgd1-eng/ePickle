@@ -49,6 +49,35 @@ class XvideosApi {
   }
 
   Future<String> _getHtml(String url) async {
+    // Record live outcomes into the ranker so a dead top mirror sinks instead
+    // of being re-chosen on every request; cancellations (another mirror won a
+    // race elsewhere) never count as failures.
+    final base = Uri.tryParse(url)?.origin ?? _base;
+    final watch = Stopwatch()..start();
+    try {
+      final html = await _getHtmlOnce(url);
+      MirrorRanker.instance.onFetchOutcome(
+        SourceCatalog.xvideos.id,
+        base,
+        ok: true,
+        ms: watch.elapsedMilliseconds,
+      );
+      return html;
+    } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) {
+        rethrow;
+      }
+      MirrorRanker.instance.onFetchOutcome(
+        SourceCatalog.xvideos.id,
+        base,
+        ok: false,
+        ms: watch.elapsedMilliseconds,
+      );
+      rethrow;
+    }
+  }
+
+  Future<String> _getHtmlOnce(String url) async {
     final token = CancelToken();
     // Cascade the instance-level cancel (page exit / tab switch).
     if (!_cancelToken.isCancelled) {
@@ -85,7 +114,7 @@ class XvideosApi {
     }
     final status = res.statusCode ?? 0;
     if (status == 401 || status == 403) {
-      throw PhubException('访问被拒绝 (403)，请检查网络环境');
+      throw PhubException('访问被拒绝 ($status)，请检查网络环境');
     }
     if (status == 404) {
       throw PhubException('页面不存在 (404)');
@@ -110,16 +139,14 @@ class XvideosApi {
     final qPct = Uri.encodeQueryComponent(raw);
     final p = (page - 1).clamp(0, 999);
     // Only ?k= forms work; /search/<kw> currently 404s.
-    // Faster mirrors first (persistent ranking); catalog order when unranked.
+    // Faster mirrors first (persistent ranking; the catalog always supplies
+    // at least one, so no hardcoded fallback list is needed here).
     final bases = <String>[
       ...MirrorRanker.instance.rankedMirrors(SourceCatalog.xvideos),
     ];
     if (bases.isEmpty) {
-      bases.addAll(const [
-        'https://www.xvideos.com',
-        'https://www.xvideos.es',
-        'https://www.xvideos.net',
-      ]);
+      // Defensive only — the catalog always supplies mirrors.
+      bases.addAll(SourceCatalog.xvideos.mirrors);
     }
     final urls = <String>[];
     for (final b in bases) {
@@ -297,12 +324,15 @@ class XvideosApi {
       r'class="duration"[^>]*>\s*([^<]+)',
       caseSensitive: false,
     );
+    // Hoisted: compiled once per parse instead of per card.
+    final videoIdRe = RegExp(r'/video\.([a-zA-Z0-9]+)');
+    final titleNoiseRe = RegExp(r'title="([^"]{3,200})"');
 
     for (final chunk in iterable) {
       final hm = hrefRe.firstMatch(chunk);
       if (hm == null) continue;
       final path = hm.group(1)!;
-      final idM = RegExp(r'/video\.([a-zA-Z0-9]+)').firstMatch(path);
+      final idM = videoIdRe.firstMatch(path);
       final id = idM?.group(1) ?? path;
       if (!seen.add(id)) continue;
 
@@ -314,7 +344,7 @@ class XvideosApi {
       } else if (tTitleFirst != null) {
         title = tTitleFirst.group(1);
       } else {
-        for (final m in RegExp(r'title="([^"]{3,200})"').allMatches(chunk)) {
+        for (final m in titleNoiseRe.allMatches(chunk)) {
           final c = m.group(1)!;
           final low = c.toLowerCase();
           if (low.contains('toggle') ||
@@ -341,7 +371,12 @@ class XvideosApi {
         }
       }
       if (title == null || title.length < 2) {
-        final slug = path.split('/').last.replaceAll('_', ' ').trim();
+        // Trailing slash on /video.123/slug/ yields an empty last segment —
+        // strip it before splitting so untitled cards aren't dropped.
+        final slashless = path.endsWith('/')
+            ? path.substring(0, path.length - 1)
+            : path;
+        final slug = slashless.split('/').last.replaceAll('_', ' ').trim();
         if (slug.length >= 2) title = slug;
       }
       if (title == null || title.length < 2) continue;

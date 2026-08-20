@@ -183,15 +183,20 @@ class LayoutSettings extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> toggleVideoSite(String id, bool enabled) async {
+  /// Returns false (and leaves the list untouched) when the last video site
+  /// would be removed — callers show "at least one site" feedback instead of
+  /// silently no-oping. The empty-list policy is therefore the same in both
+  /// entry points: an empty enabled list is never persisted.
+  Future<bool> toggleVideoSite(String id, bool enabled) async {
     final next = List<String>.from(_enabledVideoIds);
     if (enabled) {
       if (!next.contains(id)) next.add(id);
     } else {
       next.remove(id);
-      if (next.isEmpty) return;
+      if (next.isEmpty) return false;
     }
     await setEnabledVideoIds(next);
+    return true;
   }
 
   Future<void> reorderVideo(int oldIndex, int newIndex) async {

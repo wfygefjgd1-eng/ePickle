@@ -123,11 +123,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   StreamQuality? _preloadStream3;
   int _preloadRetries3 = 0;
 
-  VideoPlayerController? _preloadController4;
-  int? _preloadIndex4;
-  StreamQuality? _preloadStream4;
-  int _preloadRetries4 = 0;
-
   int _currentStreamHeight = 0;
   int? _sessionQualityCap;
   int _stallTicks = 0;
@@ -149,8 +144,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   /// Keep the decoder budget identical on iOS and Android.
-  int get _preloadSlotCount =>
-      PlaybackHelpers.preloadSlotCount(defaultTargetPlatform);
+  int get _preloadSlotCount => PlaybackHelpers.preloadSlotCount;
 
   bool get _multiPreload => _preloadSlotCount > 1;
   bool get _canRun => mounted && _appInForeground;
@@ -334,7 +328,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
             setState(() {});
             _schedulePageResync();
           }
-        });
+        }).catchError((_) {});
       case AutoRotateAction.exitLandscape:
         if (!chrome.immersive) {
           _autoRotate?.confirmAction(action);
@@ -347,7 +341,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
             setState(() {});
             _schedulePageResync();
           }
-        });
+        }).catchError((_) {});
     }
   }
 
@@ -397,7 +391,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       if (_preloadController != null) _preloadController!,
       if (_preloadController2 != null) _preloadController2!,
       if (_preloadController3 != null) _preloadController3!,
-      if (_preloadController4 != null) _preloadController4!,
       ..._initializingControllers,
     ];
     _controller = null;
@@ -415,10 +408,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _preloadIndex3 = null;
     _preloadStream3 = null;
     _preloadRetries3 = 0;
-    _preloadController4 = null;
-    _preloadIndex4 = null;
-    _preloadStream4 = null;
-    _preloadRetries4 = 0;
     _initializingControllers.clear();
     for (final player in players.toSet()) {
       unawaited(_mutePauseDispose(player));
@@ -464,12 +453,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _preloadIndex3 = null;
     _preloadStream3 = null;
     _preloadRetries3 = 0;
-
-    drop(_preloadController4);
-    _preloadController4 = null;
-    _preloadIndex4 = null;
-    _preloadStream4 = null;
-    _preloadRetries4 = 0;
   }
 
   Future<void> _exitAfterStopping() async {
@@ -539,8 +522,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       if (seq != _seq || !_canRun) return;
       if (slot == 0) {
         await _preloadNext(index);
-      } else {
+      } else if (slot == 1) {
         await _preloadNext2(index);
+      } else {
+        await _preloadNext3(index);
       }
     } catch (_) {
     }
@@ -564,17 +549,22 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   Future<void> _toggleFullscreen() async {
     final chrome = context.read<PlayerChrome>();
-    if (chrome.immersive) {
-      await chrome.exitFullscreen();
-      _autoRotate?.syncLandscapeMode(false, fromUser: true);
-    } else {
-      final side = _autoRotate?.lastSide;
-      await chrome.enterFullscreen(preferredOrientation: side);
-      _autoRotate?.syncLandscapeMode(true, fromUser: true, side: side);
-    }
-    if (mounted) {
-      setState(() {});
-      _schedulePageResync();
+    try {
+      if (chrome.immersive) {
+        await chrome.exitFullscreen();
+        _autoRotate?.syncLandscapeMode(false, fromUser: true);
+      } else {
+        final side = _autoRotate?.lastSide;
+        await chrome.enterFullscreen(preferredOrientation: side);
+        _autoRotate?.syncLandscapeMode(true, fromUser: true, side: side);
+      }
+      if (mounted) {
+        setState(() {});
+        _schedulePageResync();
+      }
+    } catch (_) {
+      // Orientation/fullscreen channel can throw mid-transition; never let it
+      // surface as an unhandled async error.
     }
   }
 
@@ -695,6 +685,17 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           final drop = _items.length - max;
           _items.removeRange(0, drop);
           _index = (_index - drop).clamp(0, _items.length - 1);
+          // Rebased indices invalidate index-keyed state: a stale
+          // _detailCache hit would play the wrong video's stream, and
+          // preload/frozen slots alias the wrong items. Drop them all; they
+          // re-arm on the next play/preload wave.
+          _itemsEpoch++;
+          _detailCache.clear();
+          _retried.clear();
+          _frozenController = null;
+          _frozenIndex = null;
+          _frozenStreamHeight = 0;
+          _disposePreloadSync();
           if (_pageCtrl.hasClients) {
             try {
               _pageCtrl.jumpToPage(_index);
@@ -710,7 +711,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   final Set<int> _retried = {};
 
-  /// Temporarily disabled auto-skip for debugging bad streams.
+  /// Auto-skip retries once per item, then parks on it with a toast — no
+  /// endless skip loop on a dead feed.
   void _scheduleSkipToNext(int fromIndex) {
     if (!_retried.contains(fromIndex)) {
       _retried.add(fromIndex);
@@ -786,14 +788,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       preloadDetail = _detailCache[index];
       preloadStream = _preloadStream3;
       preloadSlot = 3;
-    } else if (_preloadSlotCount >= 4 &&
-        _preloadIndex4 == index &&
-        _preloadController4 != null &&
-        _preloadController4!.value.isInitialized) {
-      preloaded = _preloadController4!;
-      preloadDetail = _detailCache[index];
-      preloadStream = _preloadStream4;
-      preloadSlot = 4;
     }
 
     if (preloaded != null) {
@@ -817,10 +811,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         _preloadController3 = null;
         _preloadIndex3 = null;
         _preloadStream3 = null;
-      } else if (preloadSlot == 4) {
-        _preloadController4 = null;
-        _preloadIndex4 = null;
-        _preloadStream4 = null;
       }
 
       if (previous != null && !identical(previous, preloaded)) {
@@ -903,14 +893,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           _preloadIndex2 = _preloadIndex3;
           _preloadStream2 = _preloadStream3;
           _preloadRetries2 = _preloadRetries3;
-          _preloadController3 = _preloadController4;
-          _preloadIndex3 = _preloadIndex4;
-          _preloadStream3 = _preloadStream4;
-          _preloadRetries3 = _preloadRetries4;
-          _preloadController4 = null;
-          _preloadIndex4 = null;
-          _preloadStream4 = null;
-          _preloadRetries4 = 0;
+          _preloadController3 = null;
+          _preloadIndex3 = null;
+          _preloadStream3 = null;
+          _preloadRetries3 = 0;
         } else {
           // ignore: unawaited_futures
           _preloadNext(index + 1);
@@ -924,17 +910,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           // ignore: unawaited_futures
           _preloadNext3(index + 3);
         }
-        if (n >= 4) {
-          // ignore: unawaited_futures
-          _preloadNext4(index + 4);
-        }
       } else {
         // ignore: unawaited_futures
         _preloadNext(index + 1);
         unawaited(_prefetchDetail(index + 2));
       }
 
-      _cleanupDetailCache(index);
+      _prunePageState(index);
       return;
     }
 
@@ -1052,15 +1034,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (player == null || stream == null) {
       if (mounted && seq == _seq) {
         setState(() => _pageLoading = false);
-        final net = context.read<AppSettings>();
-        final tip = net.proxyEnabled && net.hasProxyEndpoint
-            ? (net.proxyType == 'socks5'
-                ? '列表可能已通，播放常不跟 SOCKS。可开 TUN 或改用 HTTP 代理'
-                : '列表可能已通，播放仍失败。可开 TUN 或检查代理是否支持视频')
-            : '播放失败。有列表播不动：开 TUN 或设置 HTTP 代理';
+        // Proxy is auto-followed from the system route; there is no in-app
+        // proxy settings UI — direct the user to TUN / system proxy instead.
         PlaybackHelpers.toast(
           context,
-          tip,
+          '播放失败。有列表播不动：开 TUN 或检查系统代理',
           duration: const Duration(seconds: 3),
         );
         _scheduleSkipToNext(index);
@@ -1112,16 +1090,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       await player.dispose();
       return;
     }
-    if (_multiPreload) {
-      final n = _preloadSlotCount;
-      unawaited(_preloadNext(index + 1));
-      if (n >= 2) unawaited(_preloadNext2(index + 2));
-      if (n >= 3) unawaited(_preloadNext3(index + 3));
-      if (n >= 4) unawaited(_preloadNext4(index + 4));
-    } else {
-      unawaited(_preloadNext(index + 1));
-      unawaited(_prefetchDetail(index + 2));
-    }
+    // _restartPreloading() above already launched the wave covering
+    // index+1..+3; scheduling the same slots again here races it and leaks a
+    // second initialized controller per swipe.
     _trimPreloadState(index);
     _startTimer();
     WakelockPlus.enable();
@@ -1130,7 +1101,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (mounted) setState(() {});
 
     // Clean up old detail cache to prevent memory growth
-    _cleanupDetailCache(index);
+    _prunePageState(index);
   }
 
   Future<void> _translateTitleOnly(String title) async {
@@ -1199,40 +1170,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _prefetchingIndex = null;
     _preloadWaveSeq = -1;
     _preloadWaveIndex = -1;
-    _dropAllPreloads();
+    _disposePreloadSync();
     _restartPreloading();
-  }
-
-  void _dropAllPreloads() {
-    void drop(VideoPlayerController? controller) {
-      if (controller == null) return;
-      unawaited(controller.pause().catchError((_) {}).whenComplete(() {
-        try {
-          controller.dispose();
-        } catch (_) {}
-      }));
-    }
-
-    drop(_preloadController);
-    _preloadController = null;
-    _preloadIndex = null;
-    _preloadStream = null;
-    _preloadRetries = 0;
-    drop(_preloadController2);
-    _preloadController2 = null;
-    _preloadIndex2 = null;
-    _preloadStream2 = null;
-    _preloadRetries2 = 0;
-    drop(_preloadController3);
-    _preloadController3 = null;
-    _preloadIndex3 = null;
-    _preloadStream3 = null;
-    _preloadRetries3 = 0;
-    drop(_preloadController4);
-    _preloadController4 = null;
-    _preloadIndex4 = null;
-    _preloadStream4 = null;
-    _preloadRetries4 = 0;
   }
 
   void _trimPreloadState(int currentIndex) {
@@ -1271,13 +1210,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _preloadIndex3 = null;
       _preloadStream3 = null;
       _preloadRetries3 = 0;
-    }
-    if (_preloadSlotCount >= 4 && !keep(_preloadIndex4)) {
-      drop(_preloadController4);
-      _preloadController4 = null;
-      _preloadIndex4 = null;
-      _preloadStream4 = null;
-      _preloadRetries4 = 0;
     }
   }
 
@@ -1518,87 +1450,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _preloadIndex3 = index;
     _preloadStream3 = stream;
     _preloadRetries3 = 0;
-    try {
-      await player.pause();
-      player.setVolume(0);
-    } catch (_) {}
-  }
-
-  Future<void> _preloadNext4(int index) async {
-    if (!_canRun || index < 0 || index >= _items.length || index == _index) {
-      return;
-    }
-    if (_preloadIndex4 == index && _preloadController4 != null) return;
-    final seq = _seq;
-    final epoch = _itemsEpoch;
-    final detail = _detailCache[index];
-    if (detail == null) return;
-    if (detail.countryBlocked || detail.unavailable) return;
-    final cap = _effectiveQualityCap;
-    final stream = PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
-    if (stream == null) return;
-    if (_preloadIndex4 == index &&
-        _preloadController4 != null &&
-        _preloadStream4?.url == stream.url) {
-      return;
-    }
-    final existing = _preloadController4;
-    final existingIndex = _preloadIndex4;
-    _preloadController4 = null;
-    _preloadIndex4 = null;
-    _preloadStream4 = null;
-    _preloadRetries4 = 0;
-    if (existing != null && existingIndex != index) {
-      // ignore: unawaited_futures
-      existing.pause().catchError((_) {}).whenComplete(() {
-        try {
-          existing.dispose();
-        } catch (_) {}
-      });
-    }
-    if (seq != _seq || !_canRun) return;
-    final player = _createNetworkPlayer(stream, detail.url);
-    try {
-      await player.initialize().timeout(const Duration(seconds: 12));
-      _initializingControllers.remove(player);
-      if (PlaybackHelpers.isLikelyPreview(
-        player,
-        detail,
-        siteId: widget.site?.id,
-        isLive: widget.site?.kind == SiteKind.live,
-      )) {
-        await player.dispose();
-        return;
-      }
-      _preloadRetries4 = 0;
-    } catch (e) {
-      _initializingControllers.remove(player);
-      // Retry up to 2 times for transient failures
-      if (_preloadRetries4 < 2 && seq == _seq) {
-        _preloadRetries4++;
-        try {
-          await player.dispose();
-        } catch (_) {}
-        await Future.delayed(Duration(milliseconds: 300 * _preloadRetries4));
-        if (seq == _seq && epoch == _itemsEpoch && _canRun) {
-          return _preloadNext4(index);
-        }
-      }
-      try {
-        await player.dispose();
-      } catch (_) {}
-      return;
-    }
-    if (seq != _seq || !_canRun || epoch != _itemsEpoch) {
-      try {
-        await player.dispose();
-      } catch (_) {}
-      return;
-    }
-    _preloadController4 = player;
-    _preloadIndex4 = index;
-    _preloadStream4 = stream;
-    _preloadRetries4 = 0;
     try {
       await player.pause();
       player.setVolume(0);
@@ -1979,7 +1830,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
               setState(() {});
               _schedulePageResync();
             }
-          });
+          }).catchError((_) {});
           return;
         }
         // ignore: unawaited_futures
@@ -2434,11 +2285,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     } finally {
       _stallLowering = false;
     }
-  }
-
-  /// Clean up detail cache that's far from current position to prevent memory growth
-  void _cleanupDetailCache(int currentIndex) {
-    _prunePageState(currentIndex);
   }
 
   void _prunePageState(int currentIndex) {

@@ -13,13 +13,8 @@ class AppSettings extends ChangeNotifier {
   static const _kShowSearchBackButton = 'show_search_back_button';
   static const _kShowFullscreenButton = 'show_fullscreen_button';
   static const _kShowMuteButton = 'show_mute_button';
-  static const _kProxyEnabled = 'proxy_enabled';
-  static const _kProxyHost = 'proxy_host';
-  static const _kProxyPort = 'proxy_port';
-  static const _kProxyType = 'proxy_type'; // http | socks5
-  static const _kProxyUserConfigured = 'proxy_user_configured';
   static const _kAutoRotate = 'auto_rotate_landscape';
-  static const _kPromptOnStall = 'auto_lower_on_stall';
+  static const _kAutoLowerOnStall = 'auto_lower_on_stall';
   static const _kHuangguoDomain = 'huangguo_domain_v1';
 
   bool _skipIntro = true;
@@ -29,15 +24,7 @@ class AppSettings extends ChangeNotifier {
   bool _showSearchBackButton = true;
   bool _showFullscreenButton = true;
   bool _showMuteButton = true;
-
-  /// Default to DIRECT; TUN handles routing at system level.
-  bool _proxyEnabled = false;
-  String _proxyHost = '';
-  int _proxyPort = 0;
-  String _proxyType = 'http';
-  bool _userConfiguredProxy = false;
   bool _ready = false;
-  String _proxyAutoNote = '';
   bool _autoRotate = true;
   bool _autoLowerOnStall = true;
 
@@ -52,76 +39,10 @@ class AppSettings extends ChangeNotifier {
   bool get showSearchBackButton => _showSearchBackButton;
   bool get showFullscreenButton => _showFullscreenButton;
   bool get showMuteButton => _showMuteButton;
-  bool get proxyEnabled => _proxyEnabled;
-  String get proxyHost => _proxyHost;
-  int get proxyPort => _proxyPort;
-  String get proxyType => _proxyType;
   bool get ready => _ready;
-  String get proxyAutoNote => _proxyAutoNote;
   bool get autoRotate => _autoRotate;
   bool get autoLowerOnStall => _autoLowerOnStall;
   String get huangguoDomain => _huangguoDomain;
-
-  bool get hasProxyEndpoint =>
-      _proxyHost.isNotEmpty && _proxyPort > 0 && _proxyPort < 65536;
-
-  String get qualityLabel {
-    switch (_qualityCap) {
-      case 360:
-        return '360p';
-      case 480:
-        return '480p';
-      case 720:
-        return '720p';
-      case 1080:
-        return '1080p';
-      default:
-        return '自动';
-    }
-  }
-
-  String get proxySummary {
-    if (!_proxyEnabled) return '关闭（纯直连 / 仅 TUN）';
-    if (!hasProxyEndpoint) {
-      return '已开启，但未检测到系统代理（将直连；可手动填写）';
-    }
-    final note = _proxyAutoNote.isEmpty ? '' : ' · $_proxyAutoNote';
-    return '${_proxyType.toUpperCase()} $_proxyHost:$_proxyPort$note';
-  }
-
-  /// One-line status for settings header (一眼懂).
-  String get networkStatusTitle {
-    if (!_proxyEnabled) return '当前：直连（仅系统路由 / TUN）';
-    if (!hasProxyEndpoint) return '当前：直连 · 系统未下发代理';
-    return '当前：$_proxyType $_proxyHost:$_proxyPort';
-  }
-
-  String get networkStatusDetail {
-    if (!_proxyEnabled) {
-      return '列表与详情不走 App 代理。已开全局 TUN 时通常够用。';
-    }
-    if (!hasProxyEndpoint) {
-      return '开关开着但没有可用主机:端口 → 实际仍直连。'
-          '可点「重新检测」，或手动填写；'
-          '仅浏览器代理时系统往往检测不到。';
-    }
-    final jvm = _proxyType == 'http'
-        ? '列表/详情走代理；播放会尽力跟 HTTP 代理。'
-        : '列表/详情走 SOCKS；播放器可能不跟 SOCKS，播不动时可开 TUN。';
-    final note = _proxyAutoNote.isEmpty ? '' : '（$_proxyAutoNote）';
-    return '$jvm$note';
-  }
-
-  void _syncHttpClient() {
-    // Manual proxy only when user explicitly set host:port.
-    final use = _proxyEnabled && hasProxyEndpoint && _userConfiguredProxy;
-    AppHttpClient.applyProxyConfig(
-      enabled: use,
-      host: _proxyHost,
-      port: _proxyPort,
-      type: _proxyType,
-    );
-  }
 
   Future<void> load() async {
     try {
@@ -138,57 +59,23 @@ class AppSettings extends ChangeNotifier {
           p.getBool(_kShowFullscreenButton) ?? !iosDefault;
       _showMuteButton = p.getBool(_kShowMuteButton) ?? !iosDefault;
       _autoRotate = p.getBool(_kAutoRotate) ?? true;
-      _autoLowerOnStall = p.getBool(_kPromptOnStall) ?? true;
+      _autoLowerOnStall = p.getBool(_kAutoLowerOnStall) ?? true;
       _huangguoDomain = _normalizeHuangguoDomain(
         p.getString(_kHuangguoDomain) ?? huangguoDefaultDomain,
       );
-
-      // Default to DIRECT (TUN handles routing at system level).
-      // Only enable proxy if the user explicitly configured one (clears stale auto-detect).
-      _userConfiguredProxy = p.getBool(_kProxyUserConfigured) ?? false;
-      _proxyEnabled = _userConfiguredProxy && (p.getBool(_kProxyEnabled) ?? false);
-      _proxyHost = p.getString(_kProxyHost) ?? '';
-      _proxyPort = p.getInt(_kProxyPort) ?? 0;
-      _proxyType = p.getString(_kProxyType) ?? 'http';
-      if (_proxyType != 'socks5') _proxyType = 'http';
-      // Clear stale auto-detected proxy from old versions.
-      if (!_userConfiguredProxy) {
-        _proxyHost = '';
-        _proxyPort = 0;
-      }
-} catch (_) {
+    } catch (_) {
       // SharedPreferences unavailable (plugin missing / store corrupt).
       // Every assignment above uses `?? <initializer-default>`, so the field
       // initializers already hold exactly what this block used to duplicate.
     }
 
-    if (_userConfiguredProxy && hasProxyEndpoint) {
-      _proxyAutoNote = '手动设置';
-    } else {
-      // Clear stale auto-detected values from old builds.
-      if (!_userConfiguredProxy) {
-        _proxyHost = '';
-        _proxyPort = 0;
-        _proxyType = 'http';
-        _proxyEnabled = false;
-      }
-      _proxyAutoNote = '系统代理由 Dio 自动跟随（Android）';
-    }
-
-    _syncHttpClient();
-    // Android: make Dio follow system HTTP proxy like WebView. main() already
-    // awaited a refresh; joining the throttled/in-flight result is nearly
-    // free and avoids a second native detection just for the status note.
-    await AppHttpClient.refreshSystemProxy();
-    if (!_userConfiguredProxy) {
-      final host = AppHttpClient.systemHost;
-      final port = AppHttpClient.systemPort;
-      if (host != null && host.isNotEmpty && port > 0) {
-        _proxyAutoNote = '系统代理 $host:$port (检测)';
-      } else {
-        _proxyAutoNote = '直连 / TUN';
-      }
-    }
+    try {
+      // Android: make Dio follow system HTTP proxy like WebView. main() already
+      // awaited a refresh; joining the throttled/in-flight result is nearly
+      // free and avoids a second native detection. The whole tail stays inside
+      // a try so a detection failure can never blank the app at startup.
+      await AppHttpClient.refreshSystemProxy();
+    } catch (_) {}
     _ready = true;
     notifyListeners();
   }
@@ -229,7 +116,7 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     try {
       final p = await SharedPreferences.getInstance();
-      await p.setBool(_kPromptOnStall, v);
+      await p.setBool(_kAutoLowerOnStall, v);
     } catch (_) {}
   }
 
@@ -311,78 +198,5 @@ class AppSettings extends ChangeNotifier {
       final p = await SharedPreferences.getInstance();
       await p.setBool(_kShowMuteButton, v);
     } catch (_) {}
-  }
-
-  Future<void> setProxyEnabled(bool v) async {
-    if (_proxyEnabled == v) return;
-    _proxyEnabled = v;
-    _syncHttpClient();
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kProxyEnabled, v);
-    } catch (_) {}
-  }
-
-  Future<void> setProxyHost(String v) async {
-    final host = v.trim();
-    if (host == _proxyHost && _userConfiguredProxy) return;
-    _proxyHost = host;
-    _userConfiguredProxy = true;
-    _proxyAutoNote = '手动设置';
-    _syncHttpClient();
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setString(_kProxyHost, _proxyHost);
-      await p.setBool(_kProxyUserConfigured, true);
-    } catch (_) {}
-  }
-
-  Future<void> setProxyPort(int v) async {
-    final port = (v > 0 && v < 65536) ? v : 0;
-    if (port == _proxyPort && _userConfiguredProxy) return;
-    _proxyPort = port;
-    _userConfiguredProxy = true;
-    _proxyAutoNote = '手动设置';
-    _syncHttpClient();
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setInt(_kProxyPort, _proxyPort);
-      await p.setBool(_kProxyUserConfigured, true);
-    } catch (_) {}
-  }
-
-  Future<void> setProxyType(String v) async {
-    final t = v == 'socks5' ? 'socks5' : 'http';
-    if (t == _proxyType && _userConfiguredProxy) return;
-    _proxyType = t;
-    _userConfiguredProxy = true;
-    _proxyAutoNote = '手动设置';
-    _syncHttpClient();
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setString(_kProxyType, _proxyType);
-      await p.setBool(_kProxyUserConfigured, true);
-    } catch (_) {}
-  }
-
-  /// Re-read Android system proxy for Dio.
-  Future<void> refreshSystemProxy() async {
-    await AppHttpClient.refreshSystemProxy();
-    // Use the detection result AppHttpClient already cached — no second
-    // native lookup needed just for the status note.
-    if (!_userConfiguredProxy) {
-      final host = AppHttpClient.systemHost;
-      final port = AppHttpClient.systemPort;
-      if (host != null && host.isNotEmpty && port > 0) {
-        _proxyAutoNote = '系统代理 $host:$port (检测)';
-      } else {
-        _proxyAutoNote = '直连 / TUN';
-      }
-    }
-    notifyListeners();
   }
 }

@@ -7,13 +7,13 @@ import 'package:provider/provider.dart';
 import '../models/video_item.dart';
 import '../services/feed_list_cache.dart';
 import '../services/generic_site_api.dart';
-import '../services/huangguo_api.dart';
 import '../services/layout_settings.dart';
 import '../services/mirror_ranker.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
 import '../services/source_catalog.dart';
 import '../services/xvideos_api.dart';
+import '../utils/playback_helpers.dart';
 import '../widgets/player_settings_sheet.dart';
 import '../widgets/site_logo.dart';
 import 'search_screen.dart';
@@ -96,19 +96,22 @@ class _HomePageState extends State<HomePage> {
     final lay = context.read<LayoutSettings>();
     if (site.custom) {
       await lay.removeCustomUrl(site.primaryHost);
-    } else {
-      await lay.toggleVideoSite(site.id, false);
+      return;
+    }
+    final removed = await lay.toggleVideoSite(site.id, false);
+    if (!removed && mounted) {
+      PlaybackHelpers.toast(context, '至少保留一个视频站点');
     }
   }
 
   Future<void> _prewarmHomeFeeds() async {
     if (_prewarmStarted || !mounted) return;
-    _prewarmStarted = true;
     // Don't spend network if the app was backgrounded within the delay.
     if (WidgetsBinding.instance.lifecycleState !=
         AppLifecycleState.resumed) {
       return;
     }
+    _prewarmStarted = true;
     final sites = context
         .read<LayoutSettings>()
         .enabledVideoSites
@@ -148,9 +151,10 @@ class _HomePageState extends State<HomePage> {
       case 'mitao':
         return context.read<MitaoApi>().fetchZhong(limit: 12, maxPages: 2);
       case 'huangguo':
-        return context
-            .read<HuangGuoApi>()
-            .fetchFeed(tagId: tag.id, page: 1, limit: 12);
+        // HuangGuo opens HuangGuoWebPage, which does not consume
+        // FeedListCache — skip prewarm so we never spend network on a cache
+        // nobody reads.
+        return Future.value(const <VideoItem>[]);
       default:
         return context.read<GenericSiteApi>().fetchFeed(
               site,
@@ -426,36 +430,32 @@ class _MirrorProbeBadge extends StatelessWidget {
       valueListenable: MirrorRanker.instance.probing,
       builder: (context, probing, _) {
         if (!probing) return const SizedBox.shrink();
-        return AnimatedOpacity(
-          opacity: 1,
-          duration: const Duration(milliseconds: 200),
-          child: Material(
-            color: const Color(0xD91E1E1E),
-            borderRadius: BorderRadius.circular(16),
-            elevation: 3,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Color(0xFFFF6B35),
-                    ),
+        return Material(
+          color: const Color(0xD91E1E1E),
+          borderRadius: BorderRadius.circular(16),
+          elevation: 3,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFFFF6B35),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '正在测速最快域名…',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      fontSize: 12,
-                    ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '正在测速最快域名…',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontSize: 12,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         );

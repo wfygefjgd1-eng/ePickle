@@ -53,6 +53,34 @@ class MitaoApi {
   }
 
   Future<String> _getHtml(String url) async {
+    // Live outcomes feed the ranker so a dead top mirror sinks instead of
+    // being re-chosen forever; cancellations are never failures.
+    final base = Uri.tryParse(url)?.origin ?? this.base;
+    final watch = Stopwatch()..start();
+    try {
+      final html = await _getHtmlOnce(url);
+      MirrorRanker.instance.onFetchOutcome(
+        SourceCatalog.mitao.id,
+        base,
+        ok: true,
+        ms: watch.elapsedMilliseconds,
+      );
+      return html;
+    } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) {
+        rethrow;
+      }
+      MirrorRanker.instance.onFetchOutcome(
+        SourceCatalog.mitao.id,
+        base,
+        ok: false,
+        ms: watch.elapsedMilliseconds,
+      );
+      rethrow;
+    }
+  }
+
+  Future<String> _getHtmlOnce(String url) async {
     final token = CancelToken();
     // Cascade the instance-level cancel (page exit / tab switch).
     if (!_cancelToken.isCancelled) {
@@ -79,7 +107,7 @@ class MitaoApi {
     }
     final status = res.statusCode ?? 0;
     if (status == 401 || status == 403) {
-      throw PhubException('访问被拒绝 (403)，请检查网络环境');
+      throw PhubException('访问被拒绝 ($status)，请检查网络环境');
     }
     if (status == 404) {
       throw PhubException('页面不存在 (404)');
@@ -153,7 +181,6 @@ class MitaoApi {
         return _parseList(html, seen);
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
-        failCount++;
         if (p > 1) {
           try {
             final alt = '$base/index.php/vod/type/id/$zhongTypeId.html?page=$p';
@@ -161,9 +188,10 @@ class MitaoApi {
             return _parseList(html, seen);
           } catch (e) {
             if (e is DioException && CancelToken.isCancel(e)) rethrow;
-            failCount++;
           }
         }
+        // Count once per page (primary + alt are one logical page attempt).
+        failCount++;
         return const <VideoItem>[];
       }
     }

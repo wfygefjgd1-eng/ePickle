@@ -11,6 +11,9 @@ class PrivacyWipe {
       // channel may be unavailable on some platforms; ignore
     } on MissingPluginException {
       // not registered; ignore
+    } catch (_) {
+      // A non-conforming channel reply (TypeError etc.) must never interrupt
+      // the wipe flow mid-exit.
     }
   }
 
@@ -23,6 +26,8 @@ class PrivacyWipe {
       // channel may be unavailable on some platforms; ignore
     } on MissingPluginException {
       // not registered; ignore
+    } catch (_) {
+      // See nuclearWipe.
     }
   }
 
@@ -33,6 +38,8 @@ class PrivacyWipe {
       // ignore
     } on MissingPluginException {
       // ignore
+    } catch (_) {
+      // See nuclearWipe.
     }
   }
 }

@@ -31,7 +31,6 @@ class PhubApi {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          options.headers['Cookie'] = _cookieHeader();
           options.cancelToken ??= _cancelToken;
           // Every hardcoded www.pornhub.com URL is transparently rerouted to
           // the fastest-ranked mirror (feed/search/thumbnail/detail all pass
@@ -41,6 +40,9 @@ class PhubApi {
             options.path =
                 '$_base${p.substring(_primaryHost.length)}';
           }
+          // Cookie header is computed AFTER the rewrite so set-cookie from the
+          // actual mirror host is sent back to that same host.
+          options.headers['Cookie'] = _cookieHeaderFor(options.path);
           handler.next(options);
         },
         onResponse: (response, handler) {
@@ -72,6 +74,12 @@ class PhubApi {
     'platform': 'pc',
   };
 
+  /// Per-mirror set-cookie jar (keyed by response host) so one mirror's
+  /// cookies never poison the others — flat last-writer-wins across mirrors
+  /// could let a restrictive cookie (age_verified=0, locale) silently break
+  /// every other mirror for the whole session.
+  final Map<String, Map<String, String>> _dynamicCookies = {};
+
   static final _flashvarsRe =
       RegExp(r'var\s+flashvars_\d+\s*=\s*(\{.*?\});', dotAll: true);
   // Site occasionally omits `var` or uses different spacing.
@@ -80,33 +88,117 @@ class PhubApi {
   static final _flashvarsReQuoted =
       RegExp(r'''["']flashvars_\d+["']\s*[:=]\s*(\{.*?\})''', dotAll: true);
   static final _viewkeyRe = RegExp(r'viewkey=([a-f0-9]+)');
-  static final _durationRe = RegExp(
-    r'class="[^"]*duration[^"]*"[^>]*>\s*(\d+:\d+(?::\d+)?)\s*<',
-  );
   static final _durRe = RegExp(
     r'class="[^"]*dur[^"]*"[^>]*>\s*(\d+:\d+(?::\d+)?)\s*<',
   );
+  static final _titleAttrRe = RegExp(r'title="([^"]{4,200})"');
+  static final _altAttrRe = RegExp(r'alt="([^"]{4,200})"');
+  static final _thumbDataSrcRe = RegExp(r'data-src="(https?://[^"]+)"');
+  static final _thumbDataThumbRe = RegExp(r'data-thumb="(https?://[^"]+)"');
+  static final _thumbDataThumbUrlRe =
+      RegExp(r'data-thumb_url="(https?://[^"]+)"');
+  static final _thumbDataMediumRe =
+      RegExp(r'data-mediumthumb="(https?://[^"]+)"');
+  static final _thumbDataImageRe = RegExp(r'data-image="(https?://[^"]+)"');
+  static final _thumbDataOriginalRe =
+      RegExp(r'data-original="(https?://[^"]+)"');
+  static final _thumbDataLazyRe = RegExp(r'data-lazy-src="(https?://[^"]+)"');
+  static final _thumbDataSrcsetRe =
+      RegExp(r'data-srcset="[^"]*(https?://[^"\s,]+)"');
+  static final _thumbImgSrcRe = RegExp(r'img[^>]+src="(https?://[^"]+)"');
+  static final _thumbPosterRe = RegExp(r'poster="(https?://[^"]+)"');
+  static final _thumbDataPreviewRe =
+      RegExp(r'data-preview_url="(https?://[^"]+)"');
+  static final _thumbDataV3Re =
+      RegExp(r'data-thumb_url_v3="(https?://[^"]+)"');
+  static final _thumbDataMediabookRe =
+      RegExp(r'data-mediabook="(https?://[^"]+)"');
+  static final _thumbBgImageRe =
+      RegExp(r"""background(?:-image)?:\s*url\(['"]?(https?://[^'" )]+)""");
+  static final _thumbPhncdnRe = RegExp(
+    r"""https?://[a-z0-9]+\.phncdn\.com/[^"'\s<>)]+\.(?:jpg|jpeg|png|webp)""",
+    caseSensitive: false,
+  );
 
-  String _cookieHeader() =>
-      _cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
+  String _cookieHeaderFor(String url) {
+    final host = Uri.tryParse(url)?.host;
+    final dynamicPart = host == null ? null : _dynamicCookies[host];
+    final entries = <String, String>{
+      ..._cookies,
+      ...?dynamicPart,
+    };
+    return entries.entries.map((e) => '${e.key}=${e.value}').join('; ');
+  }
 
   void _storeCookies(Response response) {
     final raw = response.headers.map['set-cookie'];
-    if (raw == null) return;
+    final host = response.realUri.host;
+    if (raw == null || raw.isEmpty || host.isEmpty) return;
+    final jar = _dynamicCookies.putIfAbsent(host, () => <String, String>{});
     for (final line in raw) {
       final part = line.split(';').first;
       final i = part.indexOf('=');
       if (i <= 0) continue;
       final k = part.substring(0, i).trim();
       final v = part.substring(i + 1).trim();
-      if (k.isNotEmpty) _cookies[k] = v;
+      if (k.isEmpty) continue;
+      if (v.isEmpty) {
+        jar.remove(k);
+      } else {
+        jar[k] = v;
+      }
     }
   }
 
   Future<String> _getHtml(String url) async {
-    // Single-request budget so a hanging proxy/socket can never hold a feed,
-    // search, or detail open beyond 10s. On timeout we cancel the underlying
-    // request AND flag the proxy cache suspect (it may have gone stale).
+    // Failover ladder: fastest-ranked mirror first, then the next mirrors —
+    // every mirror stays in play. Each attempt gets its own 10s budget, the
+    // ladder as a whole is bounded so a dead top mirror can't hold a request
+    // open for minutes. Live outcomes feed the ranker so a dead mirror sinks
+    // in future order instead of being re-chosen forever.
+    final mirrors = MirrorRanker.instance.rankedMirrors(SourceCatalog.pornhub);
+    final bases = <String>[
+      for (final m in mirrors.take(3))
+        m.replaceAll(RegExp(r'/$'), ''),
+    ];
+    if (bases.isEmpty) bases.add(_primaryHost);
+    final ladderStarted = DateTime.now();
+    Object? lastError;
+    for (final base in bases) {
+      final budget = DateTime.now().difference(ladderStarted) +
+          _singleRequestTimeout;
+      if (budget > const Duration(seconds: 24)) break;
+      final attemptUrl =
+          url.startsWith(_primaryHost) ? '$base${url.substring(_primaryHost.length)}' : url;
+      final watch = Stopwatch()..start();
+      try {
+        final html = await _getHtmlOnce(attemptUrl);
+        MirrorRanker.instance.onFetchOutcome(
+          SourceCatalog.pornhub.id,
+          base,
+          ok: true,
+          ms: watch.elapsedMilliseconds,
+        );
+        return html;
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) {
+          rethrow;
+        }
+        lastError = e;
+        MirrorRanker.instance.onFetchOutcome(
+          SourceCatalog.pornhub.id,
+          base,
+          ok: false,
+          ms: watch.elapsedMilliseconds,
+        );
+      }
+    }
+    throw lastError ?? PhubException('所有镜像均不可用');
+  }
+
+  /// Single-mirror fetch with a 10s budget; on timeout it cancels the
+  /// underlying request AND flags the proxy cache suspect (it may be stale).
+  Future<String> _getHtmlOnce(String url) async {
     final token = CancelToken();
     // Cascade the instance-level cancel (page exit / tab switch) into this
     // per-request token.
@@ -134,7 +226,7 @@ class PhubApi {
     }
     final status = res.statusCode ?? 0;
     if (status == 401 || status == 403) {
-      throw PhubException('访问被拒绝 (403)，请检查网络环境');
+      throw PhubException('访问被拒绝 ($status)，请检查网络环境');
     }
     if (status == 404) {
       throw PhubException('页面不存在 (404)');
@@ -166,6 +258,27 @@ class PhubApi {
           'https://www.pornhub.com/video',
           'https://www.pornhub.com/recommended',
           'https://www.pornhub.com/',
+        ],
+        categoryId: null,
+      );
+
+  /// Newest feed（"新" tab）— o=cm = most recently uploaded, distinct from
+  /// the trending 热闹 feed.
+  Future<List<VideoItem>> fetchNewest({
+    int limit = 50,
+    Set<String>? exclude,
+    int maxUrls = 5,
+  }) =>
+      _fetchListFeed(
+        limit: limit,
+        exclude: exclude,
+        maxUrls: maxUrls,
+        primary: const [
+          'https://www.pornhub.com/video?o=cm',
+          'https://www.pornhub.com/video?o=cm&page=2',
+          'https://www.pornhub.com/video?o=cm&page=3',
+          'https://www.pornhub.com/video?o=cm&page=4',
+          'https://www.pornhub.com/video?o=cm&page=5',
         ],
         categoryId: null,
       );
@@ -437,10 +550,23 @@ class PhubApi {
   }
 
   List<VideoItem> _parseVideoListHtml(String html, Set<String> seen) {
-    // Run both parsers: chunk-based (fast, comprehensive) + DOM (fallback).
-    // Merge results so items missing thumb from one pass get it from the other.
+    // Chunk-based parser is the fast primary; the DOM pass backfills thumbs
+    // the chunk pass missed (data-* attributes change often) and adds items
+    // only it could see.
     final results = _parseViaViewkeyChunks(html, seen);
     final domItems = _parseViaDom(html, seen);
+    final byVk = <String, VideoItem>{for (final d in domItems) d.viewkey: d};
+    for (var i = 0; i < results.length; i++) {
+      final item = results[i];
+      if (item.thumb != null) continue;
+      final d = byVk[item.viewkey];
+      if (d != null &&
+          d.thumb != null &&
+          d.thumb!.startsWith('http') &&
+          !identical(d, item)) {
+        results[i] = item.copyWith(thumb: d.thumb);
+      }
+    }
     for (final item in domItems) {
       if (!seen.contains(item.viewkey)) {
         results.add(item);
@@ -488,10 +614,10 @@ class PhubApi {
   String? _extractTitle(String chunk) {
     // Prefer explicit video titles; skip UI / promo noise.
     final candidates = <String>[];
-    for (final m in RegExp(r'title="([^"]{4,200})"').allMatches(chunk)) {
+    for (final m in _titleAttrRe.allMatches(chunk)) {
       candidates.add(m.group(1)!);
     }
-    final alt = RegExp(r'alt="([^"]{4,200})"').firstMatch(chunk);
+    final alt = _altAttrRe.firstMatch(chunk);
     if (alt != null) candidates.add(alt.group(1)!);
     String? best;
     for (var t in candidates) {
@@ -522,32 +648,28 @@ class PhubApi {
   }
 
   String _extractDuration(String chunk) {
-    final m = _durationRe.firstMatch(chunk) ?? _durRe.firstMatch(chunk);
+    final m = _durRe.firstMatch(chunk);
     return m?.group(1)!.trim() ?? '-';
   }
 
   String? _extractThumbFromChunk(String chunk) {
-    final m = RegExp(r'data-src="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'data-thumb="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'data-thumb_url="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'data-mediumthumb="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'data-image="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'data-original="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'data-lazy-src="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'data-srcset="[^"]*(https?://[^"\s,]+)"').firstMatch(chunk) ??
-        RegExp(r'img[^>]+src="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'poster="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'data-preview_url="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'data-thumb_url_v3="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r'data-mediabook="(https?://[^"]+)"').firstMatch(chunk) ??
-        RegExp(r"""background(?:-image)?:\s*url\(['"]?(https?://[^'" )]+)""")
-            .firstMatch(chunk);
+    final m = _thumbDataSrcRe.firstMatch(chunk) ??
+        _thumbDataThumbRe.firstMatch(chunk) ??
+        _thumbDataThumbUrlRe.firstMatch(chunk) ??
+        _thumbDataMediumRe.firstMatch(chunk) ??
+        _thumbDataImageRe.firstMatch(chunk) ??
+        _thumbDataOriginalRe.firstMatch(chunk) ??
+        _thumbDataLazyRe.firstMatch(chunk) ??
+        _thumbDataSrcsetRe.firstMatch(chunk) ??
+        _thumbImgSrcRe.firstMatch(chunk) ??
+        _thumbPosterRe.firstMatch(chunk) ??
+        _thumbDataPreviewRe.firstMatch(chunk) ??
+        _thumbDataV3Re.firstMatch(chunk) ??
+        _thumbDataMediabookRe.firstMatch(chunk) ??
+        _thumbBgImageRe.firstMatch(chunk);
     if (m != null) return m.group(1);
     // Ultra fallback: any PH CDN image URL anywhere in the chunk
-    final ph = RegExp(
-            r"""https?://[a-z0-9]+\.phncdn\.com/[^"'\s<>)]+\.(?:jpg|jpeg|png|webp)""",
-            caseSensitive: false)
-        .firstMatch(chunk);
+    final ph = _thumbPhncdnRe.firstMatch(chunk);
     return ph?.group(0);
   }
 
@@ -632,7 +754,10 @@ class PhubApi {
     final t = url.trim();
     if (t.startsWith('http')) return t;
     if (t.contains('viewkey=')) {
-      return 'https://www.pornhub.com/view_video.php?$t';
+      // Extract only the query portion — the input may be a bare path like
+      // "pornhub.com/view_video.php?viewkey=x" that must not be re-embedded.
+      final query = t.substring(t.indexOf('viewkey='));
+      return 'https://www.pornhub.com/view_video.php?$query';
     }
     // bare viewkey
     if (RegExp(r'^[a-f0-9]+$').hasMatch(t)) {

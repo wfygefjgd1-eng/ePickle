@@ -6,8 +6,8 @@ import '../models/video_item.dart';
 /// Shared playback helpers for feed / search-feed.
 class PlaybackHelpers {
   /// Decoder budget shared by every vertical-feed implementation.
-  /// Active player + N lookahead slots (same on iOS/Android).
-  static int preloadSlotCount(TargetPlatform platform) => 3;
+  /// Active player + 3 lookahead slots (same on iOS/Android).
+  static const preloadSlotCount = 3;
 
   /// Skip intro ads based on video duration:
   /// - < 100s: skip 10s

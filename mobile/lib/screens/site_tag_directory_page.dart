@@ -124,7 +124,8 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
       if (!mounted || generation != _generation) return;
       setState(() {
         _loadingMore = false;
-        _hasMore = false;
+        // Keep _hasMore: a transient error must NOT mislabel the end of the
+        // list — the next scroll simply retries.
       });
     }
   }
@@ -133,8 +134,11 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
     if (widget.site.kind == SiteKind.live) return;
     if (start < 0 || start >= _items.length) return;
     try {
-      final slice = _items.sublist(start);
-      final titles = slice.map((e) => e.title).toList();
+      // Collect by index instead of sublist(): every load-more re-translates
+      // the tail, so copying the tail per page would be O(n²).
+      final titles = <String>[
+        for (var i = start; i < _items.length; i++) _items[i].title,
+      ];
       final translated =
           await context.read<Translator>().batchEnToZh(titles);
       if (!mounted || generation != _generation) return;
@@ -421,11 +425,33 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
     }
     if (_error != null) {
       return Center(
-          child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(_error!,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_error!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white60))));
+                  style: const TextStyle(color: Colors.white60)),
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: () {
+                  final tag = _selected;
+                  if (tag != null) {
+                    unawaited(_select(tag));
+                  }
+                },
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('\u91cd\u8bd5'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF6B35),
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     }
     if (_selected == null) {
       return const Center(
@@ -490,6 +516,32 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
           initialIndex: index,
           title: widget.site.name,
           site: widget.site,
+          // Keep the directory paged while the player feed is open: without
+          // this the feed stops at the first page even though the directory
+          // still has more pages to offer.
+          onLoadMore: () async {
+            if (!mounted) return const <VideoItem>[];
+            if (_loading || _loadingMore || !_hasMore) {
+              return const <VideoItem>[];
+            }
+            final tag = _selected;
+            if (tag == null) return const <VideoItem>[];
+            final api = context.read<GenericSiteApi>();
+            final seen = _items.map((e) => e.viewkey).toSet();
+            final raw =
+                await _fetchItems(api, tag, page: _page + 1, exclude: seen);
+            if (!mounted) return const <VideoItem>[];
+            final add = raw.where((e) => seen.add(e.viewkey)).toList();
+            setState(() {
+              _items = [..._items, ...add];
+              _page++;
+              _hasMore = raw.isNotEmpty && add.isNotEmpty;
+            });
+            if (add.isNotEmpty && widget.site.kind != SiteKind.live) {
+              unawaited(_translateRange(_items.length - add.length, _generation));
+            }
+            return add;
+          },
         ),
       ),
     );

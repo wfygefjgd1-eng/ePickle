@@ -34,7 +34,6 @@ class WatchHistory extends ChangeNotifier {
   File? _file;
 
   bool get ready => _ready;
-  List<VideoItem> get items => List.unmodifiable(_items);
 
   Future<File> _historyFile() async {
     final cached = _file;
@@ -104,16 +103,6 @@ class WatchHistory extends ChangeNotifier {
     if (_items.length > maxItems) {
       _items.removeRange(maxItems, _items.length);
     }
-    notifyListeners();
-    await _persist();
-  }
-
-  Future<void> remove(VideoItem item) async {
-    final before = _items.length;
-    _items.removeWhere(
-      (e) => e.viewkey == item.viewkey || e.url == item.url,
-    );
-    if (_items.length == before) return;
     notifyListeners();
     await _persist();
   }

@@ -451,6 +451,7 @@ private final class StripchatLivePlatformView: NSObject,
   private var focusTimer: Timer?
   private var statusTimer: Timer?
   private var progressObservation: NSKeyValueObservation?
+  private var tapGesture: UITapGestureRecognizer?
   private var roomRequest: URLRequest?
   private var loadingStartedAt: Date?
   private var pageLoadedAt: Date?
@@ -508,6 +509,7 @@ private final class StripchatLivePlatformView: NSObject,
 
     let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
     tap.cancelsTouchesInView = false
+    tapGesture = tap
     webView.addGestureRecognizer(tap)
 
     progressObservation = webView.observe(\.estimatedProgress, options: [.new]) {
@@ -547,11 +549,29 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   deinit {
+    // dispose() normally runs first (engine tears the platform view down);
+    // deinit is the last line of defence if it was skipped somehow.
+    teardown()
+  }
+
+  /// Engine teardown hook (FlutterPlatformView.dispose). The gesture
+  /// recognizer and the retry button both retain `self` strongly; without
+  /// breaking those links the view controller lives forever and every open
+  /// leaks a WKWebView (plus its timers and observers).
+  func dispose() {
+    teardown()
+  }
+
+  private func teardown() {
     focusTimer?.invalidate()
     statusTimer?.invalidate()
     progressObservation?.invalidate()
     NotificationCenter.default.removeObserver(self)
     webView.stopLoading()
+    webView.removeGestureRecognizer(tapGesture)
+    webView.navigationDelegate = nil
+    webView.uiDelegate = nil
+    retryButton.removeTarget(self, action: #selector(handleRetry), for: .touchUpInside)
     if StripchatLivePlatformView.activeView.value === self {
       StripchatLivePlatformView.activeView.value = nil
     }

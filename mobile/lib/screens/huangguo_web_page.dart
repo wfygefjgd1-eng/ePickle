@@ -622,16 +622,6 @@ class _HgCoverState extends State<_HgCover> {
     if (mounted) setState(() {});
   }
 
-  @override
-  void didUpdateWidget(covariant _HgCover oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.url != widget.url) {
-      final hit = _mem[widget.url];
-      _bytes = hit;
-      if (hit == null) unawaited(_loadNative());
-    }
-  }
-
   Future<void> _loadNative() async {
     HgCoverLog.add('cover native try: ${widget.url}');
     final bytes = await NativeBrowserHttp.getBytes(

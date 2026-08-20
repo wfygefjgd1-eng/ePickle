@@ -111,8 +111,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       milliseconds: newPos.inMilliseconds.clamp(0, duration.inMilliseconds),
     );
     final ratio = duration.inMilliseconds > 0
-        ? (clampedPos.inMilliseconds / duration.inMilliseconds)
-            .clamp(0.0, 1.0)
+        ? (clampedPos.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
 
     String formatTime(Duration d) {
@@ -148,15 +147,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     });
     if (ctrl == null || !ctrl.value.isInitialized) {
       // Clear parent _seeking (onSeekStart already set it).
-      widget.onSeekEnd(
-        widget.sliderValue.value.clamp(0.0, 1.0),
-      );
+      widget.onSeekEnd(widget.sliderValue.value.clamp(0.0, 1.0));
       return;
     }
 
     final durMs = ctrl.value.duration.inMilliseconds;
-    final ratio =
-        durMs > 0 ? (targetPos.inMilliseconds / durMs).clamp(0.0, 1.0) : 0.0;
+    final ratio = durMs > 0
+        ? (targetPos.inMilliseconds / durMs).clamp(0.0, 1.0)
+        : 0.0;
     // Commit via parent so progress timer / stall arm stay in sync.
     widget.onSeekEnd(ratio);
   }
@@ -225,13 +223,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Padding(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.pause_circle_outline,
-                              color: Color(0xCCFFFFFF), size: 24),
+                          Icon(
+                            Icons.pause_circle_outline,
+                            color: Color(0xCCFFFFFF),
+                            size: 24,
+                          ),
                           SizedBox(width: 8),
                           Text(
                             '已暂停',
@@ -265,8 +268,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       );
     }
     final i = widget.currentIndex;
-    final thumb =
-        (i >= 0 && i < widget.items.length) ? widget.items[i].thumb : null;
+    final thumb = (i >= 0 && i < widget.items.length)
+        ? widget.items[i].thumb
+        : null;
     return Container(
       color: const Color(0xFF1A1A1A),
       child: Stack(
@@ -328,9 +332,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 ),
               if (i == widget.currentIndex && widget.pageLoading)
                 const Center(
-                  child: CircularProgressIndicator(
-                    color: Color(0xFFFF6B35),
-                  ),
+                  child: CircularProgressIndicator(color: Color(0xFFFF6B35)),
                 ),
             ],
           ),
@@ -347,6 +349,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final showMuteButton =
         defaultTargetPlatform != TargetPlatform.iOS ||
         context.select<AppSettings, bool>((s) => s.showMuteButton);
+    final showFFButton =
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        context.select<AppSettings, bool>((s) => s.showFastForwardButton);
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -417,6 +422,25 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 ),
               ),
             ),
+            // 横屏：快进 30 秒按钮（左下角）
+            if (showFFButton)
+              Positioned(
+                left: 16,
+                bottom: 60,
+                child: SafeArea(
+                  child: GestureDetector(
+                    onTap: widget.onFastForward,
+                    child: Icon(
+                      Icons.forward_30,
+                      color: Colors.white.withValues(alpha: 0.5),
+                      size: 28,
+                      shadows: const [
+                        Shadow(color: Colors.black45, blurRadius: 4),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             // 进度条
             Positioned(
               left: 0,
@@ -469,7 +493,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   : const SizedBox.shrink(),
             ),
           ),
-          // 竖屏：快进按钮（半透明，无背景）
+          // 竖屏：快进 30 秒按钮（半透明，无背景，左下角）
+          Positioned(
+            left: 10,
+            bottom: 80,
+            child: SafeArea(
+              child: showFFButton
+                  ? _MinimalButton(
+                      storageKey: 'ff_button_normal',
+                      defaultOffset: const Offset(10, 80),
+                      icon: Icons.forward_30,
+                      onTap: widget.onFastForward,
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
           // 竖屏：音量按钮（半透明，无背景）
           Positioned(
             right: 10,
@@ -511,8 +549,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final title = widget.titleText.isNotEmpty
         ? widget.titleText
         : (widget.currentIndex < widget.items.length
-            ? widget.items[widget.currentIndex].title
-            : '');
+              ? widget.items[widget.currentIndex].title
+              : '');
     return Positioned(
       left: 10,
       right: showFullscreenButton ? 96 : 56,
@@ -545,7 +583,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                       ),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 1),
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
                         child: Text(
                           label,
                           style: const TextStyle(
@@ -590,8 +630,9 @@ class _MinimalButtonState extends State<_MinimalButton> {
   Offset _currentDragOffset = Offset.zero;
   Offset _dragStartOffset = Offset.zero;
   // 拖拽时高频更新，用 ValueNotifier 驱动偏移，避免整棵子树重建。
-  final ValueNotifier<Offset> _offsetNotifier =
-      ValueNotifier<Offset>(Offset.zero);
+  final ValueNotifier<Offset> _offsetNotifier = ValueNotifier<Offset>(
+    Offset.zero,
+  );
   final ValueNotifier<bool> _pressingNotifier = ValueNotifier<bool>(false);
   Size? _viewportSize;
   EdgeInsets? _viewportPadding;
@@ -662,8 +703,9 @@ class _MinimalButtonState extends State<_MinimalButton> {
           },
           onLongPressMoveUpdate: (details) {
             if (!_isDragging) return;
-            _currentDragOffset =
-                _clampOffset(_dragStartOffset + details.offsetFromOrigin);
+            _currentDragOffset = _clampOffset(
+              _dragStartOffset + details.offsetFromOrigin,
+            );
             _offsetNotifier.value = _currentDragOffset;
           },
           onLongPressEnd: (details) {
@@ -683,9 +725,7 @@ class _MinimalButtonState extends State<_MinimalButton> {
                     ? Colors.white.withValues(alpha: 0.9)
                     : Colors.white.withValues(alpha: 0.5),
                 size: 28,
-                shadows: const [
-                  Shadow(color: Colors.black45, blurRadius: 4),
-                ],
+                shadows: const [Shadow(color: Colors.black45, blurRadius: 4)],
               ),
             ),
           ),

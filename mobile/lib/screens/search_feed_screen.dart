@@ -168,10 +168,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         );
       case SearchSource.huangguo:
         final s = widget.site;
-        final base = (_settings?.huangguoDomain ??
-                s?.primaryHost ??
-                HuangGuoApi.defaultBase)
-            .replaceAll(RegExp(r'/$'), '');
+        final base =
+            (_settings?.huangguoDomain ??
+                    s?.primaryHost ??
+                    HuangGuoApi.defaultBase)
+                .replaceAll(RegExp(r'/$'), '');
         return {
           ...AppHttpHeaders.forMediaUrl(null, pageUrl: base),
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
@@ -207,8 +208,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _muted = context.read<AppSettings>().muted;
     _items = List<VideoItem>.from(widget.items);
     // Empty list: clamp(0, -1) throws; keep index 0 safely.
-    _index =
-        _items.isEmpty ? 0 : widget.initialIndex.clamp(0, _items.length - 1);
+    _index = _items.isEmpty
+        ? 0
+        : widget.initialIndex.clamp(0, _items.length - 1);
     _pageCtrl = PageController(initialPage: _index);
     _titleText = _items.isEmpty ? '' : _items[_index].title;
     _autoRotate = AutoRotateController(onAction: _onAutoRotate);
@@ -257,10 +259,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _autoRotate?.start();
     final c = _controller;
     if (c != null && c.value.isInitialized) {
-      unawaited(c.play().then((_) {
-        if (_canRun) _startTimer();
-        _restartPreloading();
-      }).catchError((_) {}));
+      unawaited(
+        c
+            .play()
+            .then((_) {
+              if (_canRun) _startTimer();
+              _restartPreloading();
+            })
+            .catchError((_) {}),
+      );
       WakelockPlus.enable();
       return;
     }
@@ -323,12 +330,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       case AutoRotateAction.switchSide:
         _autoRotate?.confirmAction(action, side: side);
         // ignore: unawaited_futures
-        chrome.enterFullscreen(preferredOrientation: side).then((_) {
-          if (mounted) {
-            setState(() {});
-            _schedulePageResync();
-          }
-        }).catchError((_) {});
+        chrome
+            .enterFullscreen(preferredOrientation: side)
+            .then((_) {
+              if (mounted) {
+                setState(() {});
+                _schedulePageResync();
+              }
+            })
+            .catchError((_) {});
       case AutoRotateAction.exitLandscape:
         if (!chrome.immersive) {
           _autoRotate?.confirmAction(action);
@@ -336,12 +346,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         }
         _autoRotate?.confirmAction(action);
         // ignore: unawaited_futures
-        chrome.exitFullscreen().then((_) {
-          if (mounted) {
-            setState(() {});
-            _schedulePageResync();
-          }
-        }).catchError((_) {});
+        chrome
+            .exitFullscreen()
+            .then((_) {
+              if (mounted) {
+                setState(() {});
+                _schedulePageResync();
+              }
+            })
+            .catchError((_) {});
     }
   }
 
@@ -527,8 +540,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } else {
         await _preloadNext3(index);
       }
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   void _cancelBackgroundWork() {
@@ -645,9 +657,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
               title: item.title,
               durationSec: 0,
               thumb: item.thumb,
-              streams: [
-                StreamQuality(width: 1280, height: 720, url: direct),
-              ],
+              streams: [StreamQuality(width: 1280, height: 720, url: direct)],
             ),
           );
         }
@@ -1009,10 +1019,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           break;
         }
         await next.initialize().timeout(
-              remaining < const Duration(seconds: 12)
-                  ? remaining
-                  : const Duration(seconds: 12),
-            );
+          remaining < const Duration(seconds: 12)
+              ? remaining
+              : const Duration(seconds: 12),
+        );
         _initializingControllers.remove(next);
         if (PlaybackHelpers.isLikelyPreview(
           next,
@@ -1187,11 +1197,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     void drop(VideoPlayerController? controller) {
       if (controller == null) return;
-      unawaited(controller.pause().catchError((_) {}).whenComplete(() {
-        try {
-          controller.dispose();
-        } catch (_) {}
-      }));
+      unawaited(
+        controller.pause().catchError((_) {}).whenComplete(() {
+          try {
+            controller.dispose();
+          } catch (_) {}
+        }),
+      );
     }
 
     if (!keep(_preloadIndex)) {
@@ -1530,13 +1542,16 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       final now = DateTime.now().millisecondsSinceEpoch;
       final posMs = pos.inMilliseconds.toDouble();
       final ranges = ctrl.value.buffered;
-      final bufferedMs =
-          ranges.isEmpty ? 0.0 : ranges.last.end.inMilliseconds.toDouble();
+      final bufferedMs = ranges.isEmpty
+          ? 0.0
+          : ranges.last.end.inMilliseconds.toDouble();
       if (lastTickMs > 0) {
         final dMs = now - lastTickMs;
         final dPlayed = posMs - lastPosMs;
-        final downloaded =
-            (bufferedMs - lastBufferedMs + dPlayed).clamp(0.0, double.infinity);
+        final downloaded = (bufferedMs - lastBufferedMs + dPlayed).clamp(
+          0.0,
+          double.infinity,
+        );
         if (dMs > 0 && downloaded > 0) {
           final sample = (1500 * (downloaded / dMs).clamp(0.0, 3.0))
               .clamp(0, 12000)
@@ -1740,8 +1755,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       milliseconds: newPos.inMilliseconds.clamp(0, duration.inMilliseconds),
     );
     final ratio = duration.inMilliseconds > 0
-        ? (clampedPos.inMilliseconds / duration.inMilliseconds)
-            .clamp(0.0, 1.0)
+        ? (clampedPos.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
 
     String formatTime(Duration d) {
@@ -1781,8 +1795,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
 
     final durMs = ctrl.value.duration.inMilliseconds;
-    final ratio =
-        durMs > 0 ? (targetPos.inMilliseconds / durMs).clamp(0.0, 1.0) : 0.0;
+    final ratio = durMs > 0
+        ? (targetPos.inMilliseconds / durMs).clamp(0.0, 1.0)
+        : 0.0;
     // ignore: unawaited_futures
     _onSeekCommit(ratio);
   }
@@ -1817,6 +1832,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final showMuteButton =
         defaultTargetPlatform != TargetPlatform.iOS ||
         context.select<AppSettings, bool>((s) => s.showMuteButton);
+    final showFFButton =
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        context.select<AppSettings, bool>((s) => s.showFastForwardButton);
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
@@ -1828,13 +1846,16 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         }
         if (immersive) {
           // ignore: unawaited_futures
-          chrome.exitFullscreen().then((_) {
-            _autoRotate?.syncLandscapeMode(false, fromUser: true);
-            if (mounted) {
-              setState(() {});
-              _schedulePageResync();
-            }
-          }).catchError((_) {});
+          chrome
+              .exitFullscreen()
+              .then((_) {
+                _autoRotate?.syncLandscapeMode(false, fromUser: true);
+                if (mounted) {
+                  setState(() {});
+                  _schedulePageResync();
+                }
+              })
+              .catchError((_) {});
           return;
         }
         // ignore: unawaited_futures
@@ -1883,8 +1904,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           color: Colors.black,
                           child: Center(
                             child: AspectRatio(
-                              aspectRatio:
-                                  (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
+                              aspectRatio: (ar.isFinite && ar > 0.05)
+                                  ? ar
+                                  : (16 / 9),
                               child: VideoPlayer(c),
                             ),
                           ),
@@ -1935,8 +1957,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           color: Colors.black,
                           child: Center(
                             child: AspectRatio(
-                              aspectRatio:
-                                  (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
+                              aspectRatio: (ar.isFinite && ar > 0.05)
+                                  ? ar
+                                  : (16 / 9),
                               child: VideoPlayer(_controller!),
                             ),
                           ),
@@ -1971,7 +1994,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     },
                   ),
                 // 横屏手势进度预览
-        if (_seekPreviewText.isNotEmpty)
+                if (_seekPreviewText.isNotEmpty)
                   Center(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
@@ -2071,7 +2094,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                               color: Colors.white54,
                               fontSize: 14,
                               shadows: [
-                                Shadow(color: Colors.black87, blurRadius: 4)
+                                Shadow(color: Colors.black87, blurRadius: 4),
                               ],
                             ),
                           ),
@@ -2081,8 +2104,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                               child: Text(
                                 _speedLabel,
                                 style: TextStyle(
-                                  color: const Color(0xFF66D9A0)
-                                      .withValues(alpha: 0.45),
+                                  color: const Color(
+                                    0xFF66D9A0,
+                                  ).withValues(alpha: 0.45),
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -2106,9 +2130,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                                       ),
                                     ),
                                     SizedBox(width: 3),
-                                    Icon(Icons.pause_circle_outline,
-                                        size: 13,
-                                        color: Color(0x73FFFFFF)),
+                                    Icon(
+                                      Icons.pause_circle_outline,
+                                      size: 13,
+                                      color: Color(0x73FFFFFF),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -2164,7 +2190,21 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           : const SizedBox.shrink(),
                     ),
                   ),
-                  // 竖屏：快进按钮（半透明，无背景）
+                  // 竖屏：快进 30 秒按钮（半透明，无背景，左下角）
+                  Positioned(
+                    left: 10,
+                    bottom: 80,
+                    child: SafeArea(
+                      child: showFFButton
+                          ? _MinimalButton(
+                              storageKey: 'search_ff_button_normal',
+                              defaultOffset: const Offset(10, 80),
+                              icon: Icons.forward_30,
+                              onTap: _fastForward,
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ),
                   // 竖屏：音量按钮（半透明，无背景）
                   Positioned(
                     right: 10,
@@ -2174,9 +2214,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           ? _MinimalButton(
                               storageKey: 'search_mute_button_normal',
                               defaultOffset: const Offset(10, 80),
-                              icon: _muted
-                                  ? Icons.volume_off
-                                  : Icons.volume_up,
+                              icon: _muted ? Icons.volume_off : Icons.volume_up,
                               onTap: _toggleMute,
                             )
                           : const SizedBox.shrink(),
@@ -2211,7 +2249,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                         child: IgnorePointer(
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.35),
                               borderRadius: BorderRadius.circular(6),
@@ -2258,20 +2298,22 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   Future<void> _maybeAutoLowerQuality() async {
     if (!mounted || _stallLowering || _stallLoweredForItem) return;
-    final enabled = _settings?.autoLowerOnStall ??
+    final enabled =
+        _settings?.autoLowerOnStall ??
         context.read<AppSettings>().autoLowerOnStall;
     if (!enabled) return;
     final detail = _detailCache[_index];
     if (detail == null || detail.streams.length < 2) return;
-    final heights =
-        detail.streams.map((s) => s.height).where((h) => h > 0).toSet();
+    final heights = detail.streams
+        .map((s) => s.height)
+        .where((h) => h > 0)
+        .toSet();
     if (heights.length < 2) return;
     final curH = _currentStreamHeight;
     if (curH <= 0) return;
-    final lower = detail.streams
-        .where((s) => s.height > 0 && s.height < curH)
-        .toList()
-      ..sort((a, b) => b.height.compareTo(a.height));
+    final lower =
+        detail.streams.where((s) => s.height > 0 && s.height < curH).toList()
+          ..sort((a, b) => b.height.compareTo(a.height));
     if (lower.isEmpty) return;
     final target = lower.first;
     _stallLowering = true;
@@ -2355,8 +2397,9 @@ class _MinimalButtonState extends State<_MinimalButton> {
 
   @override
   Widget build(BuildContext context) {
-    final displayOffset =
-        _isDragging ? _currentDragOffset : (_savedOffset ?? Offset.zero);
+    final displayOffset = _isDragging
+        ? _currentDragOffset
+        : (_savedOffset ?? Offset.zero);
 
     return Transform.translate(
       offset: displayOffset,

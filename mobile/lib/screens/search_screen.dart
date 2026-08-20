@@ -511,7 +511,6 @@ class _SearchScreenState extends State<SearchScreen> {
           }
           return VideoCard(
             item: items[i],
-            site: site,
             onTap: () => _openFeed(site, i),
           );
         },

@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../services/app_settings.dart';
 import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
+import '../widgets/mirror_picker.dart';
 import 'site_tag_directory_page.dart';
 import 'video_feed_screen.dart';
 
@@ -211,15 +212,31 @@ class _SiteFeedPageState extends State<SiteFeedPage>
                     labelBehavior:
                         NavigationDestinationLabelBehavior.alwaysHide,
                     destinations: [
-                      for (final t in tabs)
-                        NavigationDestination(
-                          icon: Icon(t.icon),
-                          selectedIcon: Icon(
-                            t.iconSelected,
-                            color: const Color(0xFFFF6B35),
+                      for (var ti = 0; ti < tabs.length; ti++)
+                        if (ti == 0)
+                          // LONG-PRESS the first tab ("热") to switch this
+                          // site's mirror domain for the rest of the session.
+                          GestureDetector(
+                            onLongPress: () =>
+                                unawaited(showMirrorPickerSheet(context, site)),
+                            child: NavigationDestination(
+                              icon: Icon(tabs[ti].icon),
+                              selectedIcon: Icon(
+                                tabs[ti].iconSelected,
+                                color: const Color(0xFFFF6B35),
+                              ),
+                              label: tabs[ti].label,
+                            ),
+                          )
+                        else
+                          NavigationDestination(
+                            icon: Icon(tabs[ti].icon),
+                            selectedIcon: Icon(
+                              tabs[ti].iconSelected,
+                              color: const Color(0xFFFF6B35),
+                            ),
+                            label: tabs[ti].label,
                           ),
-                          label: t.label,
-                        ),
                       const NavigationDestination(
                         icon: Icon(Icons.sell_outlined),
                         selectedIcon: Icon(

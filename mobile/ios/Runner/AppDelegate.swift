@@ -1300,11 +1300,21 @@ enum PrivacyNativeWipe {
   }
 
   private static func wipeUserDefaults() {
-    if let bundleId = Bundle.main.bundleIdentifier {
-      UserDefaults.standard.removePersistentDomain(forName: bundleId)
-    }
-    for key in UserDefaults.standard.dictionaryRepresentation().keys {
+    // Preserve the mirror-speed ranking: it holds latency stats only (no
+    // browsing/cookie/user data) and the user wants cleanup to keep it, so
+    // keys under this prefix survive even the nuclear wipe.
+    let preservedPrefix = "flutter.mirror_rank_v1_"
+    for key in UserDefaults.standard.dictionaryRepresentation().keys
+    where !key.hasPrefix(preservedPrefix) {
       UserDefaults.standard.removeObject(forKey: key)
+    }
+    if let bundleId = Bundle.main.bundleIdentifier,
+       let suite = UserDefaults(suiteName: bundleId) {
+      for key in suite.dictionaryRepresentation().keys
+      where !key.hasPrefix(preservedPrefix) {
+        suite.removeObject(forKey: key)
+      }
+      suite.synchronize()
     }
     UserDefaults.standard.synchronize()
   }

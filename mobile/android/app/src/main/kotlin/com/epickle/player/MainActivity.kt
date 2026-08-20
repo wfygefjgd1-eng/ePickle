@@ -305,6 +305,20 @@ class MainActivity : FlutterActivity() {
             CookieManager.getInstance().removeAllCookies(null)
             CookieManager.getInstance().flush()
         } catch (_: Exception) {}
+        // Preserve the mirror-speed ranking across the wipe: it holds only
+        // latency stats (no browsing/cookie/user data) and should survive
+        // cleanup. Snapshot its keys, delete the prefs files, then restore
+        // just those keys.
+        val rankingPrefsName = "FlutterSharedPreferences"
+        val survivingRanking = mutableMapOf<String, String>()
+        try {
+            val p = getSharedPreferences(rankingPrefsName, Context.MODE_PRIVATE)
+            for ((k, v) in p.all) {
+                if (k.startsWith("flutter.mirror_rank_v1_") && v != null) {
+                    survivingRanking[k] = v.toString()
+                }
+            }
+        } catch (_: Exception) {}
         val dataDir = applicationInfo.dataDir
         File(dataDir, "app_webview").deleteRecursively()
         File(dataDir, "cache").deleteRecursively()
@@ -312,6 +326,16 @@ class MainActivity : FlutterActivity() {
         File(dataDir, "shared_prefs").listFiles()?.forEach { it.delete() }
         cacheDir.deleteRecursively()
         databaseList().forEach { deleteDatabase(it) }
+        if (survivingRanking.isNotEmpty()) {
+            try {
+                getSharedPreferences(rankingPrefsName, Context.MODE_PRIVATE)
+                    .edit()
+                    .apply {
+                        for ((k, v) in survivingRanking) putString(k, v)
+                        commit()
+                    }
+            } catch (_: Exception) {}
+        }
     }
 
     override fun onDestroy() {

@@ -40,6 +40,11 @@ class MirrorRanker {
   Timer? _persistTimer;
   Future<void> _persistTail = Future.value();
 
+  /// UI indicator: true while a warmup probe run is actually probing domains,
+  /// false once it finishes (or nothing needed probing). The home screen shows
+  /// a small top-left badge on this so the user can see the check conclude.
+  final ValueNotifier<bool> probing = ValueNotifier<bool>(false);
+
   @visibleForTesting
   static String storageKeyFor(String platform) => 'mirror_rank_v1_$platform';
 
@@ -179,20 +184,25 @@ class MirrorRanker {
     final targets = (sites ?? const <SiteDef>[])
         .where((site) => needsProbe(site.id))
         .toList();
-    if (targets.isEmpty) return;
-    final gate = <Future<void>>[];
-    for (final site in targets) {
-      for (final raw in site.mirrors) {
-        if (raw.trim().isEmpty) continue;
-        if (gate.length >= probeConcurrency) {
-          await Future.wait(gate);
-          gate.clear();
+    if (targets.isEmpty || probing.value) return;
+    probing.value = true;
+    try {
+      final gate = <Future<void>>[];
+      for (final site in targets) {
+        for (final raw in site.mirrors) {
+          if (raw.trim().isEmpty) continue;
+          if (gate.length >= probeConcurrency) {
+            await Future.wait(gate);
+            gate.clear();
+          }
+          gate.add(_probeOne(site.id, raw));
         }
-        gate.add(_probeOne(site.id, raw));
       }
+      await Future.wait(gate);
+    } finally {
+      probing.value = false;
+      await _flushPersist();
     }
-    await Future.wait(gate);
-    await _flushPersist();
   }
 
   /// HEAD-probe every mirror of [site] through the shared proxy wiring.

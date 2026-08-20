@@ -9,6 +9,7 @@ import '../services/feed_list_cache.dart';
 import '../services/generic_site_api.dart';
 import '../services/huangguo_api.dart';
 import '../services/layout_settings.dart';
+import '../services/mirror_ranker.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
 import '../services/source_catalog.dart';
@@ -184,49 +185,60 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          _HomeSearchBar(
-            controller: _searchCtrl,
-            focusNode: _focusNode,
-            onSearch: _onHomeSearch,
+          Column(
+            children: [
+              _HomeSearchBar(
+                controller: _searchCtrl,
+                focusNode: _focusNode,
+                onSearch: _onHomeSearch,
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                  children: [
+                    for (final s in sites)
+                      _SwipeSiteTile(
+                        site: s,
+                        onTap: () => _openSite(s),
+                        onDelete: () => _removeSite(s),
+                        subtitle: s.custom
+                            ? '用户添加'
+                            : (s.mirrors.length > 1
+                                ? '${s.mirrors.length} 个域名'
+                                : null),
+                      ),
+                    if (lives.isNotEmpty) ...[
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(4, 0, 4, 2),
+                        child: Text(
+                          '直播',
+                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                      ),
+                      for (final s in lives)
+                        _SwipeSiteTile(
+                          site: s,
+                          swipeEnabled: false,
+                          onTap: () => _openSite(s),
+                          onDelete: () {},
+                          subtitle: s.mirrors.length > 1
+                              ? '${s.mirrors.length} 个域名${s.id == live.id ? ' · 默认直播' : ''}'
+                              : (s.id == live.id ? '默认直播' : null),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-              children: [
-                for (final s in sites)
-                  _SwipeSiteTile(
-                    site: s,
-                    onTap: () => _openSite(s),
-                    onDelete: () => _removeSite(s),
-                    subtitle: s.custom
-                        ? '用户添加'
-                        : (s.mirrors.length > 1
-                            ? '${s.mirrors.length} 个域名'
-                            : null),
-                  ),
-                if (lives.isNotEmpty) ...[
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(4, 0, 4, 2),
-                    child: Text(
-                      '直播',
-                      style: TextStyle(color: Colors.white54, fontSize: 12),
-                    ),
-                  ),
-                  for (final s in lives)
-                    _SwipeSiteTile(
-                      site: s,
-                      swipeEnabled: false,
-                      onTap: () => _openSite(s),
-                      onDelete: () {},
-                      subtitle: s.mirrors.length > 1
-                          ? '${s.mirrors.length} 个域名${s.id == live.id ? ' · 默认直播' : ''}'
-                          : (s.id == live.id ? '默认直播' : null),
-                    ),
-                ],
-              ],
-            ),
+          // 域名测速悬浮提示：正在后台探测最快域名时显示在左上角，
+          // 探测结束自动消失 —— 左上角没有它 = 测速已完成，可正常使用。
+          Positioned(
+            top: 6,
+            left: 6,
+            child: _MirrorProbeBadge(),
           ),
         ],
       ),
@@ -400,6 +412,54 @@ class _SwipeSiteTile extends StatelessWidget {
       },
       onDismissed: (_) => onDelete(),
       child: tile,
+    );
+  }
+}
+
+/// 域名测速进行中的左上角悬浮小标：探测结束（或无需探测）时自动消失。
+class _MirrorProbeBadge extends StatelessWidget {
+  const _MirrorProbeBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: MirrorRanker.instance.probing,
+      builder: (context, probing, _) {
+        if (!probing) return const SizedBox.shrink();
+        return AnimatedOpacity(
+          opacity: 1,
+          duration: const Duration(milliseconds: 200),
+          child: Material(
+            color: const Color(0xD91E1E1E),
+            borderRadius: BorderRadius.circular(16),
+            elevation: 3,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFFFF6B35),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '正在测速最快域名…',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.85),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

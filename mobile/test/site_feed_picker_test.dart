@@ -42,8 +42,7 @@ void main() {
 
     expect(find.text('自动优选（最快镜像）'), findsOneWidget,
         reason: 'long-pressing the first tab must open the mirror picker');
-    expect(find.text('切换为本站访问域名（本次使用期间有效，退出应用后恢复自动优选）'),
-        findsOneWidget);
+    expect(find.text('切换为本站访问域名'), findsOneWidget);
 
     // Every mirror of this site is offered in the sheet.
     for (final base in site.mirrors) {

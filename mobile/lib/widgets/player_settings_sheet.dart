@@ -156,6 +156,34 @@ Future<void> showPlayerSettingsSheet(
                         value: settings.autoLowerOnStall,
                         onChanged: settings.setAutoLowerOnStall,
                       ),
+                      const Divider(color: Colors.white12),
+                      _GroupExpansion(
+                        title: '画质',
+                        subtitle:
+                            '当前 ${settings.qualityCap == 0 ? '自动' : '${settings.qualityCap}p'}',
+                        children: [
+                          for (final h in options)
+                            ListTile(
+                              dense: true,
+                              contentPadding:
+                                  const EdgeInsets.only(left: 36, right: 24),
+                              title: Text(
+                                h == 0 ? '自动（偏好 ≤720p）' : '${h}p',
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              trailing: settings.qualityCap == h
+                                  ? const Icon(
+                                      Icons.check,
+                                      color: Color(0xFFFF6B35),
+                                    )
+                                  : null,
+                              onTap: () async {
+                                await settings.setQualityCap(h);
+                                onQualityChanged?.call();
+                              },
+                            ),
+                        ],
+                      ),
                       if (defaultTargetPlatform == TargetPlatform.iOS) ...[
 const Divider(color: Colors.white12),
                       ListTile(
@@ -178,81 +206,95 @@ const Divider(color: Colors.white12),
                             _showHuangguoDomainDialog(ctx, settings),
                       ),
                       const Divider(color: Colors.white12),
-                        const ListTile(
-                          title: Text(
-                            '按钮显示',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 13,
+                      _GroupExpansion(
+                        title: '按钮显示',
+                        subtitle:
+                            '${[
+                              settings.showSiteBackButton,
+                              settings.showSearchBackButton,
+                              settings.showFullscreenButton,
+                              settings.showMuteButton,
+                            ].where((b) => b).length}/4',
+                        children: [
+                          SwitchListTile(
+                            dense: true,
+                            contentPadding:
+                                const EdgeInsets.only(left: 36, right: 24),
+                            title: const Text(
+                              '站点页返回按钮',
+                              style: TextStyle(color: Colors.white),
                             ),
-                          ),
-                          dense: true,
-                        ),
-                        SwitchListTile(
-                          title: const Text(
-                            '站点页返回按钮',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                          subtitle: const Text(
-                            '控制左上角返回按钮的显示与隐藏',
-                            style: TextStyle(
-                              color: Colors.white38,
-                              fontSize: 12,
+                            subtitle: const Text(
+                              '控制左上角返回按钮的显示与隐藏',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
                             ),
+                            activeThumbColor: const Color(0xFFFF6B35),
+                            value: settings.showSiteBackButton,
+                            onChanged: settings.setShowSiteBackButton,
                           ),
-                          activeThumbColor: const Color(0xFFFF6B35),
-                          value: settings.showSiteBackButton,
-                          onChanged: settings.setShowSiteBackButton,
-                        ),
-                        SwitchListTile(
-                          title: const Text(
-                            '搜索页返回按钮',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                          subtitle: const Text(
-                            '控制播放页左上角返回按钮的显示与隐藏',
-                            style: TextStyle(
-                              color: Colors.white38,
-                              fontSize: 12,
+                          SwitchListTile(
+                            dense: true,
+                            contentPadding:
+                                const EdgeInsets.only(left: 36, right: 24),
+                            title: const Text(
+                              '搜索页返回按钮',
+                              style: TextStyle(color: Colors.white),
                             ),
-                          ),
-                          activeThumbColor: const Color(0xFFFF6B35),
-                          value: settings.showSearchBackButton,
-                          onChanged: settings.setShowSearchBackButton,
-                        ),
-                        SwitchListTile(
-                          title: const Text(
-                            '全屏按钮',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                          subtitle: const Text(
-                            '控制右上角全屏按钮的显示与隐藏',
-                            style: TextStyle(
-                              color: Colors.white38,
-                              fontSize: 12,
+                            subtitle: const Text(
+                              '控制播放页左上角返回按钮的显示与隐藏',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
                             ),
+                            activeThumbColor: const Color(0xFFFF6B35),
+                            value: settings.showSearchBackButton,
+                            onChanged: settings.setShowSearchBackButton,
                           ),
-                          activeThumbColor: const Color(0xFFFF6B35),
-                          value: settings.showFullscreenButton,
-                          onChanged: settings.setShowFullscreenButton,
-                        ),
-                        SwitchListTile(
-                          title: const Text(
-                            '声音按钮',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                          subtitle: const Text(
-                            '控制右下角声音按钮的显示与隐藏',
-                            style: TextStyle(
-                              color: Colors.white38,
-                              fontSize: 12,
+                          SwitchListTile(
+                            dense: true,
+                            contentPadding:
+                                const EdgeInsets.only(left: 36, right: 24),
+                            title: const Text(
+                              '全屏按钮',
+                              style: TextStyle(color: Colors.white),
                             ),
+                            subtitle: const Text(
+                              '控制右上角全屏按钮的显示与隐藏',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
+                            ),
+                            activeThumbColor: const Color(0xFFFF6B35),
+                            value: settings.showFullscreenButton,
+                            onChanged: settings.setShowFullscreenButton,
                           ),
-                          activeThumbColor: const Color(0xFFFF6B35),
-                          value: settings.showMuteButton,
-                          onChanged: settings.setShowMuteButton,
-                        ),
-                      ],
+                          SwitchListTile(
+                            dense: true,
+                            contentPadding:
+                                const EdgeInsets.only(left: 36, right: 24),
+                            title: const Text(
+                              '声音按钮',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            subtitle: const Text(
+                              '控制右下角声音按钮的显示与隐藏',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
+                            ),
+                            activeThumbColor: const Color(0xFFFF6B35),
+                            value: settings.showMuteButton,
+                            onChanged: settings.setShowMuteButton,
+                          ),
+                        ],
+                      ),
+                    ],
                       ListTile(
                         leading: const Icon(
                           Icons.add_link,
@@ -441,32 +483,6 @@ const Divider(color: Colors.white12),
                           await PrivacyWipe.exitApp();
                         },
                       ),
-                      const Divider(color: Colors.white12),
-                      const ListTile(
-                        title: Text(
-                          '画质',
-                          style: TextStyle(color: Colors.white70, fontSize: 13),
-                        ),
-                        dense: true,
-                      ),
-                      for (final h in options)
-                        ListTile(
-                          title: Text(
-                            h == 0 ? '自动（偏好 ≤720p）' : '${h}p',
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                          trailing: settings.qualityCap == h
-                              ? const Icon(
-                                  Icons.check,
-                                  color: Color(0xFFFF6B35),
-                                )
-                              : null,
-                          onTap: () async {
-                            Navigator.pop(ctx);
-                            await settings.setQualityCap(h);
-                            onQualityChanged?.call();
-                          },
-                        ),
                       const SizedBox(height: 16),
                       const Divider(color: Colors.white12),
                       const Center(
@@ -492,6 +508,47 @@ class _AppVersionLabel extends StatefulWidget {
 
   @override
   State<_AppVersionLabel> createState() => _AppVersionLabelState();
+}
+
+/// 紧凑的可折叠设置分组：一行标题（可带当前值摘要），点开才露出子项，
+/// 收起时面板保持干净。默认收起。
+class _GroupExpansion extends StatelessWidget {
+  const _GroupExpansion({
+    required this.title,
+    this.subtitle,
+    required this.children,
+  });
+
+  final String title;
+  final String? subtitle;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 8),
+        childrenPadding: const EdgeInsets.only(bottom: 4),
+        iconColor: Colors.white38,
+        collapsedIconColor: Colors.white38,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        title: Text(
+          title,
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+        subtitle: subtitle == null
+            ? null
+            : Text(
+                subtitle!,
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+        children: children,
+      ),
+    );
+  }
 }
 
 Future<void> _showAddSiteDialog(

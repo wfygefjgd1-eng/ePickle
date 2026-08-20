@@ -11,8 +11,9 @@ class VideoCard extends StatelessWidget {
   final VideoItem item;
   final VoidCallback onTap;
 
-  /// Owning site. When non-null, a LONG-PRESS on the title opens the mirror
-  /// picker for this site (session-scoped manual base override).
+  /// Owning site. When non-null, the tiny gear in the thumbnail's top-right
+  /// corner becomes active: LONG-PRESS on it opens the mirror picker for
+  /// THIS card's site (session-scoped manual base override).
   final SiteDef? site;
 
   const VideoCard({
@@ -84,28 +85,42 @@ class VideoCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    // 右上角设置钮：LONG-PRESS 弹出本卡片的域名选择（每个卡片
+                    // 独立，选的是当前卡片所属站点的镜像域名，本次使用有效）。
+                    if (s != null && s.mirrors.isNotEmpty)
+                      Positioned(
+                        right: 4,
+                        top: 4,
+                        child: GestureDetector(
+                          onLongPress: () => _showMirrorPicker(context, s),
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: Colors.black45,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.settings,
+                              size: 12,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                  // Long-press on the title = pick which mirror this site uses
-                  // for the rest of the session (hosted in the title's row so
-                  // the card's own tap still opens the player).
-                  child: GestureDetector(
-                    onLongPress: s == null || s.mirrors.isEmpty
-                        ? null
-                        : () => _showMirrorPicker(context, s),
-                    child: Text(
-                      item.title,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFFEEEEEE),
-                        fontSize: 14,
-                        height: 1.3,
-                      ),
+                  child: Text(
+                    item.title,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFFEEEEEE),
+                      fontSize: 14,
+                      height: 1.3,
                     ),
                   ),
                 ),
@@ -137,7 +152,7 @@ class VideoCard extends StatelessWidget {
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 14, 16, 4),
               child: Text(
-                '访问域名（本次使用期间有效，退出应用后恢复自动优选）',
+                '当前卡片的访问域名（本次使用期间有效，退出应用后恢复自动优选）',
                 style: TextStyle(color: Colors.white70, fontSize: 12),
               ),
             ),

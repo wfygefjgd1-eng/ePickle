@@ -8,7 +8,7 @@ import '../models/video_item.dart';
 import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
 import 'mirror_ranker.dart';
-import 'phub_api.dart';
+import 'scrape_exception.dart';
 import 'source_catalog.dart';
 
 /// mitaohk.com — 中文字幕分类 (MacCMS type id=2).
@@ -80,6 +80,29 @@ class MitaoApi {
     }
   }
 
+  /// Fetch [buildUrl] against every mitao mirror in ranked order. Each
+  /// non-cancel failure demotes that mirror (via [_getHtml]'s outcome
+  /// feedback) and the next mirror gets a shot — a dead top mirror can no
+  /// longer take the whole site down until the next probe.
+  Future<String> _getHtmlWithFailover(
+    String Function(String base) buildUrl, {
+    List<String>? mirrors,
+  }) async {
+    final bases = mirrors ??
+        MirrorRanker.instance.rankedMirrors(SourceCatalog.mitao);
+    if (bases.isEmpty) bases.addAll(SourceCatalog.mitao.mirrors);
+    Object? lastError;
+    for (final base in bases) {
+      try {
+        return await _getHtml(buildUrl(base));
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        lastError = e;
+      }
+    }
+    throw lastError ?? PhubException('请求失败');
+  }
+
   Future<String> _getHtmlOnce(String url) async {
     final token = CancelToken();
     // Cascade the instance-level cancel (page exit / tab switch).
@@ -135,17 +158,19 @@ class MitaoApi {
     final q = Uri.encodeComponent(query.trim());
     if (q.isEmpty) return [];
     // MacCMS search URL
-    final url = page <= 1
-        ? '$base/index.php/vod/search/wd/$q.html'
-        : '$base/index.php/vod/search/wd/$q/page/$page.html';
     try {
-      final html = await _getHtml(url);
+      final html = await _getHtmlWithFailover(
+        (b) => page <= 1
+            ? '$b/index.php/vod/search/wd/$q.html'
+            : '$b/index.php/vod/search/wd/$q/page/$page.html',
+      );
       return _parseList(html, <String>{});
     } catch (e) {
       if (e is DioException && CancelToken.isCancel(e)) rethrow;
       // alternate pattern
-      final alt = '$base/index.php/vod/search.html?wd=$q&page=$page';
-      final html = await _getHtml(alt);
+      final html = await _getHtmlWithFailover(
+        (b) => '$b/index.php/vod/search.html?wd=$q&page=$page',
+      );
       return _parseList(html, <String>{});
     }
   }
@@ -173,18 +198,20 @@ class MitaoApi {
         : const Duration(seconds: 24);
 
     Future<List<VideoItem>> fetchPage(int p) async {
-      final url = p <= 1
-          ? '$base/index.php/vod/type/id/$zhongTypeId.html'
-          : '$base/index.php/vod/type/id/$zhongTypeId/page/$p.html';
       try {
-        final html = await _getHtml(url);
+        final html = await _getHtmlWithFailover(
+          (b) => p <= 1
+              ? '$b/index.php/vod/type/id/$zhongTypeId.html'
+              : '$b/index.php/vod/type/id/$zhongTypeId/page/$p.html',
+        );
         return _parseList(html, seen);
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
         if (p > 1) {
           try {
-            final alt = '$base/index.php/vod/type/id/$zhongTypeId.html?page=$p';
-            final html = await _getHtml(alt);
+            final html = await _getHtmlWithFailover(
+              (b) => '$b/index.php/vod/type/id/$zhongTypeId.html?page=$p',
+            );
             return _parseList(html, seen);
           } catch (e) {
             if (e is DioException && CancelToken.isCancel(e)) rethrow;

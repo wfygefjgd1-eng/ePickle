@@ -10,7 +10,10 @@ import '../models/video_item.dart';
 import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
 import 'mirror_ranker.dart';
+import 'scrape_exception.dart';
 import 'source_catalog.dart';
+
+export 'scrape_exception.dart';
 
 /// Pure-client API: scrapes site HTML (no backend, no built-in nodes).
 /// Uses system route by default; optional local proxy via [AppHttpClient].
@@ -827,11 +830,4 @@ class PhubApi {
     }
     return null;
   }
-}
-
-class PhubException implements Exception {
-  final String message;
-  PhubException(this.message);
-  @override
-  String toString() => message;
 }

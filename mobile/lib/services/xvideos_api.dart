@@ -7,7 +7,7 @@ import '../models/video_item.dart';
 import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
 import 'mirror_ranker.dart';
-import 'phub_api.dart';
+import 'scrape_exception.dart';
 import 'source_catalog.dart';
 
 /// XVideos list + detail (for feed kind "X").
@@ -75,6 +75,32 @@ class XvideosApi {
       );
       rethrow;
     }
+  }
+
+  /// Fetch [buildUrl] against every mirror in ranked order: a non-cancel
+  /// failure moves to the next mirror (each failure already demotes that
+  /// mirror via [_getHtml]'s outcome feedback, so the NEXT request starts
+  /// with the healthier survivor). Cancellations propagate immediately.
+  /// Returns the winning html together with the base that served it (parsers
+  /// need it to relativize URLs).
+  Future<({String html, String base})> _getHtmlWithFailover(
+    String Function(String base) buildUrl, {
+    List<String>? mirrors,
+  }) async {
+    final bases = mirrors ??
+        MirrorRanker.instance.rankedMirrors(SourceCatalog.xvideos);
+    if (bases.isEmpty) bases.addAll(SourceCatalog.xvideos.mirrors);
+    Object? lastError;
+    for (final base in bases) {
+      try {
+        final html = await _getHtml(buildUrl(base));
+        return (html: html, base: base.replaceAll(RegExp(r'/$'), ''));
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        lastError = e;
+      }
+    }
+    throw lastError ?? PhubException('请求失败');
   }
 
   Future<String> _getHtmlOnce(String url) async {
@@ -203,20 +229,23 @@ class XvideosApi {
       'teen',
       'amateur',
     ];
-    final urls = <String>[
-      '$_base/',
-      '$_base/?k=asian',
-      '$_base/best',
+    // URL *patterns* (base injected per mirror by _getHtmlWithFailover), so a
+    // dead top mirror fails over to the next ranked one instead of killing
+    // the whole feed.
+    final patterns = <String>[
+      '/',
+      '/?k=asian',
+      '/best',
     ];
     for (final k in keywords) {
       final p = rng.nextInt(20);
-      urls.add(
+      patterns.add(
         p == 0
-            ? '$_base/?k=$k'
-            : '$_base/?k=$k&p=$p',
+            ? '/?k=$k'
+            : '/?k=$k&p=$p',
       );
     }
-    final ordered = [...urls]..shuffle(rng);
+    final ordered = [...patterns]..shuffle(rng);
 
     final seen = <String>{...?exclude};
     final results = <VideoItem>[];
@@ -241,7 +270,7 @@ class XvideosApi {
         final pages = await Future.wait(
           batchUrls.map((u) async {
             try {
-              return await _getHtml(u);
+              return await _getHtmlWithFailover((b) => '$b$u');
             } catch (e) {
               if (e is DioException && CancelToken.isCancel(e)) rethrow;
               failCount++;
@@ -250,13 +279,13 @@ class XvideosApi {
           }),
         );
         for (var j = 0; j < pages.length; j++) {
-          final html = pages[j];
-          if (html == null) continue;
+          final fetched = pages[j];
+          if (fetched == null) continue;
           results.addAll(
             _parseList(
-              html,
+              fetched.html,
               seen,
-              base: Uri.parse(batchUrls[j]).origin,
+              base: Uri.parse(fetched.base).origin,
             ),
           );
           if (results.length >= limit) break;
@@ -270,14 +299,14 @@ class XvideosApi {
     } on TimeoutException {
       if (results.isEmpty) {
         throw PhubException(
-          'Source fetch timed out. Check network/TUN and try again.',
+          '抓取超时。可：设置→重新检测代理，或开 TUN/VPN',
         );
       }
     }
     if (results.isEmpty && (failCount > 0 || tried > 0)) {
       throw PhubException(
-        'Unable to fetch source pages ($failCount/$tried failed). '
-        'Check network/TUN or try again later.',
+        '无法访问源站（$failCount/$tried 失败）。'
+        '系统未代理时请开 TUN，或设置里填写/检测代理',
       );
     }
     results.shuffle(rng);

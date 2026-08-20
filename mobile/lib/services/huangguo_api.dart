@@ -9,7 +9,7 @@ import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
 import 'app_settings.dart';
 import 'mirror_ranker.dart';
-import 'phub_api.dart';
+import 'scrape_exception.dart';
 import 'source_catalog.dart';
 
 /// huangguoai.com (黄果短剧) — 内置规则适配器。
@@ -755,9 +755,21 @@ class HuangGuoApi {
     }
   }
 
+  /// 无法解析为数字的集数 key（如 "hd"、"1080p"）按出现顺序给稳定递增编号，
+  /// 使排序与合并两处对同一 key 的取值一致（不再全部折叠成 0 互相覆盖）。
+  final Map<String, int> _epNumCache = {};
+  int _unparsedEpCounter = 0;
+
   int _epNum(dynamic key) {
-    final n = int.tryParse('$key') ?? -1;
-    return n >= 0 ? n : max(0, -1 - n);
+    final s = '$key';
+    final cached = _epNumCache[s];
+    if (cached != null) return cached;
+    final n = int.tryParse(s);
+    final result = (n != null && n >= 0)
+        ? n
+        : (n != null ? max(0, -1 - n) : _unparsedEpCounter++);
+    _epNumCache[s] = result;
+    return result;
   }
 
   /// 从视频页/选集 DOM 推断整剧集数（data-ep-id 与 /video/{id}/ep-N/ 链接）。

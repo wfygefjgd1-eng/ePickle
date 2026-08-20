@@ -56,7 +56,18 @@ class MainActivity : FlutterActivity() {
         // Dio cannot see Android system proxy; WebView can. Expose it to Dart.
         MethodChannel(messenger, channelProxy).setMethodCallHandler { call, result ->
             when (call.method) {
-                "getSystemProxy" -> result.success(readSystemProxy())
+                "getSystemProxy" -> {
+            // ProxySelector.select() can block on PAC evaluation; never run
+            // it on the channel (main) thread. The MethodChannel result is
+            // thread-safe, so answering from the executor is fine.
+            executor.execute {
+                try {
+                    result.success(readSystemProxy())
+                } catch (_: Exception) {
+                    result.success(emptyProxy())
+                }
+            }
+        }
                 else -> result.notImplemented()
             }
         }
@@ -437,10 +448,16 @@ private class BrowserRenderRequest(
             override fun onReceivedError(
                 view: WebView?, errorCode: Int, description: String?, failingUrl: String?,
             ) {
-                finishError(
-                    "browser_render_failed",
-                    description ?: "Page load failed ($errorCode)",
-                )
+                // The deprecated overload also fires for subresource/ad errors;
+                // only a failure of the main document itself should abort the
+                // render (matches the modern main-frame-gated overload).
+                val current = view?.url
+                if (current == null || failingUrl == null || current == failingUrl) {
+                    finishError(
+                        "browser_render_failed",
+                        description ?: "Page load failed ($errorCode)",
+                    )
+                }
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -1064,9 +1081,11 @@ class StripchatLiveView(
 /** Bridge so overlay "跳过" can notify Flutter without holding Activity ref tightly. */
 object StripchatSkipBridge {
     @Volatile var channel: MethodChannel? = null
+    // One shared main-looper handler instead of allocating a Handler per emit.
+    private val mainHandler = Handler(Looper.getMainLooper())
     fun emit() {
         try {
-            Handler(Looper.getMainLooper()).post {
+            mainHandler.post {
                 channel?.invokeMethod("skip", null)
             }
         } catch (_: Exception) {}

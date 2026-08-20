@@ -486,6 +486,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         }
         return VideoCard(
           item: _items[i],
+          site: widget.site,
           onTap: () => _openPlayer(i),
         );
       },

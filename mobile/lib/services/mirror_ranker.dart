@@ -40,6 +40,23 @@ class MirrorRanker {
   Timer? _persistTimer;
   Future<void> _persistTail = Future.value();
 
+  /// Session-scoped manual base override per site (long-press on a card).
+  /// In-memory only, never persisted: once the OS kills the app the next
+  /// launch falls back to the fastest auto-ranked mirror.
+  final Map<String, String> _manualBase = {};
+
+  /// Pin [base] for [siteId] for the rest of this app session. Ignored later
+  /// if the base is no longer part of the site's mirror list.
+  void setManualBase(String siteId, String base) {
+    _manualBase[siteId] = base.replaceAll(RegExp(r'/$'), '');
+  }
+
+  /// Back to auto-ranking (fastest known mirror) for [siteId].
+  void clearManualBase(String siteId) => _manualBase.remove(siteId);
+
+  /// The session override for [siteId], if any (no trailing slash).
+  String? manualBase(String siteId) => _manualBase[siteId];
+
   /// UI indicator: true while a warmup probe run is actually probing domains,
   /// false once it finishes (or nothing needed probing). The home screen shows
   /// a small top-left badge on this so the user can see the check conclude.
@@ -96,7 +113,32 @@ class MirrorRanker {
   /// Mirrors ordered best-first for [site]: healthy (measured) by EWMA
   /// latency, then unmeasured (catalog order), then failing (cooldown).
   /// Never throws: with no data it is simply the catalog order.
+  /// A user-chosen override (long-press on a card) jumps to the front and the
+  /// remaining mirrors keep their ranked order behind it.
   List<String> rankedMirrors(SiteDef site) {
+    final overrideRaw = manualBase(site.id);
+    final ranked = _rankedMirrors(site);
+    if (overrideRaw == null) return ranked;
+    // Normalize so an override stored with/without a trailing slash still
+    // matches a catalog entry that may carry one.
+    final normalized = overrideRaw.replaceAll(RegExp(r'/$'), '');
+    String? override;
+    for (final base in ranked) {
+      if (base.replaceAll(RegExp(r'/$'), '') == normalized) {
+        override = base;
+        break;
+      }
+    }
+    // The base no longer exists for this site (mirror list changed since the
+    // pick): silently fall back to auto-ranking instead of pinning a dead host.
+    if (override == null) return ranked;
+    return [
+      override,
+      ...ranked.where((b) => b != override),
+    ];
+  }
+
+  List<String> _rankedMirrors(SiteDef site) {
     final mirrors = site.mirrors;
     if (mirrors.isEmpty) return const [];
     final stats = _bySite[site.id];
@@ -269,6 +311,7 @@ class MirrorRanker {
   void reset() {
     _loaded = false;
     _bySite.clear();
+    _manualBase.clear();
     _persistTimer?.cancel();
     // Drop any queued/in-flight flush so it cannot write stale state after
     // the reset.

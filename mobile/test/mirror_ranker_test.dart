@@ -145,4 +145,57 @@ void main() {
     expect(ranker.needsProbe(custom.id), isFalse);
     await ranker.persistNow();
   });
+
+  test('session manual base override jumps to the front and survives reset '
+      'only until cleared', () async {
+    final ranker = MirrorRanker.instance;
+    await ranker.load();
+
+    // Pin a non-top mirror for the session. Catalog order (no data):
+    // www, org, cn, rt, de, fr — so the override pushes cn to the front and
+    // everything else keeps catalog order.
+    ranker.setManualBase('pornhub', cn);
+    expect(ranker.manualBase('pornhub'), cn);
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub),
+      [cn, www, org, rt, de, fr],
+    );
+    expect(ranker.preferredBase(SourceCatalog.pornhub), cn);
+
+    // Trailing-slash normalization: user picks 'https://rt.pornhub.com/' —
+    // stored stripped and still matched.
+    ranker.setManualBase('pornhub', 'https://rt.pornhub.com/');
+    expect(ranker.manualBase('pornhub'), rt);
+    expect(ranker.rankedMirrors(SourceCatalog.pornhub).first, rt);
+
+    // Unknown base (mirror list changed) is ignored -> auto ranking restored.
+    ranker.setManualBase('pornhub', 'https://gone.example.com');
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub),
+      SourceCatalog.pornhub.mirrors,
+    );
+
+    // Clearing returns to auto immediately.
+    ranker.setManualBase('pornhub', de);
+    ranker.clearManualBase('pornhub');
+    expect(ranker.manualBase('pornhub'), isNull);
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub),
+      SourceCatalog.pornhub.mirrors,
+    );
+    await ranker.persistNow();
+  });
+
+  test('manual override is session-only: a fresh reset() drops it', () async {
+    final ranker = MirrorRanker.instance;
+    ranker.setManualBase('pornhub', fr);
+    ranker.reset();
+    await ranker.load();
+
+    expect(ranker.manualBase('pornhub'), isNull);
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub),
+      SourceCatalog.pornhub.mirrors,
+    );
+  });
 }

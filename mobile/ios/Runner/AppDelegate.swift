@@ -88,6 +88,9 @@ import WebKit
         PrivacyNativeWipe.clearLaunchCache()
         result(nil)
       case "exitApp":
+        // exit(0) skips applicationWillTerminate; cancel in-flight browser
+        // requests first so nothing is left half-written to the network.
+        cancelBrowserRequests()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
           exit(0)
         }
@@ -298,42 +301,50 @@ import WebKit
     }
 
     let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-      DispatchQueue.main.async {
-        self?.browserTasks.removeValue(forKey: requestId)
-        if let error {
-          result(FlutterError(
-            code: "native_http_failed",
-            message: error.localizedDescription,
-            details: nil
-          ))
-          return
-        }
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode),
-              var payload = data, !payload.isEmpty else {
-          result(FlutterError(
-            code: "native_http_bad_response",
-            message: "Bad HTTP response for \(url.absoluteString)",
-            details: nil
-          ))
-          return
-        }
-        if let keyHex = aesKeyHex, let ivHex = aesIvHex {
-          guard let key = AppDelegate.dataFromAscii(keyHex), key.count == 16,
-                let iv = AppDelegate.dataFromAscii(ivHex), iv.count == 16,
-                let plain = self?.aesDecryptCBCNoPadding(payload, key: key, iv: iv) else {
+      // Decode/decrypt on the URLSession callback queue; only the channel
+      // result hops to main. AES-CBC of multi-MB byte ranges on the main
+      // thread would jank the UI for the whole duration.
+      var payload: Data?
+      var failure: FlutterError?
+      if let error {
+        failure = FlutterError(
+          code: "native_http_failed",
+          message: error.localizedDescription,
+          details: nil
+        )
+      } else if let http = response as? HTTPURLResponse,
+                (200...299).contains(http.statusCode),
+                var body = data, !body.isEmpty {
+        if let keyHex = aesKeyHex, let ivHex = aesIvHex,
+           let key = AppDelegate.dataFromAscii(keyHex), key.count == 16,
+           let iv = AppDelegate.dataFromAscii(ivHex), iv.count == 16 {
+          if let plain = self?.aesDecryptCBCNoPadding(body, key: key, iv: iv) {
+            body = plain
+          } else {
             NSLog("[ePickle] AES decrypt failed for %@ (keyLen=%d ivLen=%d dataLen=%d)",
-                  url.absoluteString, keyHex.count, ivHex.count, payload.count)
-            result(FlutterError(
+                  url.absoluteString, keyHex.count, ivHex.count, body.count)
+            failure = FlutterError(
               code: "native_http_decrypt_failed",
               message: "AES decrypt failed for \(url.absoluteString)",
               details: nil
-            ))
-            return
+            )
           }
-          payload = plain
         }
-        result(FlutterStandardTypedData(bytes: payload))
+        payload = body
+      } else {
+        failure = FlutterError(
+          code: "native_http_bad_response",
+          message: "Bad HTTP response for \(url.absoluteString)",
+          details: nil
+        )
+      }
+      DispatchQueue.main.async {
+        self?.browserTasks.removeValue(forKey: requestId)
+        if let failure {
+          result(failure)
+          return
+        }
+        result(FlutterStandardTypedData(bytes: payload ?? Data()))
       }
     }
     browserTasks[requestId] = task
@@ -860,9 +871,15 @@ private final class StripchatLivePlatformView: NSObject,
       return
     }
     let host = targetUrl.host?.lowercased() ?? ""
+    // Same allowlist as Android (StripchatLiveView): live-play media is
+    // delivered from doppiocdn/stripcdn and must keep flowing; everything
+    // else (ads, trackers, popups) is blocked.
     let allowed = host.isEmpty ||
       host == "stripchat.com" ||
-      host.hasSuffix(".stripchat.com")
+      host.hasSuffix(".stripchat.com") ||
+      host.contains("stripchat") ||
+      host.contains("doppiocdn") ||
+      host.contains("stripcdn")
     decisionHandler(allowed ? .allow : .cancel)
   }
 
@@ -1271,7 +1288,6 @@ enum PrivacyNativeWipe {
     }
 
     HTTPCookieStorage.shared.cookies?.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
-    HTTPCookieStorage.shared.removeCookies(since: .distantPast)
     URLCache.shared.removeAllCachedResponses()
     // Empty the cache without permanently crippling it: drop the zero-capacity
     // instance and restore defaults, so the app does not re-download every
@@ -1298,7 +1314,8 @@ enum PrivacyNativeWipe {
       home.appendingPathComponent("Library/Caches"),
       home.appendingPathComponent("Library/HTTPStorages"),
       home.appendingPathComponent("Library/Application Support"),
-      home.appendingPathComponent("tmp"),
+      // NSHomeDirectory()/tmp and NSTemporaryDirectory() are the same
+      // directory — keep the canonical form only.
       URL(fileURLWithPath: NSTemporaryDirectory()),
       home.appendingPathComponent("Documents"),
     ]

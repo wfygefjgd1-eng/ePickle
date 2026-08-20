@@ -568,7 +568,9 @@ private final class StripchatLivePlatformView: NSObject,
     progressObservation?.invalidate()
     NotificationCenter.default.removeObserver(self)
     webView.stopLoading()
-    webView.removeGestureRecognizer(tapGesture)
+    if let tapGesture {
+      webView.removeGestureRecognizer(tapGesture)
+    }
     webView.navigationDelegate = nil
     webView.uiDelegate = nil
     retryButton.removeTarget(self, action: #selector(handleRetry), for: .touchUpInside)

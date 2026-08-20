@@ -9,11 +9,14 @@ import 'package:html/parser.dart' as html_parser;
 import '../models/video_item.dart';
 import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
+import 'mirror_ranker.dart';
+import 'source_catalog.dart';
 
 /// Pure-client API: scrapes site HTML (no backend, no built-in nodes).
 /// Uses system route by default; optional local proxy via [AppHttpClient].
 class PhubApi {
   static const _singleRequestTimeout = Duration(seconds: 10);
+  static const _primaryHost = 'https://www.pornhub.com';
   PhubApi({Dio? dio, CancelToken? cancelToken})
       : _cancelToken = cancelToken ?? CancelToken(),
         _dio = dio ??
@@ -30,6 +33,14 @@ class PhubApi {
         onRequest: (options, handler) {
           options.headers['Cookie'] = _cookieHeader();
           options.cancelToken ??= _cancelToken;
+          // Every hardcoded www.pornhub.com URL is transparently rerouted to
+          // the fastest-ranked mirror (feed/search/thumbnail/detail all pass
+          // through here). No-op when www is still the best.
+          final p = options.path;
+          if (p.startsWith(_primaryHost)) {
+            options.path =
+                '$_base${p.substring(_primaryHost.length)}';
+          }
           handler.next(options);
         },
         onResponse: (response, handler) {
@@ -39,6 +50,10 @@ class PhubApi {
       ),
     );
   }
+
+  /// Fastest mirror base for pornhub (persistent cross-session ranking).
+  String get _base =>
+      MirrorRanker.instance.preferredBase(SourceCatalog.pornhub);
 
   void cancelRequests([String reason = 'cancelled']) {
     final token = _cancelToken;

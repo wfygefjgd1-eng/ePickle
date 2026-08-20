@@ -7,11 +7,15 @@ import 'package:dio/dio.dart';
 import '../models/video_item.dart';
 import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
+import 'mirror_ranker.dart';
 import 'phub_api.dart';
+import 'source_catalog.dart';
 
 /// mitaohk.com — 中文字幕分类 (MacCMS type id=2).
 class MitaoApi {
-  static const base = 'https://mitaohk.com';
+  /// 主域名 — 自动取当前最快的镜像（排名未就绪时按目录顺序，即 mitaohk.com
+  /// 优先）。Referer/Origin 由拦截器按请求时注入，保证换镜像即时生效。
+  String get base => MirrorRanker.instance.preferredBase(SourceCatalog.mitao);
 
   /// 中文字幕
   static const zhongTypeId = 2;
@@ -24,8 +28,6 @@ class MitaoApi {
             AppHttpClient.create(
               headers: {
                 ...AppHttpHeaders.browser,
-                'Referer': '$base/',
-                'Origin': base,
                 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
               },
             ) {
@@ -33,6 +35,8 @@ class MitaoApi {
       InterceptorsWrapper(
         onRequest: (options, handler) {
           options.cancelToken ??= _cancelToken;
+          options.headers['Referer'] = '$base/';
+          options.headers['Origin'] = base;
           handler.next(options);
         },
       ),

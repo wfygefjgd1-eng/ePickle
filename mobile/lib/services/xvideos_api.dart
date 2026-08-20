@@ -6,7 +6,9 @@ import 'package:dio/dio.dart';
 import '../models/video_item.dart';
 import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
+import 'mirror_ranker.dart';
 import 'phub_api.dart';
+import 'source_catalog.dart';
 
 /// XVideos list + detail (for feed kind "X").
 class XvideosApi {
@@ -17,12 +19,25 @@ class XvideosApi {
             AppHttpClient.create(
               headers: {
                 ...AppHttpHeaders.browser,
-                'Referer': 'https://www.xvideos.com/',
-                'Origin': 'https://www.xvideos.com',
+                // Referer/Origin follow the current fastest mirror; they are
+                // set per-request in the interceptor below.
                 'Cookie': 'age_confirmed=1',
                 'Accept-Language': 'en-US,en;q=0.9',
               },
-            );
+            ) {
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          options.headers['Referer'] = '$_base/';
+          options.headers['Origin'] = _base;
+          handler.next(options);
+        },
+      ),
+    );
+  }
+
+  /// Fastest mirror base for xvideos (persistent cross-session ranking).
+  String get _base => MirrorRanker.instance.preferredBase(SourceCatalog.xvideos);
 
   final Dio _dio;
   CancelToken _cancelToken;
@@ -95,10 +110,17 @@ class XvideosApi {
     final qPct = Uri.encodeQueryComponent(raw);
     final p = (page - 1).clamp(0, 999);
     // Only ?k= forms work; /search/<kw> currently 404s.
+    // Faster mirrors first (persistent ranking); catalog order when unranked.
     final bases = <String>[
-      'https://www.xvideos.com',
-      'https://www.xvideos.es',
+      ...MirrorRanker.instance.rankedMirrors(SourceCatalog.xvideos),
     ];
+    if (bases.isEmpty) {
+      bases.addAll(const [
+        'https://www.xvideos.com',
+        'https://www.xvideos.es',
+        'https://www.xvideos.net',
+      ]);
+    }
     final urls = <String>[];
     for (final b in bases) {
       if (p == 0) {
@@ -121,7 +143,11 @@ class XvideosApi {
     for (final url in urls) {
       try {
         final html = await _getHtml(url);
-        final list = _parseList(html, <String>{});
+        final list = _parseList(
+          html,
+          <String>{},
+          base: Uri.parse(url).origin,
+        );
         if (list.isNotEmpty) return list;
         // Empty parse on a valid search page → try next shape/mirror.
       } catch (e) {
@@ -151,16 +177,16 @@ class XvideosApi {
       'amateur',
     ];
     final urls = <String>[
-      'https://www.xvideos.com/',
-      'https://www.xvideos.com/?k=asian',
-      'https://www.xvideos.com/best',
+      '$_base/',
+      '$_base/?k=asian',
+      '$_base/best',
     ];
     for (final k in keywords) {
       final p = rng.nextInt(20);
       urls.add(
         p == 0
-            ? 'https://www.xvideos.com/?k=$k'
-            : 'https://www.xvideos.com/?k=$k&p=$p',
+            ? '$_base/?k=$k'
+            : '$_base/?k=$k&p=$p',
       );
     }
     final ordered = [...urls]..shuffle(rng);
@@ -196,9 +222,16 @@ class XvideosApi {
             }
           }),
         );
-        for (final html in pages) {
+        for (var j = 0; j < pages.length; j++) {
+          final html = pages[j];
           if (html == null) continue;
-          results.addAll(_parseList(html, seen));
+          results.addAll(
+            _parseList(
+              html,
+              seen,
+              base: Uri.parse(batchUrls[j]).origin,
+            ),
+          );
           if (results.length >= limit) break;
         }
         if (results.length >= (limit < 12 ? limit : 8)) break;
@@ -225,7 +258,8 @@ class XvideosApi {
     return results;
   }
 
-  List<VideoItem> _parseList(String html, Set<String> seen) {
+  List<VideoItem> _parseList(String html, Set<String> seen, {String? base}) {
+    final itemBase = base ?? _base;
     final out = <VideoItem>[];
     // Card blocks: id="video_XXXX" (hex id) or legacy numeric
     final blocks = html.split(RegExp(r'(?=<div[^>]+id="video_[^"]+")'));
@@ -343,7 +377,10 @@ class XvideosApi {
       }
 
       out.add(VideoItem(
-        url: 'https://www.xvideos.com$path',
+        // Detail URL stays on the mirror that actually served the card, so a
+        // tap continues on the same fast route instead of hopping back to the
+        // primary host.
+        url: '$itemBase$path',
         title: title,
         duration: duration,
         thumb: thumb,

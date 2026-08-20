@@ -21,6 +21,7 @@ import '../services/app_route_observer.dart';
 import '../services/auto_rotate_controller.dart';
 import '../services/cache_manager.dart';
 import '../services/feed_list_cache.dart';
+import '../services/mirror_ranker.dart';
 import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
 import '../services/watch_history.dart';
@@ -1520,7 +1521,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       await _playInAppBrowser(
         index: index,
         item: item,
-        pageUrl: 'https://stripchat.com/$room',
+        // Build the in-app-browser room page on the site's fastest mirror so
+        // the WebRTC room loads via the same fast route as its card.
+        pageUrl:
+            '${MirrorRanker.instance.preferredBase(widget.site!)}/$room',
         title: item.title,
         live: true,
         seq: seq,

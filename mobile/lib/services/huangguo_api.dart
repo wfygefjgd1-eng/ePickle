@@ -8,7 +8,9 @@ import '../models/video_item.dart';
 import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
 import 'app_settings.dart';
+import 'mirror_ranker.dart';
 import 'phub_api.dart';
+import 'source_catalog.dart';
 
 /// huangguoai.com (黄果短剧) — 内置规则适配器。
 ///
@@ -56,12 +58,13 @@ class HuangGuoApi {
   List<VideoItem>? episodesFor(String url) => _episodesCache[url];
 
   /// 主域名（黄果规则），设置里可改；运行时读取，改完即时生效。
+  /// 未设置时自动使用最快镜像（目录顺序兜底）。
   String get base {
     final custom = _settings?.huangguoDomain.trim();
     if (custom != null && custom.isNotEmpty) {
       return custom.replaceAll(RegExp(r'/$'), '');
     }
-    return defaultBase;
+    return MirrorRanker.instance.preferredBase(SourceCatalog.huangguo);
   }
 
   void cancelRequests([String reason = 'cancelled']) {

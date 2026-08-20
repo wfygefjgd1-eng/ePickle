@@ -9,6 +9,7 @@ import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
 import '../utils/native_browser_http.dart';
 import 'phub_api.dart';
+import 'mirror_ranker.dart';
 import 'source_catalog.dart';
 
 /// Keeps the HTTP status available after native/browser fallback attempts.
@@ -61,6 +62,9 @@ class GenericSiteApi {
   final Map<String, int> _mirrorIndex = {};
   final Map<String, Map<String, MirrorHealth>> _mirrorHealth = {};
   final Map<String, String> _liveStreamNames = {};
+
+  /// Persistent cross-session mirror ranking (probe + live-traffic driven).
+  final MirrorRanker _ranker = MirrorRanker.instance;
 
   List<MirrorHealth> mirrorHealthFor(String siteId) => List.unmodifiable(
         _mirrorHealth[siteId]?.values ?? const <MirrorHealth>[],
@@ -376,6 +380,18 @@ class GenericSiteApi {
       detail: error?.toString(),
     );
     _mirrorHealth.putIfAbsent(site.id, () => {})[base] = status;
+    // Live-traffic outcomes also feed the persistent ranker: wins lift the
+    // mirror's EWMA, failures grow its streak so it sinks in future order.
+    // Cancellations are control flow (another mirror won the race), NOT a
+    // failure — never let them poison the ranking.
+    if (failure != MirrorFailureKind.cancelled) {
+      _ranker.onFetchOutcome(
+        site.id,
+        base,
+        ok: failure == null,
+        ms: watch.elapsedMilliseconds,
+      );
+    }
   }
 
   List<String> _mirrorsFor(SiteDef site) {
@@ -424,13 +440,15 @@ class GenericSiteApi {
     DateTime? deadline,
   }) async {
     final mirrors = _mirrorsFor(site);
-    final preferred = _mirrorIndex[site.id];
 
     Future<_MirrorProbe> probe(int i, [CancelToken? cancelToken]) async {
       final base = mirrors[i].replaceAll(RegExp(r'/$'), '');
-      final url = pathBuilder(base);
       final watch = Stopwatch()..start();
       try {
+        // Must stay inside the try: a throw from pathBuilder would surface as
+        // a future error and, without the race() onError, could skip the
+        // remaining-- decrement and hang the race forever.
+        final url = pathBuilder(base);
         final headers = <String, String>{
           ...AppHttpHeaders.browser,
           'Referer': '$base/',
@@ -481,52 +499,86 @@ class GenericSiteApi {
     }
 
     final failures = <Object>[];
-    final indices = <int>[
-      if (preferred != null && preferred >= 0 && preferred < mirrors.length)
-        preferred,
-      for (var i = 0; i < mirrors.length; i++)
-        if (i != preferred) i,
+    final allMirrors = _mirrorsFor(site);
+    // Persistent ranking, best mirror first. Every mirror stays in play —
+    // ranking only decides the order, it never drops a domain. Falls back to
+    // catalog order (and to the single primary host for custom sites).
+    var rankedBases = _ranker.rankedMirrors(site);
+    if (rankedBases.isEmpty) rankedBases = List<String>.from(allMirrors);
+    final ordered = <int>[
+      for (final base in rankedBases) allMirrors.indexOf(base),
+      for (var i = 0; i < allMirrors.length; i++)
+        if (!rankedBases.contains(allMirrors[i])) i,
     ];
-    if (indices.isNotEmpty) {
-      // Mirrors are independent hosts. Probe all of them together, including
-      // the last-known-good one, so a stale preferred mirror cannot consume
-      // most of the shared deadline before alternatives even start.
+
+    // Parallel race over [idxs]: first healthy page wins, losers are
+    // cancelled immediately so they stop holding sockets / render slots.
+    Future<_MirrorProbe?> race(List<int> idxs) async {
+      if (idxs.isEmpty) return null;
       final completer = Completer<_MirrorProbe>();
       final tokens = <int, CancelToken>{
-        for (final index in indices) index: CancelToken(),
+        for (final i in idxs) i: CancelToken(),
       };
-      var remaining = indices.length;
-      for (final index in indices) {
-        unawaited(probe(index, tokens[index]).then((result) {
-          if (result.page != null && !completer.isCompleted) {
-            completer.complete(result);
-            // Winner decided: cancel the losing probes right away so they stop
-            // holding sockets (and, when they fell back to WKWebView render,
-            // stop occupying scarce render slots) while their responses are
-            // still discarded.
-            for (final entry in tokens.entries) {
-              if (entry.key != result.index) {
-                entry.value.cancel('mirror settled');
+      var remaining = idxs.length;
+      for (final i in idxs) {
+        unawaited(probe(i, tokens[i]).then(
+          (result) {
+            if (result.page != null && !completer.isCompleted) {
+              completer.complete(result);
+              for (final entry in tokens.entries) {
+                if (entry.key != result.index) {
+                  entry.value.cancel('mirror settled');
+                }
               }
+              return;
             }
-            return;
-          }
-          if (result.error != null) failures.add(result.error!);
-          remaining--;
-          if (remaining == 0 && !completer.isCompleted) {
-            completer.complete(
-              _MirrorProbe(index: -1, error: _bestMirrorError(failures)),
-            );
-          }
-        }));
+            if (result.error != null) failures.add(result.error!);
+            remaining--;
+            if (remaining == 0 && !completer.isCompleted) {
+              completer.complete(
+                _MirrorProbe(index: -1, error: _bestMirrorError(failures)),
+              );
+            }
+          },
+          // Belt-and-braces: a probe that throws outside its own try must
+          // still decrement, or the race would never complete.
+          onError: (Object e) {
+            failures.add(e);
+            remaining--;
+            if (remaining == 0 && !completer.isCompleted) {
+              completer.complete(
+                _MirrorProbe(index: -1, error: _bestMirrorError(failures)),
+              );
+            }
+          },
+        ));
       }
-      final result = await completer.future;
-      if (result.page != null) {
-        _mirrorIndex[site.id] = result.index;
-        return result.page!;
+      return completer.future;
+    }
+
+    if (ordered.isNotEmpty) {
+      // Stage 1 — fast path: the fastest known mirror alone, so a slow or
+      // geo-blocked domain can never hold the whole request hostage.
+      final first = await probe(ordered.first);
+      if (first.page != null) {
+        _mirrorIndex[site.id] = first.index;
+        return first.page!;
       }
-      if (result.error != null && !failures.contains(result.error)) {
-        failures.add(result.error!);
+      if (first.error != null) failures.add(first.error!);
+      // Stage 2 — every other mirror in parallel (winner cancels the rest).
+      // All mirrors participate; ranking only chose which one goes first.
+      final rest = ordered.sublist(1);
+      if (rest.isNotEmpty) {
+        final result = await race(rest);
+        if (result != null && result.page != null) {
+          _mirrorIndex[site.id] = result.index;
+          return result.page!;
+        }
+        if (result != null &&
+            result.error != null &&
+            !failures.contains(result.error)) {
+          failures.add(result.error!);
+        }
       }
     }
 
@@ -1179,20 +1231,25 @@ class GenericSiteApi {
       candidates.add((url: url, base: originalBase, mirrorIndex: null));
     }
     final mirrors = _mirrorsFor(site);
-    final start = (_mirrorIndex[site.id] ?? 0).clamp(0, mirrors.length - 1);
-    for (var n = 0; n < mirrors.length; n++) {
-      final i = (start + n) % mirrors.length;
-      final base = mirrors[i].replaceAll(RegExp(r'/$'), '');
+    // Fastest-known mirror first (persistent ranking), remaining mirrors
+    // after — every mirror stays in play for failover.
+    var ranked = _ranker.rankedMirrors(site);
+    if (ranked.isEmpty) ranked = List<String>.from(mirrors);
+    for (final baseRaw in ranked) {
+      final base = baseRaw.replaceAll(RegExp(r'/$'), '');
       final candidateUrl = _abs(
         base,
         suffix.startsWith('/') ? suffix : '/$suffix',
       );
       if (candidates.any((e) => e.url == candidateUrl)) continue;
-      candidates.add((url: candidateUrl, base: base, mirrorIndex: i));
+      candidates.add(
+        (url: candidateUrl, base: base, mirrorIndex: mirrors.indexOf(baseRaw)),
+      );
     }
 
     Object? lastError;
     for (final candidate in candidates) {
+      final watch = Stopwatch()..start();
       try {
         final remaining = deadline.difference(DateTime.now());
         if (remaining.inMilliseconds <= 0) break;
@@ -1253,6 +1310,9 @@ class GenericSiteApi {
         if (candidate.mirrorIndex != null) {
           _mirrorIndex[site.id] = candidate.mirrorIndex!;
         }
+        // Live-traffic feedback: detail fetches also feed the persistent
+        // ranking, so the fastest mirror keeps winning for details too.
+        _recordMirror(site, candidate.base, watch);
         // Plan A: real streams first; if empty, keep page URL for in-app WebView.
         if (detail.streams.isEmpty && site.kind == SiteKind.video) {
           return VideoDetail(
@@ -1268,6 +1328,8 @@ class GenericSiteApi {
         return detail;
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        // Detail failures also count against the mirror in the ranking.
+        _recordMirror(site, candidate.base, watch, error: e);
         lastError = e;
       }
     }
@@ -3560,7 +3622,10 @@ class GenericSiteApi {
         final apis = [
           '$base/api/chatvideocontext/$room/',
           '$base/$room/',
-          'https://chaturbate.com/api/chatvideocontext/$room/',
+          // Last resort also goes through the fastest mirror instead of a
+          // hardcoded primary host, so a slow/changed chaturbate.com never
+          // wins over a fast mirror.
+          '${_ranker.preferredBase(site)}/api/chatvideocontext/$room/',
         ];
         for (final api in apis) {
           try {

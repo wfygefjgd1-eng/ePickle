@@ -95,68 +95,43 @@ Future<void> showPlayerSettingsSheet(
                           ),
                         ),
                       ),
-                      SwitchListTile(
-                        title: const Text(
-                          '跳过片头',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        subtitle: const Text(
-                          '跳过片头广告；短视频自动关闭。',
-                          style: TextStyle(color: Colors.white38, fontSize: 12),
-                        ),
-                        activeThumbColor: const Color(0xFFFF6B35),
-                        value: settings.skipIntro,
-                        onChanged: settings.setSkipIntro,
-                      ),
-                      if (onFastForward != null)
-                        ListTile(
-                          leading: const Icon(
-                            Icons.forward_30,
-                            color: Color(0xFFFF6B35),
-                          ),
-                          title: const Text(
-                            '快进 30 秒',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                          subtitle: const Text(
-                            '从当前播放位置向后跳 30 秒',
-                            style: TextStyle(
-                              color: Colors.white38,
-                              fontSize: 12,
+                      _GroupCard(
+                        children: [
+                          _SkipIntroGroup(settings: settings),
+                          SwitchListTile(
+                            title: const Text(
+                              '自动横屏',
+                              style: TextStyle(color: Colors.white),
                             ),
+                            subtitle: const Text(
+                              '接近完全横置才进、明显竖回才出。',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
+                            ),
+                            activeThumbColor: const Color(0xFFFF6B35),
+                            value: settings.autoRotate,
+                            onChanged: settings.setAutoRotate,
                           ),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            onFastForward();
-                          },
-                        ),
-                      SwitchListTile(
-                        title: const Text(
-                          '自动横屏',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        subtitle: const Text(
-                          '接近完全横置才进、明显竖回才出。',
-                          style: TextStyle(color: Colors.white38, fontSize: 12),
-                        ),
-                        activeThumbColor: const Color(0xFFFF6B35),
-                        value: settings.autoRotate,
-                        onChanged: settings.setAutoRotate,
+                          SwitchListTile(
+                            title: const Text(
+                              '卡顿自动降画质',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            subtitle: const Text(
+                              '播放卡顿时自动切更低清晰度（仅本条）。',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
+                            ),
+                            activeThumbColor: const Color(0xFFFF6B35),
+                            value: settings.autoLowerOnStall,
+                            onChanged: settings.setAutoLowerOnStall,
+                          ),
+                        ],
                       ),
-                      SwitchListTile(
-                        title: const Text(
-                          '卡顿自动降画质',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        subtitle: const Text(
-                          '播放卡顿时自动切更低清晰度（仅本条）。',
-                          style: TextStyle(color: Colors.white38, fontSize: 12),
-                        ),
-                        activeThumbColor: const Color(0xFFFF6B35),
-                        value: settings.autoLowerOnStall,
-                        onChanged: settings.setAutoLowerOnStall,
-                      ),
-                      const Divider(color: Colors.white12),
                       _GroupExpansion(
                         title: '画质',
                         subtitle:
@@ -165,8 +140,10 @@ Future<void> showPlayerSettingsSheet(
                           for (final h in options)
                             ListTile(
                               dense: true,
-                              contentPadding:
-                                  const EdgeInsets.only(left: 36, right: 24),
+                              contentPadding: const EdgeInsets.only(
+                                left: 36,
+                                right: 24,
+                              ),
                               title: Text(
                                 h == 0 ? '自动（偏好 ≤720p）' : '${h}p',
                                 style: const TextStyle(color: Colors.white),
@@ -185,157 +162,193 @@ Future<void> showPlayerSettingsSheet(
                         ],
                       ),
                       if (defaultTargetPlatform == TargetPlatform.iOS) ...[
-const Divider(color: Colors.white12),
-                      ListTile(
-                        title: const Text(
-                          '黄果短剧域名',
-                          style: TextStyle(color: Colors.white),
+                        // 静态图例：按钮长什么样，一目了然（不可点，仅示意）。
+                        _GroupCard(children: const [_ButtonLegend()]),
+                        _GroupExpansion(
+                          title: '按钮显示',
+                          subtitle:
+                              '${[settings.showSiteBackButton, settings.showSearchBackButton, settings.showFullscreenButton, settings.showMuteButton, settings.showFastForwardButton].where((b) => b).length}/5',
+                          children: [
+                            SwitchListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.only(
+                                left: 36,
+                                right: 24,
+                              ),
+                              title: const Text(
+                                '站点页返回按钮',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                              subtitle: const Text(
+                                '控制左上角返回按钮的显示与隐藏',
+                                style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              activeThumbColor: const Color(0xFFFF6B35),
+                              value: settings.showSiteBackButton,
+                              onChanged: settings.setShowSiteBackButton,
+                            ),
+                            SwitchListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.only(
+                                left: 36,
+                                right: 24,
+                              ),
+                              title: const Text(
+                                '搜索页返回按钮',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                              subtitle: const Text(
+                                '控制播放页左上角返回按钮的显示与隐藏',
+                                style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              activeThumbColor: const Color(0xFFFF6B35),
+                              value: settings.showSearchBackButton,
+                              onChanged: settings.setShowSearchBackButton,
+                            ),
+                            SwitchListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.only(
+                                left: 36,
+                                right: 24,
+                              ),
+                              title: const Text(
+                                '全屏按钮',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                              subtitle: const Text(
+                                '控制右上角全屏按钮的显示与隐藏',
+                                style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              activeThumbColor: const Color(0xFFFF6B35),
+                              value: settings.showFullscreenButton,
+                              onChanged: settings.setShowFullscreenButton,
+                            ),
+                            SwitchListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.only(
+                                left: 36,
+                                right: 24,
+                              ),
+                              title: const Text(
+                                '声音按钮',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                              subtitle: const Text(
+                                '控制右下角声音按钮的显示与隐藏',
+                                style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              activeThumbColor: const Color(0xFFFF6B35),
+                              value: settings.showMuteButton,
+                              onChanged: settings.setShowMuteButton,
+                            ),
+                            SwitchListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.only(
+                                left: 36,
+                                right: 24,
+                              ),
+                              title: const Text(
+                                '快进 30 秒按钮',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                              subtitle: const Text(
+                                '控制设置面板里“快进 30 秒”入口的显示',
+                                style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              activeThumbColor: const Color(0xFFFF6B35),
+                              value: settings.showFastForwardButton,
+                              onChanged: settings.setShowFastForwardButton,
+                            ),
+                            if (onFastForward != null &&
+                                settings.showFastForwardButton)
+                              ListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.only(
+                                  left: 36,
+                                  right: 24,
+                                ),
+                                leading: const Icon(
+                                  Icons.forward_30,
+                                  color: Color(0xFFFF6B35),
+                                ),
+                                title: const Text(
+                                  '立即快进 30 秒',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  onFastForward();
+                                },
+                              ),
+                          ],
                         ),
-                        subtitle: Text(
-                          settings.huangguoDomain,
-                          style: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 12,
-                          ),
-                        ),
-                        trailing: const Icon(
-                          Icons.edit_location_alt,
-                          color: Color(0xFFFF6B35),
-                        ),
-                        onTap: () =>
-                            _showHuangguoDomainDialog(ctx, settings),
-                      ),
-                      const Divider(color: Colors.white12),
-                      _GroupExpansion(
-                        title: '按钮显示',
-                        subtitle:
-                            '${[
-                              settings.showSiteBackButton,
-                              settings.showSearchBackButton,
-                              settings.showFullscreenButton,
-                              settings.showMuteButton,
-                            ].where((b) => b).length}/4',
+                      ],
+                      _GroupCard(
                         children: [
-                          SwitchListTile(
-                            dense: true,
-                            contentPadding:
-                                const EdgeInsets.only(left: 36, right: 24),
+                          ListTile(
+                            leading: const Icon(
+                              Icons.add_link,
+                              color: Color(0xFFFF6B35),
+                            ),
                             title: const Text(
-                              '站点页返回按钮',
+                              '添加网站',
                               style: TextStyle(color: Colors.white),
                             ),
                             subtitle: const Text(
-                              '控制左上角返回按钮的显示与隐藏',
+                              '选择点播通用解析，或 Stripchat / Chaturbate 直播解析',
                               style: TextStyle(
                                 color: Colors.white38,
                                 fontSize: 12,
                               ),
                             ),
-                            activeThumbColor: const Color(0xFFFF6B35),
-                            value: settings.showSiteBackButton,
-                            onChanged: settings.setShowSiteBackButton,
+                            trailing: const Icon(
+                              Icons.chevron_right,
+                              color: Colors.white38,
+                            ),
+                            onTap: () => _showAddSiteDialog(ctx, layout),
                           ),
-                          SwitchListTile(
-                            dense: true,
-                            contentPadding:
-                                const EdgeInsets.only(left: 36, right: 24),
+                          ListTile(
+                            leading: const Icon(
+                              Icons.visibility_off_outlined,
+                              color: Color(0xFFFF6B35),
+                            ),
                             title: const Text(
-                              '搜索页返回按钮',
+                              '隐藏网站',
                               style: TextStyle(color: Colors.white),
                             ),
                             subtitle: const Text(
-                              '控制播放页左上角返回按钮的显示与隐藏',
+                              '管理主页和搜索中显示的网站',
                               style: TextStyle(
                                 color: Colors.white38,
                                 fontSize: 12,
                               ),
                             ),
-                            activeThumbColor: const Color(0xFFFF6B35),
-                            value: settings.showSearchBackButton,
-                            onChanged: settings.setShowSearchBackButton,
-                          ),
-                          SwitchListTile(
-                            dense: true,
-                            contentPadding:
-                                const EdgeInsets.only(left: 36, right: 24),
-                            title: const Text(
-                              '全屏按钮',
-                              style: TextStyle(color: Colors.white),
+                            trailing: const Icon(
+                              Icons.chevron_right,
+                              color: Colors.white38,
                             ),
-                            subtitle: const Text(
-                              '控制右上角全屏按钮的显示与隐藏',
-                              style: TextStyle(
-                                color: Colors.white38,
-                                fontSize: 12,
+                            onTap: () => Navigator.of(ctx).push(
+                              MaterialPageRoute(
+                                builder: (_) => const HiddenSitesPage(),
                               ),
                             ),
-                            activeThumbColor: const Color(0xFFFF6B35),
-                            value: settings.showFullscreenButton,
-                            onChanged: settings.setShowFullscreenButton,
-                          ),
-                          SwitchListTile(
-                            dense: true,
-                            contentPadding:
-                                const EdgeInsets.only(left: 36, right: 24),
-                            title: const Text(
-                              '声音按钮',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            subtitle: const Text(
-                              '控制右下角声音按钮的显示与隐藏',
-                              style: TextStyle(
-                                color: Colors.white38,
-                                fontSize: 12,
-                              ),
-                            ),
-                            activeThumbColor: const Color(0xFFFF6B35),
-                            value: settings.showMuteButton,
-                            onChanged: settings.setShowMuteButton,
                           ),
                         ],
-                      ),
-                    ],
-                      ListTile(
-                        leading: const Icon(
-                          Icons.add_link,
-                          color: Color(0xFFFF6B35),
-                        ),
-                        title: const Text(
-                          '添加网站',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        subtitle: const Text(
-                          '选择点播通用解析，或 Stripchat / Chaturbate 直播解析',
-                          style: TextStyle(color: Colors.white38, fontSize: 12),
-                        ),
-                        trailing: const Icon(
-                          Icons.chevron_right,
-                          color: Colors.white38,
-                        ),
-                        onTap: () => _showAddSiteDialog(ctx, layout),
-                      ),
-                      ListTile(
-                        leading: const Icon(
-                          Icons.visibility_off_outlined,
-                          color: Color(0xFFFF6B35),
-                        ),
-                        title: const Text(
-                          '隐藏网站',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        subtitle: const Text(
-                          '管理主页和搜索中显示的网站',
-                          style: TextStyle(color: Colors.white38, fontSize: 12),
-                        ),
-                        trailing: const Icon(
-                          Icons.chevron_right,
-                          color: Colors.white38,
-                        ),
-                        onTap: () => Navigator.of(ctx).push(
-                          MaterialPageRoute(
-                            builder: (_) => const HiddenSitesPage(),
-                          ),
-                        ),
                       ),
                       if (layout.customSites.isNotEmpty)
                         for (final custom in layout.customSites)
@@ -371,117 +384,155 @@ const Divider(color: Colors.white12),
                                   layout.removeCustomUrl(custom.url),
                             ),
                           ),
-                      const Divider(color: Colors.white12),
-                      ListTile(
-                        title: const Text(
-                          '一键恢复频道',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        subtitle: const Text(
-                          '恢复默认网站列表与直播入口（不改画质）。',
-                          style: TextStyle(color: Colors.white38, fontSize: 12),
-                        ),
-                        trailing: const Icon(
-                          Icons.restart_alt,
-                          color: Color(0xFFFF6B35),
-                        ),
-                        onTap: () async {
-                          final ok = await showDialog<bool>(
-                                context: ctx,
-                                builder: (d) => AlertDialog(
-                                  backgroundColor: const Color(0xFF2A2A2A),
-                                  title: const Text(
-                                    '恢复默认频道？',
-                                    style: TextStyle(color: Colors.white),
-                                  ),
-                                  content: const Text(
-                                    '将重置主页网站列表与默认直播源。',
-                                    style: TextStyle(color: Colors.white70),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(d, false),
-                                      child: const Text('取消'),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(d, true),
-                                      child: const Text(
-                                        '恢复',
-                                        style: TextStyle(
-                                          color: Color(0xFFFF6B35),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ) ??
-                              false;
-                          if (!ok) return;
-                          await layout.restoreDefaultLayout();
-                          if (ctx.mounted) {
-                            Navigator.pop(ctx);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('已恢复默认频道'),
-                                behavior: SnackBarBehavior.floating,
+                      _GroupCard(
+                        children: [
+                          ListTile(
+                            title: const Text(
+                              '一键恢复频道',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            subtitle: const Text(
+                              '恢复默认网站列表与直播入口（不改画质）。',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
                               ),
-                            );
-                          }
-                        },
-                      ),
-                      const Divider(color: Colors.white12),
-                      ListTile(
-                        title: const Text(
-                          '清除痕迹并退出',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        subtitle: const Text(
-                          '清理 WebView 缓存、Cookie、应用数据后退出。',
-                          style: TextStyle(color: Colors.white38, fontSize: 12),
-                        ),
-                        trailing: const Icon(
-                          Icons.cleaning_services,
-                          color: Color(0xFFFF6B35),
-                        ),
-                        onTap: () async {
-                          final ok = await showDialog<bool>(
-                                context: ctx,
-                                builder: (d) => AlertDialog(
-                                  backgroundColor: const Color(0xFF2A2A2A),
-                                  title: const Text(
-                                    '清除痕迹？',
-                                    style: TextStyle(color: Colors.white),
-                                  ),
-                                  content: const Text(
-                                    '将清理所有 WebView 缓存、Cookie、观看历史和应用数据后退出。',
-                                    style: TextStyle(color: Colors.white70),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(d, false),
-                                      child: const Text('取消'),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(d, true),
-                                      child: const Text(
-                                        '清理并退出',
-                                        style: TextStyle(
-                                          color: Color(0xFFFF6B35),
-                                        ),
+                            ),
+                            trailing: const Icon(
+                              Icons.restart_alt,
+                              color: Color(0xFFFF6B35),
+                            ),
+                            onTap: () async {
+                              final ok =
+                                  await showDialog<bool>(
+                                    context: ctx,
+                                    builder: (d) => AlertDialog(
+                                      backgroundColor: const Color(0xFF2A2A2A),
+                                      title: const Text(
+                                        '恢复默认频道？',
+                                        style: TextStyle(color: Colors.white),
                                       ),
+                                      content: const Text(
+                                        '将重置主页网站列表与默认直播源。',
+                                        style: TextStyle(color: Colors.white70),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(d, false),
+                                          child: const Text('取消'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(d, true),
+                                          child: const Text(
+                                            '恢复',
+                                            style: TextStyle(
+                                              color: Color(0xFFFF6B35),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
+                                  ) ??
+                                  false;
+                              if (!ok) return;
+                              await layout.restoreDefaultLayout();
+                              if (ctx.mounted) {
+                                Navigator.pop(ctx);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('已恢复默认频道'),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              }
+                            },
+                          ),
+                          if (defaultTargetPlatform == TargetPlatform.iOS)
+                            ListTile(
+                              title: const Text(
+                                '黄果短剧域名',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                              subtitle: Text(
+                                settings.huangguoDomain,
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
                                 ),
-                              ) ??
-                              false;
-                          if (!ok) return;
-                          if (!ctx.mounted) return;
-                          await ctx.read<WatchHistory>().clear();
-                          await CacheManager.clearAllCache();
-                          if (ctx.mounted) Navigator.pop(ctx);
-                          await PrivacyWipe.nuclearWipe();
-                          await PrivacyWipe.exitApp();
-                        },
+                              ),
+                              trailing: const Icon(
+                                Icons.edit_location_alt,
+                                color: Color(0xFFFF6B35),
+                              ),
+                              onTap: () =>
+                                  _showHuangguoDomainDialog(ctx, settings),
+                            ),
+                        ],
+                      ),
+                      _GroupCard(
+                        children: [
+                          ListTile(
+                            title: const Text(
+                              '清除痕迹并退出',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            subtitle: const Text(
+                              '清理 WebView 缓存、Cookie、应用数据后退出。',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
+                            ),
+                            trailing: const Icon(
+                              Icons.cleaning_services,
+                              color: Color(0xFFFF6B35),
+                            ),
+                            onTap: () async {
+                              final ok =
+                                  await showDialog<bool>(
+                                    context: ctx,
+                                    builder: (d) => AlertDialog(
+                                      backgroundColor: const Color(0xFF2A2A2A),
+                                      title: const Text(
+                                        '清除痕迹？',
+                                        style: TextStyle(color: Colors.white),
+                                      ),
+                                      content: const Text(
+                                        '将清理所有 WebView 缓存、Cookie、观看历史和应用数据后退出。',
+                                        style: TextStyle(color: Colors.white70),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(d, false),
+                                          child: const Text('取消'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(d, true),
+                                          child: const Text(
+                                            '清理并退出',
+                                            style: TextStyle(
+                                              color: Color(0xFFFF6B35),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ) ??
+                                  false;
+                              if (!ok) return;
+                              if (!ctx.mounted) return;
+                              await ctx.read<WatchHistory>().clear();
+                              await CacheManager.clearAllCache();
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              await PrivacyWipe.nuclearWipe();
+                              await PrivacyWipe.exitApp();
+                            },
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 16),
                       const Divider(color: Colors.white12),
@@ -725,19 +776,19 @@ Future<void> _showHuangguoDomainDialog(
 }
 
 String _customParserLabel(String parser) => switch (parser) {
-      'generic_vod' => '点播 · 通用解析',
-      'pornhub' => '点播 · Pornhub 解析',
-      'xvideos' => '点播 · XVideos 解析',
-      'mitao' => '点播 · Mitao 解析',
-      'huangguo' => '点播 · 黄果短剧 解析',
-      'xnxx' => '点播 · XNXX 解析',
-      'xhamster' => '点播 · xHamster 解析',
-      'tnaflix' => '点播 · TNAFlix 解析',
-      'jable' => '点播 · Jable 解析',
-      'stripchat' => '直播 · Stripchat',
-      'chaturbate' => '直播 · Chaturbate',
-      _ => parser,
-    };
+  'generic_vod' => '点播 · 通用解析',
+  'pornhub' => '点播 · Pornhub 解析',
+  'xvideos' => '点播 · XVideos 解析',
+  'mitao' => '点播 · Mitao 解析',
+  'huangguo' => '点播 · 黄果短剧 解析',
+  'xnxx' => '点播 · XNXX 解析',
+  'xhamster' => '点播 · xHamster 解析',
+  'tnaflix' => '点播 · TNAFlix 解析',
+  'jable' => '点播 · Jable 解析',
+  'stripchat' => '直播 · Stripchat',
+  'chaturbate' => '直播 · Chaturbate',
+  _ => parser,
+};
 
 class _AppVersionLabelState extends State<_AppVersionLabel> {
   String _label = '';
@@ -745,10 +796,12 @@ class _AppVersionLabelState extends State<_AppVersionLabel> {
   @override
   void initState() {
     super.initState();
-    PackageInfo.fromPlatform().then((info) {
-      if (!mounted) return;
-      setState(() => _label = 'v${info.version}');
-    }).catchError((_) {});
+    PackageInfo.fromPlatform()
+        .then((info) {
+          if (!mounted) return;
+          setState(() => _label = 'v${info.version}');
+        })
+        .catchError((_) {});
   }
 
   @override
@@ -757,6 +810,252 @@ class _AppVersionLabelState extends State<_AppVersionLabel> {
     return Text(
       _label,
       style: const TextStyle(color: Colors.white24, fontSize: 11),
+    );
+  }
+}
+
+/// iOS 风格分组列表卡片：圆角深色容器 + 项间细分割线。
+class _GroupCard extends StatelessWidget {
+  const _GroupCard({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFF242424),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white10),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            children[i],
+            if (i < children.length - 1)
+              const Divider(
+                height: 0.5,
+                color: Colors.white12,
+                indent: 16,
+                endIndent: 16,
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 静态按钮图例：返回 / 全屏 / 声音 / 快进30秒 长什么样（不可点，仅示意）。
+class _ButtonLegend extends StatelessWidget {
+  const _ButtonLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    const items = [
+      (Icons.arrow_back, '返回'),
+      (Icons.fullscreen, '全屏'),
+      (Icons.volume_up, '声音'),
+      (Icons.forward_30, '快进30秒'),
+    ];
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          for (final (icon, label) in items)
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: const Color(0xFFFF6B35), size: 22),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: const TextStyle(color: Colors.white54, fontSize: 11),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 「跳过片头」折叠配置：外层开关 + 展开后的数字规则输入。
+/// 规则：视频时长 ≥ [最短时长] 秒才跳过；时长落在 [开始, 结束] 分钟区间
+/// 内跳 [区间秒数]，区间外跳 [兜底秒数]。
+class _SkipIntroGroup extends StatefulWidget {
+  const _SkipIntroGroup({required this.settings});
+
+  final AppSettings settings;
+
+  @override
+  State<_SkipIntroGroup> createState() => _SkipIntroGroupState();
+}
+
+class _SkipIntroGroupState extends State<_SkipIntroGroup> {
+  bool _expanded = false;
+  late final TextEditingController _minCtrl;
+  late final TextEditingController _startCtrl;
+  late final TextEditingController _endCtrl;
+  late final TextEditingController _ruleSecCtrl;
+  late final TextEditingController _defaultSecCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = widget.settings;
+    _minCtrl = TextEditingController(text: '${s.skipIntroMinSec}');
+    _startCtrl = TextEditingController(text: '${s.skipIntroRuleStartMin}');
+    _endCtrl = TextEditingController(text: '${s.skipIntroRuleEndMin}');
+    _ruleSecCtrl = TextEditingController(text: '${s.skipIntroRuleSec}');
+    _defaultSecCtrl = TextEditingController(text: '${s.skipIntroDefaultSec}');
+  }
+
+  @override
+  void dispose() {
+    _minCtrl.dispose();
+    _startCtrl.dispose();
+    _endCtrl.dispose();
+    _ruleSecCtrl.dispose();
+    _defaultSecCtrl.dispose();
+    super.dispose();
+  }
+
+  void _apply(TextEditingController c, Future<void> Function(int) setter) {
+    final v = int.tryParse(c.text.trim());
+    if (v == null || v <= 0) return;
+    // ignore: unawaited_futures
+    setter(v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.settings;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+            child: Row(
+              children: [
+                Switch(
+                  activeThumbColor: const Color(0xFFFF6B35),
+                  value: s.skipIntro,
+                  onChanged: s.setSkipIntro,
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Text('跳过片头', style: TextStyle(color: Colors.white)),
+                ),
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  color: Colors.white38,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_expanded)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _NumField(
+                  controller: _minCtrl,
+                  label: '最短视频时长（秒）',
+                  hint: '不足此秒数不跳过',
+                  onChanged: (c) => _apply(c, s.setSkipIntroMinSec),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '区间规则：视频时长在“开始～结束分钟”之间时跳过“区间秒数”',
+                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _NumField(
+                        controller: _startCtrl,
+                        label: '开始分钟',
+                        onChanged: (c) => _apply(c, s.setSkipIntroRuleStartMin),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _NumField(
+                        controller: _endCtrl,
+                        label: '结束分钟',
+                        onChanged: (c) => _apply(c, s.setSkipIntroRuleEndMin),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _NumField(
+                        controller: _ruleSecCtrl,
+                        label: '区间秒数',
+                        onChanged: (c) => _apply(c, s.setSkipIntroRuleSec),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _NumField(
+                  controller: _defaultSecCtrl,
+                  label: '其余时长跳过（秒）',
+                  hint: '区间外视频默认跳过秒数',
+                  onChanged: (c) => _apply(c, s.setSkipIntroDefaultSec),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 紧凑数字输入行（键盘直接改数值，即输即存）。
+class _NumField extends StatelessWidget {
+  const _NumField({
+    required this.controller,
+    required this.label,
+    this.hint,
+    this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String? hint;
+  final void Function(TextEditingController c)? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      style: const TextStyle(color: Colors.white, fontSize: 13),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        labelStyle: const TextStyle(color: Colors.white54, fontSize: 12),
+        hintStyle: const TextStyle(color: Colors.white30, fontSize: 11),
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        filled: true,
+        fillColor: const Color(0xFF2A2A2A),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+      ),
+      onChanged: onChanged == null ? null : (v) => onChanged!(controller),
     );
   }
 }

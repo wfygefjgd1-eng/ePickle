@@ -1565,9 +1565,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _currentTime.value = '0:00';
       if (preloadDetail != null) {
         unawaited(
-          PlaybackHelpers.skipIntro(
+          PlaybackHelpers.skipIntroFromSettings(
             preloaded,
-            enabled: settings.skipIntro,
+            settings,
             fallbackDurationSec: preloadDetail.durationSec,
           ),
         );
@@ -1814,9 +1814,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _totalTime.value = PlaybackHelpers.fmtDuration(effDur);
     });
     unawaited(
-      PlaybackHelpers.skipIntro(
+      PlaybackHelpers.skipIntroFromSettings(
         player,
-        enabled: settings.skipIntro,
+        settings,
         fallbackDurationSec: detail.durationSec,
       ),
     );

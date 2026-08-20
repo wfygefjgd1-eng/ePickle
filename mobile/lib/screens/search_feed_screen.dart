@@ -853,12 +853,17 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       // ignore: unawaited_futures
       _ensureMoreIfNearEnd(index);
       if (preloadDetail != null) {
+        final s = context.read<AppSettings>();
         unawaited(
           PlaybackHelpers.skipIntro(
             preloaded,
-            enabled: context.read<AppSettings>().skipIntro &&
-                widget.source != SearchSource.huangguo,
+            enabled: s.skipIntro && widget.source != SearchSource.huangguo,
             fallbackDurationSec: preloadDetail.durationSec,
+            minSec: s.skipIntroMinSec,
+            ruleStartMin: s.skipIntroRuleStartMin,
+            ruleEndMin: s.skipIntroRuleEndMin,
+            ruleSec: s.skipIntroRuleSec,
+            defaultSec: s.skipIntroDefaultSec,
           ),
         );
       }
@@ -1075,12 +1080,17 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _titleText = detail.title;
       _totalTime = PlaybackHelpers.fmtDuration(effDur);
     });
+    final s = context.read<AppSettings>();
     unawaited(
       PlaybackHelpers.skipIntro(
         player,
-        enabled: context.read<AppSettings>().skipIntro &&
-            widget.source != SearchSource.huangguo,
+        enabled: s.skipIntro && widget.source != SearchSource.huangguo,
         fallbackDurationSec: detail.durationSec,
+        minSec: s.skipIntroMinSec,
+        ruleStartMin: s.skipIntroRuleStartMin,
+        ruleEndMin: s.skipIntroRuleEndMin,
+        ruleSec: s.skipIntroRuleSec,
+        defaultSec: s.skipIntroDefaultSec,
       ),
     );
     await player.play();

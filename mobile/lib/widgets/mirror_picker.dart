@@ -30,136 +30,153 @@ Future<void> showMirrorPickerSheet(BuildContext context, SiteDef site) async {
           border: Border.all(color: Colors.white10),
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Center(
               child: Container(
                 width: 34,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
+                margin: const EdgeInsets.only(bottom: 12, top: 2),
                 decoration: BoxDecoration(
                   color: Colors.white24,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
-            const Text(
-              '切换为本站访问域名',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              site.name,
-              style: const TextStyle(color: Colors.white54, fontSize: 13),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '选择后本次使用期间对该站点生效，退出应用后恢复自动优选',
-              style: const TextStyle(color: Colors.white38, fontSize: 11),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 14),
-            // 自动优选 — row with radio dot (no check marks anywhere).
-            GestureDetector(
-              onTap: () => Navigator.pop(ctx, ''),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2A2A2A),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Icon(
-                      currentManual == null
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_unchecked,
-                      size: 18,
-                      color: currentManual == null
-                          ? const Color(0xFFFF6B35)
-                          : Colors.white30,
+                    // 标题长条：与“自动优选”长条同款同宽，居中显示。
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2A2A2A),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Column(
+                        children: [
+                          const Text(
+                            '切换为本站访问域名',
+                            style: TextStyle(
+                                color: Colors.white, fontSize: 14),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            site.name,
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 12),
+                          ),
+                          const SizedBox(height: 3),
+                          const Text(
+                            '选择后本次使用期间对该站点生效，退出应用后恢复自动优选',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: Colors.white38, fontSize: 11),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      '自动优选（最快镜像）',
-                      style: TextStyle(
-                          color: Colors.white, fontSize: 14),
+                    const SizedBox(height: 12),
+                    // 自动优选 — row with radio dot (no check marks anywhere).
+                    GestureDetector(
+                      onTap: () => Navigator.pop(ctx, ''),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2A2A2A),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              currentManual == null
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_unchecked,
+                              size: 18,
+                              color: currentManual == null
+                                  ? const Color(0xFFFF6B35)
+                                  : Colors.white30,
+                            ),
+                            const SizedBox(width: 10),
+                            const Text(
+                              '自动优选（最快镜像）',
+                              style: TextStyle(
+                                  color: Colors.white, fontSize: 14),
+                            ),
+                            const Spacer(),
+                            const Text(
+                              '按网络实测自动选择',
+                              style: TextStyle(
+                                  color: Colors.white38, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                    const Spacer(),
-                    const Text(
-                      '按网络实测自动选择',
-                      style: TextStyle(color: Colors.white38, fontSize: 11),
+                    const SizedBox(height: 12),
+                    // Domain pills — one capsule per mirror, radio dot inside.
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        for (final base in mirrors)
+                          Builder(builder: (itemCtx) {
+                            final active = currentManual == normalize(base);
+                            return GestureDetector(
+                              onTap: () => Navigator.pop(itemCtx, base),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 160),
+                                curve: Curves.easeOut,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: active
+                                      ? const Color(0x33FF6B35)
+                                      : const Color(0xFF2A2A2A),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: active
+                                        ? const Color(0xFFFF6B35)
+                                        : Colors.white24,
+                                    width: 1.2,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      active
+                                          ? Icons.radio_button_checked
+                                          : Icons.radio_button_unchecked,
+                                      size: 16,
+                                      color: active
+                                          ? const Color(0xFFFF6B35)
+                                          : Colors.white38,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _hostOf(base),
+                                      style: TextStyle(
+                                        color: active
+                                            ? Colors.white
+                                            : Colors.white70,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }),
+                      ],
                     ),
                   ],
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            // Domain pills — one capsule per mirror, radio dot inside.
-            Flexible(
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  for (final base in mirrors)
-                    Builder(builder: (itemCtx) {
-                      final active = currentManual == normalize(base);
-                      return GestureDetector(
-                        onTap: () => Navigator.pop(itemCtx, base),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 160),
-                          curve: Curves.easeOut,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: active
-                                ? const Color(0x33FF6B35)
-                                : const Color(0xFF2A2A2A),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: active
-                                  ? const Color(0xFFFF6B35)
-                                  : Colors.white24,
-                              width: 1.2,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                active
-                                    ? Icons.radio_button_checked
-                                    : Icons.radio_button_unchecked,
-                                size: 16,
-                                color: active
-                                    ? const Color(0xFFFF6B35)
-                                    : Colors.white38,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _hostOf(base),
-                                style: TextStyle(
-                                  color: active
-                                      ? Colors.white
-                                      : Colors.white70,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }),
-                ],
               ),
             ),
           ],

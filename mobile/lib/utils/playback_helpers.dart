@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/video_item.dart';
+import '../services/app_settings.dart';
 
 /// Shared playback helpers for feed / search-feed.
 class PlaybackHelpers {
@@ -9,17 +10,38 @@ class PlaybackHelpers {
   /// Active player + 3 lookahead slots (same on iOS/Android).
   static const preloadSlotCount = 3;
 
-  /// Skip intro ads based on video duration:
-  /// - < 100s: skip 10s
-  /// - 100s - 10min: skip 15s
-  /// - 10min - 15min: skip 25s
-  /// - 15min - 50min: skip 40s
-  /// - > 50min: skip 70s
-  /// Never skip short clips (trailers / broken 9s teasers).
+  /// [skipIntro] with the user's settings (跳过片头折叠配置)。
+  static Future<void> skipIntroFromSettings(
+    VideoPlayerController ctrl,
+    AppSettings settings, {
+    int fallbackDurationSec = 0,
+  }) =>
+      skipIntro(
+        ctrl,
+        enabled: settings.skipIntro,
+        fallbackDurationSec: fallbackDurationSec,
+        minSec: settings.skipIntroMinSec,
+        ruleStartMin: settings.skipIntroRuleStartMin,
+        ruleEndMin: settings.skipIntroRuleEndMin,
+        ruleSec: settings.skipIntroRuleSec,
+        defaultSec: settings.skipIntroDefaultSec,
+      );
+
+  /// Skip intro ads based on video duration and the user's configurable rule
+  /// (settings sheet → 跳过片头):
+  /// - videos shorter than [minSec] are never touched (teasers / broken 9s
+  ///   clips / live);
+  /// - durations inside [ruleStartMin, ruleEndMin] minutes skip [ruleSec]
+  ///   seconds, everything else skips [defaultSec].
   static Future<void> skipIntro(
     VideoPlayerController ctrl, {
     bool enabled = true,
     int fallbackDurationSec = 0,
+    int minSec = 45,
+    int ruleStartMin = 5,
+    int ruleEndMin = 30,
+    int ruleSec = 20,
+    int defaultSec = 15,
   }) async {
     if (!enabled || !ctrl.value.isInitialized) return;
     var total = ctrl.value.duration.inSeconds;
@@ -27,22 +49,15 @@ class PlaybackHelpers {
       total = fallbackDurationSec;
     }
     // Short / unknown: do not seek (avoids killing 9s teasers or live)
-    if (total > 0 && total < 45) return;
-    if (total <= 0) return;
+    if (total <= 0 || total < minSec) return;
 
-    int skipSeconds;
-    if (total < 100) {
-      skipSeconds = 10;
-    } else if (total < 600) {
-      skipSeconds = 15;
-    } else if (total < 900) {
-      skipSeconds = 25;
-    } else if (total < 3000) {
-      skipSeconds = 40;
+    final minutes = total / 60;
+    final int skipSeconds;
+    if (minutes >= ruleStartMin && minutes <= ruleEndMin) {
+      skipSeconds = ruleSec;
     } else {
-      skipSeconds = 70;
+      skipSeconds = defaultSec;
     }
-
     if (total - skipSeconds < 5) return;
 
     try {

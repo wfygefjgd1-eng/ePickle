@@ -7,6 +7,12 @@ import '../utils/http_client.dart';
 /// Lightweight user prefs.
 class AppSettings extends ChangeNotifier {
   static const _kSkipIntro = 'skip_intro_10s';
+  static const _kSkipIntroMinSec = 'skip_intro_min_sec';
+  static const _kSkipIntroRuleStartMin = 'skip_intro_rule_start_min';
+  static const _kSkipIntroRuleEndMin = 'skip_intro_rule_end_min';
+  static const _kSkipIntroRuleSec = 'skip_intro_rule_sec';
+  static const _kSkipIntroDefaultSec = 'skip_intro_default_sec';
+  static const _kShowFastForwardButton = 'show_fastforward_button';
   static const _kMuted = 'playback_muted';
   static const _kQualityCap = 'quality_cap_height'; // 0=auto preferred
   static const _kShowSiteBackButton = 'show_site_back_button';
@@ -27,6 +33,17 @@ class AppSettings extends ChangeNotifier {
   bool _ready = false;
   bool _autoRotate = true;
   bool _autoLowerOnStall = true;
+  bool _showFastForwardButton = true;
+
+  /// 跳过片头规则（可配置，折叠在“跳过片头”里）：
+  /// - 视频时长 ≥ [skipIntroMinSec] 秒才执行跳过（短预告/直播不跳）；
+  /// - 时长落在 [skipIntroRuleStartMin, ruleEndMin] 分钟区间 → 跳
+  ///   [skipIntroRuleSec] 秒；区间外 → 跳 [skipIntroDefaultSec] 秒。
+  int _skipIntroMinSec = 45;
+  int _skipIntroRuleStartMin = 5;
+  int _skipIntroRuleEndMin = 30;
+  int _skipIntroRuleSec = 20;
+  int _skipIntroDefaultSec = 15;
 
   /// 黄果规则主域名（换域名时在设置里修改，无需更新 App）。
   static const huangguoDefaultDomain = 'https://huangguoai.com';
@@ -42,7 +59,14 @@ class AppSettings extends ChangeNotifier {
   bool get ready => _ready;
   bool get autoRotate => _autoRotate;
   bool get autoLowerOnStall => _autoLowerOnStall;
+  bool get showFastForwardButton => _showFastForwardButton;
   String get huangguoDomain => _huangguoDomain;
+
+  int get skipIntroMinSec => _skipIntroMinSec;
+  int get skipIntroRuleStartMin => _skipIntroRuleStartMin;
+  int get skipIntroRuleEndMin => _skipIntroRuleEndMin;
+  int get skipIntroRuleSec => _skipIntroRuleSec;
+  int get skipIntroDefaultSec => _skipIntroDefaultSec;
 
   Future<void> load() async {
     try {
@@ -60,6 +84,16 @@ class AppSettings extends ChangeNotifier {
       _showMuteButton = p.getBool(_kShowMuteButton) ?? !iosDefault;
       _autoRotate = p.getBool(_kAutoRotate) ?? true;
       _autoLowerOnStall = p.getBool(_kAutoLowerOnStall) ?? true;
+      _showFastForwardButton = p.getBool(_kShowFastForwardButton) ?? true;
+      _skipIntroMinSec =
+          (p.getInt(_kSkipIntroMinSec) ?? 45).clamp(5, 7200);
+      _skipIntroRuleStartMin =
+          (p.getInt(_kSkipIntroRuleStartMin) ?? 5).clamp(0, 240);
+      _skipIntroRuleEndMin =
+          (p.getInt(_kSkipIntroRuleEndMin) ?? 30).clamp(1, 600);
+      _skipIntroRuleSec = (p.getInt(_kSkipIntroRuleSec) ?? 20).clamp(1, 600);
+      _skipIntroDefaultSec =
+          (p.getInt(_kSkipIntroDefaultSec) ?? 15).clamp(1, 600);
       _huangguoDomain = _normalizeHuangguoDomain(
         p.getString(_kHuangguoDomain) ?? huangguoDefaultDomain,
       );
@@ -199,4 +233,61 @@ class AppSettings extends ChangeNotifier {
       await p.setBool(_kShowMuteButton, v);
     } catch (_) {}
   }
+
+  Future<void> setShowFastForwardButton(bool v) async {
+    if (_showFastForwardButton == v) return;
+    _showFastForwardButton = v;
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_kShowFastForwardButton, v);
+    } catch (_) {}
+  }
+
+  Future<void> setSkipIntroMinSec(int v) =>
+      _setSkipIntroInt(_kSkipIntroMinSec, v.clamp(5, 7200), (n) {
+        _skipIntroMinSec = n;
+      });
+
+  Future<void> setSkipIntroRuleStartMin(int v) =>
+      _setSkipIntroInt(_kSkipIntroRuleStartMin, v.clamp(0, 240), (n) {
+        _skipIntroRuleStartMin = n;
+      });
+
+  Future<void> setSkipIntroRuleEndMin(int v) =>
+      _setSkipIntroInt(_kSkipIntroRuleEndMin, v.clamp(1, 600), (n) {
+        _skipIntroRuleEndMin = n;
+      });
+
+  Future<void> setSkipIntroRuleSec(int v) =>
+      _setSkipIntroInt(_kSkipIntroRuleSec, v.clamp(1, 600), (n) {
+        _skipIntroRuleSec = n;
+      });
+
+  Future<void> setSkipIntroDefaultSec(int v) =>
+      _setSkipIntroInt(_kSkipIntroDefaultSec, v.clamp(1, 600), (n) {
+        _skipIntroDefaultSec = n;
+      });
+
+  Future<void> _setSkipIntroInt(
+    String key,
+    int value,
+    void Function(int) apply,
+  ) async {
+    if (value == _currentSkipIntro(key)) return;
+    apply(value);
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setInt(key, value);
+    } catch (_) {}
+  }
+
+  int _currentSkipIntro(String key) => switch (key) {
+        _kSkipIntroMinSec => _skipIntroMinSec,
+        _kSkipIntroRuleStartMin => _skipIntroRuleStartMin,
+        _kSkipIntroRuleEndMin => _skipIntroRuleEndMin,
+        _kSkipIntroRuleSec => _skipIntroRuleSec,
+        _ => _skipIntroDefaultSec,
+      };
 }

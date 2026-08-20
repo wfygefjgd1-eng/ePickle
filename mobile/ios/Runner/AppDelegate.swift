@@ -90,7 +90,7 @@ import WebKit
       case "exitApp":
         // exit(0) skips applicationWillTerminate; cancel in-flight browser
         // requests first so nothing is left half-written to the network.
-        cancelBrowserRequests()
+        self.cancelBrowserRequests()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
           exit(0)
         }

@@ -216,6 +216,10 @@ class _SiteFeedPageState extends State<SiteFeedPage>
                         if (ti == 0)
                           // LONG-PRESS the first tab ("热") to switch this
                           // site's mirror domain for the rest of the session.
+                          // tooltip: '' is REQUIRED: NavigationBar wraps every
+                          // destination in a Tooltip whose long-press
+                          // recognizer otherwise wins the gesture arena and
+                          // swallows our onLongPress (only showing the label).
                           GestureDetector(
                             onLongPress: () =>
                                 unawaited(showMirrorPickerSheet(context, site)),
@@ -226,6 +230,7 @@ class _SiteFeedPageState extends State<SiteFeedPage>
                                 color: const Color(0xFFFF6B35),
                               ),
                               label: tabs[ti].label,
+                              tooltip: '',
                             ),
                           )
                         else

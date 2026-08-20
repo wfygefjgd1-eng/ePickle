@@ -157,22 +157,9 @@ class AppSettings extends ChangeNotifier {
         _proxyPort = 0;
       }
 } catch (_) {
-      _skipIntro = true;
-      _muted = false;
-      _qualityCap = 0;
-      final iosDefault = defaultTargetPlatform == TargetPlatform.iOS;
-      _showSiteBackButton = !iosDefault;
-      _showSearchBackButton = !iosDefault;
-      _showFullscreenButton = !iosDefault;
-      _showMuteButton = !iosDefault;
-      _userConfiguredProxy = false;
-      _autoRotate = true;
-      _autoLowerOnStall = true;
-      _huangguoDomain = huangguoDefaultDomain;
-      _proxyEnabled = false;
-      _proxyHost = '';
-      _proxyPort = 0;
-      _proxyType = 'http';
+      // SharedPreferences unavailable (plugin missing / store corrupt).
+      // Every assignment above uses `?? <initializer-default>`, so the field
+      // initializers already hold exactly what this block used to duplicate.
     }
 
     if (_userConfiguredProxy && hasProxyEndpoint) {

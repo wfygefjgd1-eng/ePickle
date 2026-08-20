@@ -79,27 +79,16 @@ class CacheManager {
   static Future<double> _getCacheSizeInMB() async {
     try {
       final tempDir = await getTemporaryDirectory();
-      // Prefer flutter_cache_manager / libCachedImageData dirs if present.
-      final candidates = <Directory>[
-        Directory('${tempDir.path}/libCachedImageData'),
-        Directory('${tempDir.path}/flutter_cache_manager'),
-        tempDir,
-      ];
-      Directory? root;
-      for (final d in candidates) {
-        if (await d.exists()) {
-          root = d;
-          // Prefer specific cache dirs over whole temp.
-          if (d.path != tempDir.path) break;
-        }
-      }
-      if (root == null) return 0;
-
+      // Measure the WHOLE temp directory, not just libCachedImageData:
+      // once the image-cache dir exists it would otherwise mask growth in
+      // flutter_cache_manager files and any temp downloads, so the 500 MB
+      // threshold could never react. (WebView/URLCache growth is handled
+      // natively by clearOnLaunch on every start.)
       int totalSize = 0;
       int scanned = 0;
       // 上限保护：异常目录（海量小文件）不会无限阻塞 UI 线程。
       await for (final entity
-          in root.list(recursive: true, followLinks: false)) {
+          in tempDir.list(recursive: true, followLinks: false)) {
         if (entity is File) {
           try {
             totalSize += await entity.length();

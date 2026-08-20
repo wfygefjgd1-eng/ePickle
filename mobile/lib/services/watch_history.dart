@@ -29,12 +29,20 @@ class WatchHistory extends ChangeNotifier {
   /// cannot interleave writes.
   Future<void> _writeTail = Future.value();
 
+  /// Resolved once after load; avoids re-issuing the platform call on every
+  /// record/remove/clear.
+  File? _file;
+
   bool get ready => _ready;
   List<VideoItem> get items => List.unmodifiable(_items);
 
   Future<File> _historyFile() async {
+    final cached = _file;
+    if (cached != null) return cached;
     final dir = await getApplicationSupportDirectory();
-    return File('${dir.path}/$_kFileName');
+    final f = File('${dir.path}/$_kFileName');
+    _file = f;
+    return f;
   }
 
   Future<void> load() async {
@@ -46,15 +54,25 @@ class WatchHistory extends ChangeNotifier {
           final list = jsonDecode(raw) as List<dynamic>;
           for (final e in list) {
             if (e is! Map) continue;
-            final m = Map<String, dynamic>.from(e);
-            final url = (m['url'] as String?)?.trim() ?? '';
-            if (url.isEmpty) continue;
-            _items.add(VideoItem(
-              url: url,
-              title: (m['title'] as String?)?.trim() ?? '',
-              duration: (m['duration'] as String?)?.trim() ?? '-',
-              thumb: (m['thumb'] as String?)?.trim(),
-            ));
+            // One malformed entry must not discard the whole history:
+            // skip it and keep every valid item.
+            try {
+              final m = Map<String, dynamic>.from(e);
+              final url = m['url'] is String ? (m['url'] as String).trim() : '';
+              if (url.isEmpty) continue;
+              _items.add(VideoItem(
+                url: url,
+                title:
+                    m['title'] is String ? (m['title'] as String).trim() : '',
+                duration: m['duration'] is String
+                    ? (m['duration'] as String).trim()
+                    : '-',
+                thumb:
+                    m['thumb'] is String ? (m['thumb'] as String).trim() : null,
+              ));
+            } catch (_) {
+              continue;
+            }
           }
         }
       }
@@ -120,8 +138,9 @@ class WatchHistory extends ChangeNotifier {
       try {
         final f = await _historyFile();
         await f.writeAsString(jsonEncode(data), flush: true);
-        // iOS: keep sensitive history out of iCloud backups (attribute set
-        // once; the file persists across writes).
+        // iOS: keep sensitive history out of iCloud backups. Guarded, so the
+        // platform call fires at most once per session (normally during
+        // load(); this retries in case that attempt failed early).
         if (Platform.isIOS && !_backupExcluded) {
           await FileUtils.excludeFromBackup(f.path);
           _backupExcluded = true;

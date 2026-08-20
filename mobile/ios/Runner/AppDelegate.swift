@@ -1251,7 +1251,12 @@ enum PrivacyNativeWipe {
     HTTPCookieStorage.shared.cookies?.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
     HTTPCookieStorage.shared.removeCookies(since: .distantPast)
     URLCache.shared.removeAllCachedResponses()
-    URLCache.shared = URLCache(memoryCapacity: 0, diskCapacity: 0, diskPath: nil)
+    // Empty the cache without permanently crippling it: drop the zero-capacity
+    // instance and restore defaults, so the app does not re-download every
+    // media byte if it stays alive after the wipe.
+    URLCache.shared = URLCache(memoryCapacity: 4 * 1024 * 1024,
+                                diskCapacity: 20 * 1024 * 1024,
+                                diskPath: nil)
 
     wipeSandboxFiles()
     wipeUserDefaults()

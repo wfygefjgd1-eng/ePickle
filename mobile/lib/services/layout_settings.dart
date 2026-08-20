@@ -105,13 +105,8 @@ class LayoutSettings extends ChangeNotifier {
         await _persistCustomSites(p);
       }
     } catch (_) {
-      _enabledVideoIds =
-          List<String>.from(SourceCatalog.defaultEnabledVideoIds);
-      _liveId = SourceCatalog.defaultLiveId;
-      _globalSearch = false;
-      _customUrls = [];
-      _customSites = [];
-      _hiddenSiteKeys = <String>{};
+      // SharedPreferences unavailable — the field initializers already hold
+      // exactly these defaults (defaultEnabledVideoIds, defaultLiveId, ...).
     }
     _ready = true;
     notifyListeners();

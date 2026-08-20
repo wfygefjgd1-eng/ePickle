@@ -134,6 +134,11 @@ class Translator {
         return text;
       }
       _cache[key] = result;
+      // Bound RAM the same way disk is bounded: evict the oldest entry once
+      // the in-memory cache exceeds the disk cap on a long scrolling session.
+      if (_cache.length > _maxDiskEntries) {
+        _cache.remove(_cache.keys.first);
+      }
       // Batch bursts of title translations into a single disk write.
       _schedulePersist();
       return result;

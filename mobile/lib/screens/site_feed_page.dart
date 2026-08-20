@@ -197,7 +197,9 @@ class _SiteFeedPageState extends State<SiteFeedPage>
           : RepaintBoundary(
               child: ClipRect(
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                  // Smaller blur radius = much cheaper per-frame re-sampling
+                  // while the feed scrolls under the bar (same glass look).
+                  filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                   child: NavigationBar(
                     selectedIndex: _index.clamp(0, _destinationCount - 1),
                     onDestinationSelected: _onTabSelected,

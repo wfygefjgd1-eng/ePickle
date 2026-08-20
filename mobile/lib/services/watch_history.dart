@@ -21,6 +21,10 @@ class WatchHistory extends ChangeNotifier {
   final List<VideoItem> _items = [];
   bool _ready = false;
 
+  /// The file attribute is set once on the existing file — no need to re-issue
+  /// the platform call on every persist.
+  static bool _backupExcluded = false;
+
   /// Serializes concurrent [_persist] calls so rapid record/remove sequences
   /// cannot interleave writes.
   Future<void> _writeTail = Future.value();
@@ -55,8 +59,9 @@ class WatchHistory extends ChangeNotifier {
         }
       }
       // iOS: mark the file excluded from iCloud backups once on load.
-      if (Platform.isIOS) {
+      if (Platform.isIOS && !_backupExcluded) {
         await FileUtils.excludeFromBackup(f.path);
+        _backupExcluded = true;
       }
     } catch (_) {
       // Missing/corrupt file or unavailable storage → start empty.
@@ -115,9 +120,11 @@ class WatchHistory extends ChangeNotifier {
       try {
         final f = await _historyFile();
         await f.writeAsString(jsonEncode(data), flush: true);
-        // iOS: keep sensitive history out of iCloud backups.
-        if (Platform.isIOS) {
+        // iOS: keep sensitive history out of iCloud backups (attribute set
+        // once; the file persists across writes).
+        if (Platform.isIOS && !_backupExcluded) {
           await FileUtils.excludeFromBackup(f.path);
+          _backupExcluded = true;
         }
       } catch (_) {
         // Storage unavailable (e.g. unit tests) — nothing to do.

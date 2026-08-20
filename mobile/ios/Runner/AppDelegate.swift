@@ -84,6 +84,9 @@ import WebKit
         PrivacyNativeWipe.run {
           result(nil)
         }
+      case "clearLaunchCache":
+        PrivacyNativeWipe.clearLaunchCache()
+        result(nil)
       case "exitApp":
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
           exit(0)
@@ -1143,6 +1146,12 @@ private final class BrowserRenderRequest: NSObject, WKNavigationDelegate {
 
   private func finish(html: String, finalUrl: URL) {
     guard !completed, let webView else { return }
+    // Disarm the timeout BEFORE the async cookie read below: the callback
+    // hops threads, and an in-flight render must never be reported as a
+    // timeout just because the timeout fired across that gap. Everything here
+    // runs on the main queue, so this cancel is atomic versus the timeout.
+    timeoutWorkItem?.cancel()
+    timeoutWorkItem = nil
     webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
       guard let self, !self.completed else { return }
       let host = finalUrl.host?.lowercased() ?? ""
@@ -1208,6 +1217,24 @@ enum SystemProxyReader {
 }
 
 enum PrivacyNativeWipe {
+  /// Lightweight per-launch wipe: clears only the caches that grow over time
+  /// (WebView disk/memory cache, offline app cache, service workers, URLCache).
+  /// Cookies, localStorage, UserDefaults, Documents and keychain are preserved
+  /// so settings, watch history and site sessions survive restarts.
+  static func clearLaunchCache() {
+    URLCache.shared.removeAllCachedResponses()
+    let types: Set<String> = [
+      WKWebsiteDataTypeDiskCache,
+      WKWebsiteDataTypeMemoryCache,
+      WKWebsiteDataTypeOfflineWebApplicationCache,
+      WKWebsiteDataTypeServiceWorkers,
+    ]
+    WKWebsiteDataStore.default().removeData(
+      ofTypes: types,
+      modifiedSince: Date(timeIntervalSince1970: 0)
+    ) {}
+  }
+
   static func run(completion: @escaping () -> Void) {
     let group = DispatchGroup()
 

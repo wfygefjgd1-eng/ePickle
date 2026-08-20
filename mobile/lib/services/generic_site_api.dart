@@ -113,11 +113,13 @@ class GenericSiteApi {
       // A hanging request usually means the cached proxy went stale or the
       // connection is dead; re-detect the system proxy before the next try.
       AppHttpClient.markProxySuspect();
+      await AppHttpClient.refreshSystemProxy();
       rethrow;
     } on DioException catch (error) {
       if (error.type == DioExceptionType.connectionTimeout ||
           error.type == DioExceptionType.receiveTimeout) {
         AppHttpClient.markProxySuspect();
+        await AppHttpClient.refreshSystemProxy();
       }
       if (!CancelToken.isCancel(error) && _shouldUseNativeFallback(error)) {
         final native = await _nativeGetHtml(
@@ -292,10 +294,10 @@ class GenericSiteApi {
   }
 
   bool _isBlockedHtml(String html) {
-    final low = html.toLowerCase();
     final trim = html.trimLeft();
     if (trim.startsWith('{') || trim.startsWith('[')) return false;
     if (html.length < 350) return true;
+    final low = html.toLowerCase();
     if (low.contains('just a moment') && low.contains('cloudflare')) {
       return true;
     }
@@ -379,6 +381,14 @@ class GenericSiteApi {
   List<String> _mirrorsFor(SiteDef site) {
     if (site.mirrors.isNotEmpty) return List<String>.from(site.mirrors);
     return [site.primaryHost];
+  }
+
+  /// Mirror base for the currently-preferred mirror, clamped so a stale index
+  /// (catalog changed between sessions) can never throw RangeError.
+  String _preferredMirrorBase(SiteDef site) {
+    final mirrors = _mirrorsFor(site);
+    final index = (_mirrorIndex[site.id] ?? 0).clamp(0, mirrors.length - 1);
+    return mirrors[index].replaceAll(RegExp(r'/$'), '');
   }
 
   String _abs(String base, String path) {
@@ -490,6 +500,15 @@ class GenericSiteApi {
         unawaited(probe(index, tokens[index]).then((result) {
           if (result.page != null && !completer.isCompleted) {
             completer.complete(result);
+            // Winner decided: cancel the losing probes right away so they stop
+            // holding sockets (and, when they fell back to WKWebView render,
+            // stop occupying scarce render slots) while their responses are
+            // still discarded.
+            for (final entry in tokens.entries) {
+              if (entry.key != result.index) {
+                entry.value.cancel('mirror settled');
+              }
+            }
             return;
           }
           if (result.error != null) failures.add(result.error!);
@@ -567,6 +586,9 @@ class GenericSiteApi {
         (site.kind == SiteKind.video && results.length < limit);
     if (shouldTryHtml) {
       final paths = _listPaths(site, tagId, safePage);
+      // The accept predicate already parses the winning page; remember the
+      // result so the winner isn't parsed a second time.
+      final parsedByBase = <String, List<VideoItem>>{};
       for (final pathFn in paths) {
         if (results.length >= limit) break;
         try {
@@ -574,24 +596,28 @@ class GenericSiteApi {
             site,
             pathFn,
             deadline: deadline,
-            accept: (html, base) => _parseFeedResponse(
-              html,
-              base,
-              <String>{
-                ...seen,
-              },
-              site,
-              tagId: tagId,
-            ).isNotEmpty,
+            accept: (html, base) {
+              final items = _parseFeedResponse(
+                html,
+                base,
+                <String>{...seen},
+                site,
+                tagId: tagId,
+              );
+              if (items.isEmpty) return false;
+              parsedByBase[base] = items;
+              return true;
+            },
           );
           results.addAll(
-            _parseFeedResponse(
-              fetched.html,
-              fetched.base,
-              seen,
-              site,
-              tagId: tagId,
-            ),
+            parsedByBase[fetched.base] ??
+                _parseFeedResponse(
+                  fetched.html,
+                  fetched.base,
+                  seen,
+                  site,
+                  tagId: tagId,
+                ),
           );
         } catch (e) {
           if (e is DioException && CancelToken.isCancel(e)) rethrow;
@@ -842,10 +868,7 @@ class GenericSiteApi {
           pathFn,
           deadline: deadline,
         );
-        final base = _mirrorsFor(
-          site,
-        )[_mirrorIndex[site.id] ?? 0]
-            .replaceAll(RegExp(r'/$'), '');
+        final base = _preferredMirrorBase(site);
         out.addAll(_parseLiveJson(html, base, seen, site, tagId: tagId));
         if (out.isNotEmpty) return out;
       } catch (e) {
@@ -882,10 +905,7 @@ class GenericSiteApi {
           );
           final models = _stripchatModelsJson(html.html);
           if (models == null) continue;
-          final base = _mirrorsFor(
-            site,
-          )[_mirrorIndex[site.id] ?? 0]
-              .replaceAll(RegExp(r'/$'), '');
+          final base = _preferredMirrorBase(site);
           out.addAll(
             _parseLiveJson(models, base, seen, site, tagId: tagId),
           );
@@ -920,10 +940,7 @@ class GenericSiteApi {
           pathFn,
           deadline: deadline,
         );
-        final base = _mirrorsFor(
-          site,
-        )[_mirrorIndex[site.id] ?? 0]
-            .replaceAll(RegExp(r'/$'), '');
+        final base = _preferredMirrorBase(site);
         out.addAll(_parseLiveJson(html, base, seen, site, tagId: tagId));
         if (out.isNotEmpty) return out;
       } catch (e) {
@@ -1101,19 +1118,25 @@ class GenericSiteApi {
     final seen = <String>{};
     for (final pathFn in paths) {
       try {
+        final parsedByBase = <String, List<VideoItem>>{};
         final fetched = await _fetchPageWithMirrors(
           site,
           pathFn,
           deadline: deadline,
-          accept: (html, base) =>
-              _parseSearchResponse(html, base, <String>{}, site).isNotEmpty,
+          accept: (html, base) {
+            final items = _parseSearchResponse(html, base, <String>{}, site);
+            if (items.isEmpty) return false;
+            parsedByBase[base] = items;
+            return true;
+          },
         );
-        final list = _parseSearchResponse(
-          fetched.html,
-          fetched.base,
-          seen,
-          site,
-        );
+        final list = parsedByBase[fetched.base] ??
+            _parseSearchResponse(
+              fetched.html,
+              fetched.base,
+              seen,
+              site,
+            );
         if (list.isNotEmpty) return list;
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
@@ -1552,12 +1575,40 @@ class GenericSiteApi {
   }
 
   String _decodeMacCmsUrl(String value, int encrypt) {
-    var decoded = value.replaceAll(r'\/', '/');
-    try {
-      if (encrypt == 2) decoded = utf8.decode(base64.decode(decoded));
-      if (encrypt == 1 || encrypt == 2) decoded = Uri.decodeFull(decoded);
-    } catch (_) {}
-    return decoded;
+    if (encrypt != 2) {
+      var decoded = value.replaceAll(r'\/', '/');
+      if (encrypt == 1) {
+        try {
+          decoded = utf8.decode(base64.decode(decoded));
+        } catch (_) {}
+      }
+      try {
+        decoded = Uri.decodeFull(decoded);
+      } catch (_) {}
+      return decoded;
+    }
+    // encrypt == 2 (MacCMS): sites disagree on the payload encoding — some
+    // URL-escape before base64 (mitao), others base64 raw. Try both orders
+    // and prefer whichever yields a real http(s) media URL.
+    final raw = value.replaceAll(r'\/', '/');
+    String? mediaCandidate;
+    String? httpCandidate;
+    void tryOrder(String Function(String s) unescape) {
+      if (mediaCandidate != null) return;
+      try {
+        final first = utf8.decode(base64.decode(unescape(raw)));
+        final decoded = Uri.decodeFull(first);
+        if (_looksLikeMediaUrl(decoded)) {
+          mediaCandidate ??= decoded;
+        } else if (decoded.startsWith('http') && httpCandidate == null) {
+          httpCandidate = decoded;
+        }
+      } catch (_) {}
+    }
+
+    tryOrder(Uri.decodeComponent);
+    tryOrder((s) => s);
+    return mediaCandidate ?? httpCandidate ?? raw;
   }
 
   bool _looksLikeMediaUrl(String url) {

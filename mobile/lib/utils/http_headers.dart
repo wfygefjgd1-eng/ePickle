@@ -1,5 +1,7 @@
 /// Shared browser-like headers for CDN / site requests.
 class AppHttpHeaders {
+  static final RegExp _trailingSlash = RegExp(r'/$');
+
   /// Match the iOS Safari engine used by the app's browser fallback.
   static const String userAgent =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) '
@@ -19,7 +21,7 @@ class AppHttpHeaders {
 
   /// Headers for a page fetch with correct site origin/referer.
   static Map<String, String> forSite(String baseUrl) {
-    final base = baseUrl.replaceAll(RegExp(r'/$'), '');
+    final base = baseUrl.replaceAll(_trailingSlash, '');
     final origin = _origin(base) ?? base;
     return {
       ...browser,

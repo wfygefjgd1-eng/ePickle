@@ -9,10 +9,8 @@ class FeedListCache {
   /// Max items kept per tab snapshot (around current index).
   static const maxItems = 100;
 
-  /// Peek without removing (name kept for call sites).
+  /// Read the cached snapshot without removing it.
   static FeedListSnapshot? take(String kind) => _map[kind];
-
-  static FeedListSnapshot? peek(String kind) => _map[kind];
 
   static void put(String kind, FeedListSnapshot snap) {
     if (snap.items.isEmpty) return;

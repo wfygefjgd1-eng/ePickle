@@ -14,6 +14,18 @@ class PrivacyWipe {
     }
   }
 
+  /// Lightweight per-launch wipe: clears WebView caches and URLCache only.
+  /// Cookies, localStorage, preferences, history and keychain are preserved.
+  static Future<void> clearLaunchCache() async {
+    try {
+      await _channel.invokeMethod<void>('clearLaunchCache');
+    } on PlatformException {
+      // channel may be unavailable on some platforms; ignore
+    } on MissingPluginException {
+      // not registered; ignore
+    }
+  }
+
   static Future<void> exitApp() async {
     try {
       await _channel.invokeMethod<void>('exitApp');

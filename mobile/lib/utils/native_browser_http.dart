@@ -78,13 +78,21 @@ class NativeBrowserHttp {
   }) async {
     await _acquireRenderSlot();
     try {
-      final raw = await _channel.invokeMapMethod<String, dynamic>('renderGet', {
-        'url': url,
-        'headers': headers,
-        'timeoutMs': timeout.inMilliseconds,
-      });
+      // Dart-side deadline on top of the native timeout: a wedged WKWebView
+      // must never hold one of the two render slots forever. The late native
+      // reply (if any) is dropped by the platform channel.
+      final raw = await _channel
+          .invokeMapMethod<String, dynamic>('renderGet', {
+            'url': url,
+            'headers': headers,
+            'timeoutMs': timeout.inMilliseconds,
+          })
+          .timeout(timeout + const Duration(seconds: 2));
       if (raw == null) return null;
       return _parse(url, raw);
+    } on TimeoutException {
+      debugPrint('NativeBrowserHttp.render timed out for $url');
+      return null;
     } on PlatformException catch (e) {
       debugPrint('NativeBrowserHttp.render failed for $url: ${e.message}');
       return null;
@@ -139,7 +147,9 @@ class NativeBrowserHttp {
       }
     }
     return NativeBrowserHttpResponse(
-      statusCode: (raw['statusCode'] as num?)?.toInt() ?? 0,
+      statusCode: raw['statusCode'] is num
+          ? (raw['statusCode'] as num).toInt()
+          : int.tryParse('${raw['statusCode']}') ?? 0,
       body: raw['body']?.toString() ?? '',
       finalUrl: raw['finalUrl']?.toString() ?? url,
       cookies: cookieMap,

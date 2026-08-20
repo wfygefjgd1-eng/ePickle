@@ -103,20 +103,26 @@ class _HomePageState extends State<HomePage> {
   Future<void> _prewarmHomeFeeds() async {
     if (_prewarmStarted || !mounted) return;
     _prewarmStarted = true;
+    // Don't spend network if the app was backgrounded within the delay.
+    if (WidgetsBinding.instance.lifecycleState !=
+        AppLifecycleState.resumed) {
+      return;
+    }
     final sites = context
         .read<LayoutSettings>()
         .enabledVideoSites
         .where((s) => s.ready && s.tags.isNotEmpty)
         .take(3)
         .toList(growable: false);
-    for (final site in sites) {
+    // Independent site fetches run in parallel: one wave instead of a chain.
+    await Future.wait(sites.map((site) async {
       if (!mounted) return;
       final tag = site.tags.first;
       final cacheKey = '${site.id}_${tag.id}';
-      if (FeedListCache.peek(cacheKey) != null) continue;
+      if (FeedListCache.take(cacheKey) != null) return;
       try {
         final list = await _fetchPrewarmList(site, tag);
-        if (!mounted || list.isEmpty) continue;
+        if (!mounted || list.isEmpty) return;
         FeedListCache.put(
           cacheKey,
           FeedListSnapshot(
@@ -126,7 +132,7 @@ class _HomePageState extends State<HomePage> {
           ),
         );
       } catch (_) {}
-    }
+    }));
   }
 
   Future<List<VideoItem>> _fetchPrewarmList(SiteDef site, SiteTag tag) {
@@ -138,7 +144,7 @@ class _HomePageState extends State<HomePage> {
         return context.read<PhubApi>().fetchRecommend(limit: 12, maxUrls: 2);
       case 'xvideos':
         return context.read<XvideosApi>().fetchFeed(limit: 12, maxUrls: 2);
-case 'mitao':
+      case 'mitao':
         return context.read<MitaoApi>().fetchZhong(limit: 12, maxPages: 2);
       case 'huangguo':
         return context

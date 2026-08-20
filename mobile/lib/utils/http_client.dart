@@ -27,6 +27,15 @@ class AppHttpClient {
   static String _systemType = 'http';
   static DateTime? _lastSystemProxyRefresh;
 
+  /// In-flight detection future so concurrent callers join the same native
+  /// lookup instead of each triggering (or skipping) a separate one.
+  static Future<void>? _detecting;
+
+  /// Cached detection result for UIs that only need to display it.
+  static String? get systemHost => _systemHost;
+  static int get systemPort => _systemPort;
+  static String get systemType => _systemType;
+
   static void applyProxyConfig({
     required bool enabled,
     required String host,
@@ -40,15 +49,28 @@ class AppHttpClient {
   }
 
   /// Refresh Android/iOS system proxy for Dio. Safe to call often; throttled
-  /// to at most one native lookup every 3 seconds. [markProxySuspect] clears
-  /// the timestamp so a stale proxy is re-detected on the very next call.
-  static Future<void> refreshSystemProxy() async {
+  /// to at most one native lookup every 3 seconds. Concurrent callers wait on
+  /// the same in-flight detection, so the first request that needs the proxy
+  /// (or awaits this) never races a stale value. [markProxySuspect] clears the
+  /// throttle so a stale proxy is re-detected on the very next call.
+  static Future<void> refreshSystemProxy() {
     final last = _lastSystemProxyRefresh;
+    final detecting = _detecting;
     if (last != null &&
-        DateTime.now().difference(last) < const Duration(seconds: 3)) {
-      return;
+        DateTime.now().difference(last) < const Duration(seconds: 3) &&
+        detecting == null) {
+      return Future<void>.value();
     }
-    _lastSystemProxyRefresh = DateTime.now();
+    if (detecting != null) return detecting;
+    final future = _detectSystemProxy();
+    _detecting = future;
+    return future.whenComplete(() {
+      _detecting = null;
+      _lastSystemProxyRefresh = DateTime.now();
+    });
+  }
+
+  static Future<void> _detectSystemProxy() async {
     try {
       final info = await SystemProxy.detect();
       if (info != null) {

@@ -730,7 +730,22 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
   }
 
+  /// Failure-safe play: any error escaping the play path must never surface as
+  /// an unhandled async error from a Timer/PageView callback.
   Future<void> _playIndex(int index) async {
+    try {
+      await _playIndexInner(index);
+    } catch (e) {
+      debugPrint('ePickle search _playIndex error: $e');
+      if (mounted) {
+        try {
+          setState(() => _pageLoading = false);
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _playIndexInner(int index) async {
     if (!_canRun || index < 0 || index >= _items.length) return;
     final seq = ++_seq;
     final item = _items[index];
@@ -822,7 +837,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           ? (frozenTargetHeight ?? 0)
           : (preloadStream?.height ?? 0);
       _stallTicks = 0;
-      _stallLoweredForItem = false;
+      if (_sessionQualityCap == null) _stallLoweredForItem = false;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
       _muted = context.read<AppSettings>().muted;
       preloaded.setVolume(_muted ? 0 : 1);
@@ -860,8 +875,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       await preloaded.play();
       if (seq != _seq || !_canRun) {
         if (identical(_controller, preloaded)) _controller = null;
-        await preloaded.pause().catchError((_) {});
-        await preloaded.dispose();
+        // A newer play may have frozen this controller while we awaited
+        // play(); never dispose what the frozen slot now owns.
+        if (!identical(_frozenController, preloaded)) {
+          try {
+            await preloaded.pause().catchError((_) {});
+            await preloaded.dispose();
+          } catch (_) {}
+        }
         return;
       }
       _startTimer();
@@ -1053,7 +1074,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     _currentStreamHeight = stream.height;
     _stallTicks = 0;
-    _stallLoweredForItem = false;
+    if (_sessionQualityCap == null) _stallLoweredForItem = false;
     _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
     if (!mounted) {
       await player.dispose();
@@ -1714,7 +1735,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   int? _autoAdvancedPage;
 
   void _maybeAutoNextEpisode() {
-    if (widget.source == SearchSource.huangguo) return;
+    // Caller only invokes this for huangguo series near episode end.
     final i = _index;
     if (i >= _items.length - 1) return;
     if (_autoAdvancedPage == i) return;
@@ -1782,7 +1803,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _slider.value = target;
     _curTime.value = PlaybackHelpers.fmtDuration(Duration(milliseconds: ms));
     try {
-      await c.seekTo(Duration(milliseconds: ms));
+      // Timeout a hanging seek so _seeking can never wedge the progress bar.
+      await c
+          .seekTo(Duration(milliseconds: ms))
+          .timeout(const Duration(seconds: 4));
       await Future<void>.delayed(const Duration(milliseconds: 120));
       if (!mounted || !identical(c, _controller)) return;
       final p = c.value.position;
@@ -1804,7 +1828,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     setState(() {});
   }
 
-  void _fastForward() {
+  Future<void> _fastForward() async {
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
     final currentPos = c.value.position;
@@ -1812,22 +1836,21 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final newPos = currentPos + const Duration(seconds: 30);
 
     _seeking = true;
-    if (newPos < duration) {
-      c.seekTo(newPos).then((_) {
-        if (mounted) {
-          Future.delayed(const Duration(milliseconds: 120), () {
-            if (mounted) _seeking = false;
-          });
-        }
+    void settle() {
+      Future.delayed(const Duration(milliseconds: 120), () {
+        if (mounted) _seeking = false;
       });
-    } else {
-      c.seekTo(duration).then((_) {
-        if (mounted) {
-          Future.delayed(const Duration(milliseconds: 120), () {
-            if (mounted) _seeking = false;
-          });
-        }
-      });
+    }
+
+    try {
+      if (newPos < duration) {
+        await c.seekTo(newPos).timeout(const Duration(seconds: 4));
+      } else {
+        await c.seekTo(duration).timeout(const Duration(seconds: 4));
+      }
+      settle();
+    } catch (_) {
+      if (mounted) _seeking = false;
     }
   }
 

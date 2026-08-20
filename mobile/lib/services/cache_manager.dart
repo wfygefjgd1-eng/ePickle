@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../utils/privacy_wipe.dart';
+
 /// Automatic cache cleanup with throttling (avoid scanning temp every video).
 class CacheManager {
   static const _maxCacheSizeMB = 500;
@@ -14,6 +16,26 @@ class CacheManager {
   static DateTime? _lastCheck;
   static int _videosSinceCheck = 0;
   static bool _running = false;
+
+  /// On every app launch: wipe transient caches (image cache, temp files,
+  /// WebView cache, URLCache). Settings, watch history, cookies and keychain
+  /// are intentionally preserved so the app stays usable and sites keep
+  /// their sessions. Never blocks startup (fire-and-forget from main()).
+  static Future<void> clearOnLaunch() async {
+    if (_running) return;
+    _running = true;
+    try {
+      // Native: WKWebView cache + URLCache (cookies preserved).
+      await PrivacyWipe.clearLaunchCache();
+      // Dart side: flutter_cache_manager + temp directory.
+      await clearAllCache();
+      debugPrint('ePickle: on-launch cache clear finished');
+    } catch (e) {
+      debugPrint('ePickle: on-launch cache clear failed: $e');
+    } finally {
+      _running = false;
+    }
+  }
 
   /// On launch: force one check (still throttled against concurrent runs).
   static Future<void> checkAndCleanIfNeeded({bool force = false}) async {
@@ -129,11 +151,15 @@ class CacheManager {
     try {
       await DefaultCacheManager().emptyCache();
       final tempDir = await getTemporaryDirectory();
+      int scanned = 0;
       await for (final entity
           in tempDir.list(recursive: true, followLinks: false)) {
         if (entity is File) {
           try {
             await entity.delete();
+            scanned++;
+            // 上限保护：与检查路径一致，异常目录不会无限阻塞。
+            if (scanned >= 200000) break;
           } catch (_) {}
         }
       }

@@ -1003,49 +1003,19 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     });
   }
 
-  final Set<int> _retried = {};
-
-  /// Temporarily disabled auto-skip so failed items stay on screen for debugging.
+  /// Auto-skip is an always-on behavior (previously toggleable in settings).
   void _scheduleSkipToNext(int fromIndex) {
     if (!_canRun) return;
-    final settings = _settings ?? context.read<AppSettings>();
-    if (!settings.autoSkipUnavailable) {
-      PlaybackHelpers.toast(
-        context,
-        '当前频道无法播放；可在设置中开启“自动跳过无信号频道”。',
-      );
-      return;
-    }
     if (_items.length < 2) return;
     final next = (fromIndex + 1) % _items.length;
     PlaybackHelpers.toast(
       context,
-      '当前频道无信号，正在切换下一个；可在设置中关闭自动跳过。',
+      '当前频道无信号，正在切换下一个。',
     );
     _retryTimer?.cancel();
     _retryTimer = Timer(const Duration(milliseconds: 700), () {
       if (_canRun && mounted) _playIndex(next);
     });
-    return;
-    // One silent retry only — never auto-jump to next video.
-    /*
-    if (!_retried.contains(fromIndex)) {
-      _retried.add(fromIndex);
-      _retryTimer?.cancel();
-      _retryTimer = Timer(const Duration(milliseconds: 800), () {
-        if (!_canRun) return;
-        _playIndex(fromIndex);
-      });
-      return;
-    }
-    if (mounted) {
-      PlaybackHelpers.toast(
-        context,
-        '本条无法播放（已停止自动跳过，请手动上下滑）',
-        duration: const Duration(seconds: 3),
-      );
-    }
-    */
   }
 
   Future<void> _exitAfterStopping() async {
@@ -1506,7 +1476,23 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     } catch (_) {}
   }
 
+  /// Failure-safe play: any error escaping the play path (e.g. a stale
+  /// controller state on a rapid swipe) must never surface as an unhandled
+  /// async error from a Timer/PageView callback — that kills the whole feed.
   Future<void> _playIndex(int index) async {
+    try {
+      await _playIndexInner(index);
+    } catch (e) {
+      debugPrint('ePickle _playIndex error: $e');
+      if (mounted) {
+        try {
+          setState(() => _pageLoading = false);
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _playIndexInner(int index) async {
     if (!_canRun || index < 0 || index >= _items.length) return;
     final seq = ++_loadSeq;
     final item = _items[index];
@@ -1638,7 +1624,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           ? (frozenTargetHeight ?? 0)
           : (preloadStream?.height ?? 0);
       _stallTicks = 0;
-      _stallLoweredForItem = false;
+      // See non-preloaded path: keep the per-item flag while an auto-lowered
+      // quality cap is pinned so stalls cannot cascade further down.
+      if (_sessionQualityCap == null) _stallLoweredForItem = false;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
       final settings = context.read<AppSettings>();
       _muted = settings.muted;
@@ -1677,7 +1665,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       await preloaded.play();
       if (seq != _loadSeq || !_canRun) {
         if (identical(_controller, preloaded)) _controller = null;
-        await preloaded.dispose();
+        // A newer play may have already frozen this controller into the
+        // frozen slot while we awaited play(); disposing it here would poison
+        // that slot with a dead controller. Only dispose when we still own it.
+        if (!identical(_frozenController, preloaded)) {
+          try {
+            await preloaded.dispose();
+          } catch (_) {}
+        }
         return;
       }
       _recordWatch(item);
@@ -1888,7 +1883,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
     _currentStreamHeight = stream.height;
     _stallTicks = 0;
-    _stallLoweredForItem = false;
+    // A quality already pinned by auto-lower must not be re-armed: reset the
+    // per-item flag only when no cap is in effect, otherwise every stall would
+    // cascade one rung lower (each replay re-arming the same item).
+    if (_sessionQualityCap == null) _stallLoweredForItem = false;
     _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
     _muted = settings.muted;
     player.setVolume(_muted ? 0 : 1);
@@ -2295,7 +2293,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       Duration(milliseconds: posMs),
     );
     try {
-      await c.seekTo(Duration(milliseconds: posMs));
+      // Timeout a hanging seek so _seeking can never wedge the progress bar.
+      await c.seekTo(Duration(milliseconds: posMs))
+          .timeout(const Duration(seconds: 4));
       // Brief hold so progress timer doesn't overwrite with stale position
       await Future<void>.delayed(const Duration(milliseconds: 120));
       if (!mounted || !identical(c, _controller)) return;
@@ -2324,7 +2324,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     setState(() {});
   }
 
-  void _fastForward() {
+  Future<void> _fastForward() async {
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
     final currentPos = c.value.position;
@@ -2332,22 +2332,22 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final newPos = currentPos + const Duration(seconds: 30);
 
     _seeking = true;
-    if (newPos < duration) {
-      c.seekTo(newPos).then((_) {
-        if (mounted) {
-          Future.delayed(const Duration(milliseconds: 120), () {
-            if (mounted) _seeking = false;
-          });
-        }
+    void settle() {
+      Future.delayed(const Duration(milliseconds: 120), () {
+        if (mounted) _seeking = false;
       });
-    } else {
-      c.seekTo(duration).then((_) {
-        if (mounted) {
-          Future.delayed(const Duration(milliseconds: 120), () {
-            if (mounted) _seeking = false;
-          });
-        }
-      });
+    }
+
+    try {
+      if (newPos < duration) {
+        await c.seekTo(newPos).timeout(const Duration(seconds: 4));
+      } else {
+        await c.seekTo(duration).timeout(const Duration(seconds: 4));
+      }
+      settle();
+    } catch (_) {
+      // Controller swapped / disposed mid-seek: never leave _seeking stuck.
+      if (mounted) _seeking = false;
     }
   }
 
@@ -2573,9 +2573,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final lastFuturePage = currentIndex + _preloadSlotCount + 1;
     _detailCache.removeWhere(
       (index, _) => index < currentIndex - 1 || index > lastFuturePage,
-    );
-    _retried.removeWhere(
-      (index) => index < currentIndex - 1 || index > lastFuturePage,
     );
   }
 }

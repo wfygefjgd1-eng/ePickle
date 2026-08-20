@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/http_client.dart';
-import '../utils/system_proxy.dart';
 
 
 /// Lightweight user prefs.
@@ -21,7 +20,6 @@ class AppSettings extends ChangeNotifier {
   static const _kProxyUserConfigured = 'proxy_user_configured';
   static const _kAutoRotate = 'auto_rotate_landscape';
   static const _kPromptOnStall = 'auto_lower_on_stall';
-  static const _kAutoSkipUnavailable = 'auto_skip_unavailable';
   static const _kHuangguoDomain = 'huangguo_domain_v1';
 
   bool _skipIntro = true;
@@ -42,7 +40,6 @@ class AppSettings extends ChangeNotifier {
   String _proxyAutoNote = '';
   bool _autoRotate = true;
   bool _autoLowerOnStall = true;
-  bool _autoSkipUnavailable = true;
 
   /// 黄果规则主域名（换域名时在设置里修改，无需更新 App）。
   static const huangguoDefaultDomain = 'https://huangguoai.com';
@@ -63,7 +60,6 @@ class AppSettings extends ChangeNotifier {
   String get proxyAutoNote => _proxyAutoNote;
   bool get autoRotate => _autoRotate;
   bool get autoLowerOnStall => _autoLowerOnStall;
-  bool get autoSkipUnavailable => _autoSkipUnavailable;
   String get huangguoDomain => _huangguoDomain;
 
   bool get hasProxyEndpoint =>
@@ -143,7 +139,6 @@ class AppSettings extends ChangeNotifier {
       _showMuteButton = p.getBool(_kShowMuteButton) ?? !iosDefault;
       _autoRotate = p.getBool(_kAutoRotate) ?? true;
       _autoLowerOnStall = p.getBool(_kPromptOnStall) ?? true;
-      _autoSkipUnavailable = p.getBool(_kAutoSkipUnavailable) ?? true;
       _huangguoDomain = _normalizeHuangguoDomain(
         p.getString(_kHuangguoDomain) ?? huangguoDefaultDomain,
       );
@@ -173,7 +168,6 @@ class AppSettings extends ChangeNotifier {
       _userConfiguredProxy = false;
       _autoRotate = true;
       _autoLowerOnStall = true;
-      _autoSkipUnavailable = true;
       _huangguoDomain = huangguoDefaultDomain;
       _proxyEnabled = false;
       _proxyHost = '';
@@ -195,17 +189,19 @@ class AppSettings extends ChangeNotifier {
     }
 
     _syncHttpClient();
-    // Android: make Dio follow system HTTP proxy like WebView.
-    // ignore: discarded_futures
-    AppHttpClient.refreshSystemProxy().then((_) async {
-      final sys = await SystemProxy.detect();
-      if (sys != null && !_userConfiguredProxy) {
-        _proxyAutoNote = '系统代理 ${sys.host}:${sys.port} (${sys.source})';
-      } else if (!_userConfiguredProxy) {
+    // Android: make Dio follow system HTTP proxy like WebView. main() already
+    // awaited a refresh; joining the throttled/in-flight result is nearly
+    // free and avoids a second native detection just for the status note.
+    await AppHttpClient.refreshSystemProxy();
+    if (!_userConfiguredProxy) {
+      final host = AppHttpClient.systemHost;
+      final port = AppHttpClient.systemPort;
+      if (host != null && host.isNotEmpty && port > 0) {
+        _proxyAutoNote = '系统代理 $host:$port (检测)';
+      } else {
         _proxyAutoNote = '直连 / TUN';
       }
-      if (_ready) notifyListeners();
-    });
+    }
     _ready = true;
     notifyListeners();
   }
@@ -247,16 +243,6 @@ class AppSettings extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       await p.setBool(_kPromptOnStall, v);
-    } catch (_) {}
-  }
-
-  Future<void> setAutoSkipUnavailable(bool v) async {
-    if (_autoSkipUnavailable == v) return;
-    _autoSkipUnavailable = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kAutoSkipUnavailable, v);
     } catch (_) {}
   }
 
@@ -399,10 +385,13 @@ class AppSettings extends ChangeNotifier {
   /// Re-read Android system proxy for Dio.
   Future<void> refreshSystemProxy() async {
     await AppHttpClient.refreshSystemProxy();
-    final sys = await SystemProxy.detect();
+    // Use the detection result AppHttpClient already cached — no second
+    // native lookup needed just for the status note.
     if (!_userConfiguredProxy) {
-      if (sys != null) {
-        _proxyAutoNote = '系统代理 ${sys.host}:${sys.port} (${sys.source})';
+      final host = AppHttpClient.systemHost;
+      final port = AppHttpClient.systemPort;
+      if (host != null && host.isNotEmpty && port > 0) {
+        _proxyAutoNote = '系统代理 $host:$port (检测)';
       } else {
         _proxyAutoNote = '直连 / TUN';
       }

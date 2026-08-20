@@ -24,21 +24,28 @@ Future<void> main() async {
   await AppHttpClient.refreshSystemProxy();
 
   final settings = AppSettings();
-  await settings.load();
-
   final layout = LayoutSettings();
-  await layout.load();
-
   final history = WatchHistory();
-  await history.load();
 
-  // Throttled; force once on cold start.
-  // ignore: unawaited_futures
-  CacheManager.checkAndCleanIfNeeded(force: true);
+  // Load prefs in parallel: they are independent, and cold start pays only the
+  // slowest of the three platform-channel/disk latencies instead of their sum.
+  await Future.wait([
+    settings.load(),
+    layout.load(),
+    history.load(),
+  ]);
 
   runApp(PlayerApp(
     settings: settings,
     layout: layout,
     history: history,
   ));
+
+  // Wipe transient caches on every cold start so disk usage never grows
+  // unbounded (the app has no download feature). Deferred to after the first
+  // frame so the recursive temp-dir scan never competes with first paint.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    // ignore: unawaited_futures
+    CacheManager.clearOnLaunch();
+  });
 }

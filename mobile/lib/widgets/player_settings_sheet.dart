@@ -156,19 +156,6 @@ Future<void> showPlayerSettingsSheet(
                         value: settings.autoLowerOnStall,
                         onChanged: settings.setAutoLowerOnStall,
                       ),
-                      SwitchListTile(
-                        title: const Text(
-                          '自动跳过无信号频道',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        subtitle: const Text(
-                          '频道确认不可用时自动切换；可随时在这里关闭。',
-                          style: TextStyle(color: Colors.white38, fontSize: 12),
-                        ),
-                        activeThumbColor: const Color(0xFFFF6B35),
-                        value: settings.autoSkipUnavailable,
-                        onChanged: settings.setAutoSkipUnavailable,
-                      ),
                       if (defaultTargetPlatform == TargetPlatform.iOS) ...[
 const Divider(color: Colors.white12),
                       ListTile(

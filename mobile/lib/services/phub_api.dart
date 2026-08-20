@@ -355,9 +355,6 @@ class PhubApi {
             !low.contains('.mp4')) {
           continue;
         }
-        if (format == 'mp4' && !low.contains('.mp4') && !low.contains('m3u8')) {
-          // keep
-        }
 
         var width = int.tryParse('${q['width'] ?? 0}') ?? 0;
         var height = int.tryParse('${q['height'] ?? 0}') ?? 0;

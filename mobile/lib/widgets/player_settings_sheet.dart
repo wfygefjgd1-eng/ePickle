@@ -134,8 +134,13 @@ Future<void> showPlayerSettingsSheet(
                       ),
                       _GroupExpansion(
                         title: '画质',
-                        subtitle:
-                            '当前 ${settings.qualityCap == 0 ? '自动' : '${settings.qualityCap}p'}',
+                        subtitle: Text(
+                          '当前 ${settings.qualityCap == 0 ? '自动' : '${settings.qualityCap}p'}',
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 12,
+                          ),
+                        ),
                         children: [
                           for (final h in options)
                             ListTile(
@@ -162,12 +167,44 @@ Future<void> showPlayerSettingsSheet(
                         ],
                       ),
                       if (defaultTargetPlatform == TargetPlatform.iOS) ...[
-                        // 静态图例：按钮长什么样，一目了然（不可点，仅示意）。
-                        _GroupCard(children: const [_ButtonLegend()]),
                         _GroupExpansion(
                           title: '按钮显示',
-                          subtitle:
-                              '${[settings.showSiteBackButton, settings.showSearchBackButton, settings.showFullscreenButton, settings.showMuteButton, settings.showFastForwardButton].where((b) => b).length}/5',
+                          subtitle: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${[settings.showSiteBackButton, settings.showSearchBackButton, settings.showFullscreenButton, settings.showMuteButton, settings.showFastForwardButton].where((b) => b).length}/5',
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              const Icon(
+                                Icons.arrow_back,
+                                color: Colors.white38,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(
+                                Icons.fullscreen,
+                                color: Colors.white38,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(
+                                Icons.volume_up,
+                                color: Colors.white38,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(
+                                Icons.forward_30,
+                                color: Colors.white38,
+                                size: 16,
+                              ),
+                            ],
+                          ),
                           children: [
                             SwitchListTile(
                               dense: true,
@@ -348,44 +385,6 @@ Future<void> showPlayerSettingsSheet(
                               ),
                             ),
                           ),
-                        ],
-                      ),
-                      if (layout.customSites.isNotEmpty)
-                        for (final custom in layout.customSites)
-                          ListTile(
-                            dense: true,
-                            leading: Icon(
-                              custom.kind.name == 'live'
-                                  ? Icons.live_tv
-                                  : Icons.movie_outlined,
-                              color: Colors.white54,
-                            ),
-                            title: Text(
-                              custom.site.name,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 13,
-                              ),
-                            ),
-                            subtitle: Text(
-                              _customParserLabel(custom.parser),
-                              style: const TextStyle(
-                                color: Colors.white38,
-                                fontSize: 11,
-                              ),
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(
-                                Icons.delete_outline,
-                                color: Colors.white54,
-                              ),
-                              tooltip: '删除',
-                              onPressed: () =>
-                                  layout.removeCustomUrl(custom.url),
-                            ),
-                          ),
-                      _GroupCard(
-                        children: [
                           ListTile(
                             title: const Text(
                               '一键恢复频道',
@@ -449,7 +448,45 @@ Future<void> showPlayerSettingsSheet(
                               }
                             },
                           ),
-                          if (defaultTargetPlatform == TargetPlatform.iOS)
+                        ],
+                      ),
+                      if (layout.customSites.isNotEmpty)
+                        for (final custom in layout.customSites)
+                          ListTile(
+                            dense: true,
+                            leading: Icon(
+                              custom.kind.name == 'live'
+                                  ? Icons.live_tv
+                                  : Icons.movie_outlined,
+                              color: Colors.white54,
+                            ),
+                            title: Text(
+                              custom.site.name,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                              ),
+                            ),
+                            subtitle: Text(
+                              _customParserLabel(custom.parser),
+                              style: const TextStyle(
+                                color: Colors.white38,
+                                fontSize: 11,
+                              ),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                color: Colors.white54,
+                              ),
+                              tooltip: '删除',
+                              onPressed: () =>
+                                  layout.removeCustomUrl(custom.url),
+                            ),
+                          ),
+                      if (defaultTargetPlatform == TargetPlatform.iOS)
+                        _GroupCard(
+                          children: [
                             ListTile(
                               title: const Text(
                                 '黄果短剧域名',
@@ -469,8 +506,8 @@ Future<void> showPlayerSettingsSheet(
                               onTap: () =>
                                   _showHuangguoDomainDialog(ctx, settings),
                             ),
-                        ],
-                      ),
+                          ],
+                        ),
                       _GroupCard(
                         children: [
                           ListTile(
@@ -571,7 +608,7 @@ class _GroupExpansion extends StatelessWidget {
   });
 
   final String title;
-  final String? subtitle;
+  final Widget? subtitle;
   final List<Widget> children;
 
   @override
@@ -590,12 +627,7 @@ class _GroupExpansion extends StatelessWidget {
           title,
           style: const TextStyle(color: Colors.white70, fontSize: 13),
         ),
-        subtitle: subtitle == null
-            ? null
-            : Text(
-                subtitle!,
-                style: const TextStyle(color: Colors.white38, fontSize: 12),
-              ),
+        subtitle: subtitle,
         children: children,
       ),
     );
@@ -849,44 +881,9 @@ class _GroupCard extends StatelessWidget {
   }
 }
 
-/// 静态按钮图例：返回 / 全屏 / 声音 / 快进30秒 长什么样（不可点，仅示意）。
-class _ButtonLegend extends StatelessWidget {
-  const _ButtonLegend();
-
-  @override
-  Widget build(BuildContext context) {
-    const items = [
-      (Icons.arrow_back, '返回'),
-      (Icons.fullscreen, '全屏'),
-      (Icons.volume_up, '声音'),
-      (Icons.forward_30, '快进30秒'),
-    ];
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          for (final (icon, label) in items)
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: const Color(0xFFFF6B35), size: 22),
-                const SizedBox(height: 4),
-                Text(
-                  label,
-                  style: const TextStyle(color: Colors.white54, fontSize: 11),
-                ),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 「跳过片头」折叠配置：外层开关 + 展开后的数字规则输入。
-/// 规则：视频时长 ≥ [最短时长] 秒才跳过；时长落在 [开始, 结束] 分钟区间
-/// 内跳 [区间秒数]，区间外跳 [兜底秒数]。
+/// 「跳过片头」折叠配置：外层开关 + 展开后的分档规则输入。
+/// 规则：视频时长超过对应档位阈值即跳过该档秒数，取满足的最大档；
+/// 不足 45 秒不跳。第 1 档阈值按秒输入，第 2~4 档阈值按分钟输入。
 class _SkipIntroGroup extends StatefulWidget {
   const _SkipIntroGroup({required this.settings});
 
@@ -898,30 +895,31 @@ class _SkipIntroGroup extends StatefulWidget {
 
 class _SkipIntroGroupState extends State<_SkipIntroGroup> {
   bool _expanded = false;
-  late final TextEditingController _minCtrl;
-  late final TextEditingController _startCtrl;
-  late final TextEditingController _endCtrl;
-  late final TextEditingController _ruleSecCtrl;
-  late final TextEditingController _defaultSecCtrl;
+  late final List<TextEditingController> _atCtrls;
+  late final List<TextEditingController> _secCtrls;
 
   @override
   void initState() {
     super.initState();
-    final s = widget.settings;
-    _minCtrl = TextEditingController(text: '${s.skipIntroMinSec}');
-    _startCtrl = TextEditingController(text: '${s.skipIntroRuleStartMin}');
-    _endCtrl = TextEditingController(text: '${s.skipIntroRuleEndMin}');
-    _ruleSecCtrl = TextEditingController(text: '${s.skipIntroRuleSec}');
-    _defaultSecCtrl = TextEditingController(text: '${s.skipIntroDefaultSec}');
+    // skipIntroTiers 形如 (atSec, skipSec)；单文件分析下按位置访问更稳妥。
+    final tiers = widget.settings.skipIntroTiers;
+    _atCtrls = [
+      for (var i = 0; i < tiers.length; i++)
+        TextEditingController(
+          text: i == 0 ? '${tiers[i].$1}' : '${tiers[i].$1 ~/ 60}',
+        ),
+    ];
+    _secCtrls = [for (final t in tiers) TextEditingController(text: '${t.$2}')];
   }
 
   @override
   void dispose() {
-    _minCtrl.dispose();
-    _startCtrl.dispose();
-    _endCtrl.dispose();
-    _ruleSecCtrl.dispose();
-    _defaultSecCtrl.dispose();
+    for (final c in _atCtrls) {
+      c.dispose();
+    }
+    for (final c in _secCtrls) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -932,9 +930,56 @@ class _SkipIntroGroupState extends State<_SkipIntroGroup> {
     setter(v);
   }
 
+  void _onAtChanged(int index, TextEditingController c) => _apply(
+    c,
+    (v) => widget.settings.setSkipTierAtSec(index, index == 0 ? v : v * 60),
+  );
+
+  void _onSecChanged(int index, TextEditingController c) =>
+      _apply(c, (v) => widget.settings.setSkipTierSec(index, v));
+
+  Widget _tierRow(int index) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Text('超过', style: TextStyle(color: Colors.white54, fontSize: 12)),
+        const SizedBox(width: 6),
+        SizedBox(
+          width: 64,
+          child: _NumField(
+            controller: _atCtrls[index],
+            label: '',
+            hint: index == 0 ? '秒' : '分钟',
+            onChanged: (c) => _onAtChanged(index, c),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          index == 0 ? '秒' : '分钟',
+          style: const TextStyle(color: Colors.white54, fontSize: 12),
+        ),
+        const SizedBox(width: 8),
+        const Text('跳过', style: TextStyle(color: Colors.white54, fontSize: 12)),
+        const SizedBox(width: 6),
+        SizedBox(
+          width: 64,
+          child: _NumField(
+            controller: _secCtrls[index],
+            label: '',
+            hint: '秒',
+            onChanged: (c) => _onSecChanged(index, c),
+          ),
+        ),
+        const SizedBox(width: 6),
+        const Text('秒', style: TextStyle(color: Colors.white54, fontSize: 12)),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = widget.settings;
+    final tiers = s.skipIntroTiers;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -967,52 +1012,15 @@ class _SkipIntroGroupState extends State<_SkipIntroGroup> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _NumField(
-                  controller: _minCtrl,
-                  label: '最短视频时长（秒）',
-                  hint: '不足此秒数不跳过',
-                  onChanged: (c) => _apply(c, s.setSkipIntroMinSec),
+                const Text(
+                  '规则：视频时长超过对应档位即跳过该档秒数，取满足的最大档；不足 45 秒不跳。',
+                  style: TextStyle(color: Colors.white38, fontSize: 11),
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  '区间规则：视频时长在“开始～结束分钟”之间时跳过“区间秒数”',
-                  style: const TextStyle(color: Colors.white38, fontSize: 11),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _NumField(
-                        controller: _startCtrl,
-                        label: '开始分钟',
-                        onChanged: (c) => _apply(c, s.setSkipIntroRuleStartMin),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _NumField(
-                        controller: _endCtrl,
-                        label: '结束分钟',
-                        onChanged: (c) => _apply(c, s.setSkipIntroRuleEndMin),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _NumField(
-                        controller: _ruleSecCtrl,
-                        label: '区间秒数',
-                        onChanged: (c) => _apply(c, s.setSkipIntroRuleSec),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                _NumField(
-                  controller: _defaultSecCtrl,
-                  label: '其余时长跳过（秒）',
-                  hint: '区间外视频默认跳过秒数',
-                  onChanged: (c) => _apply(c, s.setSkipIntroDefaultSec),
-                ),
+                const SizedBox(height: 8),
+                for (var i = 0; i < tiers.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 8),
+                  _tierRow(i),
+                ],
               ],
             ),
           ),

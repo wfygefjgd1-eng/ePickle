@@ -6,7 +6,7 @@ import '../utils/playback_helpers.dart';
 
 /// 站点域名选择面板（长按 tab 栏第一个「热」触发）。
 ///
-/// iOS 风：圆角大面板 + radio 圆点选中 + 域名药丸。列出 [site] 的全部
+/// 圆角面板 + radio 圆点选中 + 域名卡片列表。列出 [site] 的全部
 /// 镜像域名 + 「自动优选」；选择固定在 MirrorRanker 的会话级 override
 /// （进程存活期间该站点所有请求走所选域名，App 被杀后恢复自动优选）。
 Future<void> showMirrorPickerSheet(BuildContext context, SiteDef site) async {
@@ -22,11 +22,11 @@ Future<void> showMirrorPickerSheet(BuildContext context, SiteDef site) async {
     builder: (ctx) => SafeArea(
       child: Container(
         margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
         decoration: BoxDecoration(
-          // Slightly translucent + heavy corners: glassy iOS look.
+          // 半透明 + 小圆角：克制的深色面板。
           color: const Color(0xF21C1C1C),
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.white10),
         ),
         child: Column(
@@ -35,7 +35,7 @@ Future<void> showMirrorPickerSheet(BuildContext context, SiteDef site) async {
               child: Container(
                 width: 34,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 12, top: 2),
+                margin: const EdgeInsets.only(bottom: 8, top: 2),
                 decoration: BoxDecoration(
                   color: Colors.white24,
                   borderRadius: BorderRadius.circular(2),
@@ -48,10 +48,12 @@ Future<void> showMirrorPickerSheet(BuildContext context, SiteDef site) async {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // 标题长条：与“自动优选”长条同款同宽，居中显示。
+                    // 标题长条：与卡片同款同宽，居中显示。
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFF2A2A2A),
                         borderRadius: BorderRadius.circular(14),
@@ -60,32 +62,37 @@ Future<void> showMirrorPickerSheet(BuildContext context, SiteDef site) async {
                         children: [
                           const Text(
                             '切换为本站访问域名',
-                            style: TextStyle(
-                                color: Colors.white, fontSize: 14),
+                            style: TextStyle(color: Colors.white, fontSize: 14),
                           ),
                           const SizedBox(height: 3),
                           Text(
                             site.name,
                             style: const TextStyle(
-                                color: Colors.white54, fontSize: 12),
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
                           ),
                           const SizedBox(height: 3),
                           const Text(
                             '选择后本次使用期间对该站点生效，退出应用后恢复自动优选',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                                color: Colors.white38, fontSize: 11),
+                              color: Colors.white38,
+                              fontSize: 11,
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    // 自动优选 — row with radio dot (no check marks anywhere).
+                    const SizedBox(height: 8),
+                    // 自动优选 — radio 圆点（全程无选中勾选标记）。
                     GestureDetector(
                       onTap: () => Navigator.pop(ctx, ''),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFF2A2A2A),
                           borderRadius: BorderRadius.circular(14),
@@ -105,76 +112,72 @@ Future<void> showMirrorPickerSheet(BuildContext context, SiteDef site) async {
                             const Text(
                               '自动优选（最快镜像）',
                               style: TextStyle(
-                                  color: Colors.white, fontSize: 14),
+                                color: Colors.white,
+                                fontSize: 14,
+                              ),
                             ),
                             const Spacer(),
                             const Text(
                               '按网络实测自动选择',
                               style: TextStyle(
-                                  color: Colors.white38, fontSize: 11),
+                                color: Colors.white38,
+                                fontSize: 11,
+                              ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    // Domain pills — one capsule per mirror, radio dot inside.
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      alignment: WrapAlignment.center,
-                      children: [
-                        for (final base in mirrors)
-                          Builder(builder: (itemCtx) {
-                            final active = currentManual == normalize(base);
-                            return GestureDetector(
-                              onTap: () => Navigator.pop(itemCtx, base),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 160),
-                                curve: Curves.easeOut,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: active
-                                      ? const Color(0x33FF6B35)
-                                      : const Color(0xFF2A2A2A),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
+                    const SizedBox(height: 8),
+                    // 域名卡片 — 每个镜像一张全宽卡片，纵向排列。
+                    for (final base in mirrors) ...[
+                      Builder(
+                        builder: (itemCtx) {
+                          final active = currentManual == normalize(base);
+                          return GestureDetector(
+                            onTap: () => Navigator.pop(itemCtx, base),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 160),
+                              curve: Curves.easeOut,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: active
+                                    ? const Color(0x33FF6B35)
+                                    : const Color(0xFF2A2A2A),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    active
+                                        ? Icons.radio_button_checked
+                                        : Icons.radio_button_unchecked,
+                                    size: 16,
                                     color: active
                                         ? const Color(0xFFFF6B35)
-                                        : Colors.white24,
-                                    width: 1.2,
+                                        : Colors.white38,
                                   ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      active
-                                          ? Icons.radio_button_checked
-                                          : Icons.radio_button_unchecked,
-                                      size: 16,
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    _hostOf(base),
+                                    style: TextStyle(
                                       color: active
-                                          ? const Color(0xFFFF6B35)
-                                          : Colors.white38,
+                                          ? Colors.white
+                                          : Colors.white70,
+                                      fontSize: 14,
                                     ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      _hostOf(base),
-                                      style: TextStyle(
-                                        color: active
-                                            ? Colors.white
-                                            : Colors.white70,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                            );
-                          }),
-                      ],
-                    ),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                   ],
                 ),
               ),

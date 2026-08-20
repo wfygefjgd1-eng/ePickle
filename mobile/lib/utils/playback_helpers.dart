@@ -21,27 +21,25 @@ class PlaybackHelpers {
         enabled: settings.skipIntro,
         fallbackDurationSec: fallbackDurationSec,
         minSec: settings.skipIntroMinSec,
-        ruleStartMin: settings.skipIntroRuleStartMin,
-        ruleEndMin: settings.skipIntroRuleEndMin,
-        ruleSec: settings.skipIntroRuleSec,
-        defaultSec: settings.skipIntroDefaultSec,
+        tiers: settings.skipIntroTiers,
       );
 
-  /// Skip intro ads based on video duration and the user's configurable rule
-  /// (settings sheet → 跳过片头):
-  /// - videos shorter than [minSec] are never touched (teasers / broken 9s
-  ///   clips / live);
-  /// - durations inside [ruleStartMin, ruleEndMin] minutes skip [ruleSec]
-  ///   seconds, everything else skips [defaultSec].
+  /// Skip intro ads based on video duration and the user's tiered rules
+  /// (settings sheet → 跳过片头): videos shorter than [minSec] are never
+  /// touched (teasers / broken 9s clips / live). Among [tiers] (ascending
+  /// (atSec, skipSec) pairs) the largest tier whose threshold the duration
+  /// meets wins — the longer the video, the more it skips.
   static Future<void> skipIntro(
     VideoPlayerController ctrl, {
     bool enabled = true,
     int fallbackDurationSec = 0,
     int minSec = 45,
-    int ruleStartMin = 5,
-    int ruleEndMin = 30,
-    int ruleSec = 20,
-    int defaultSec = 15,
+    List<(int atSec, int skipSec)> tiers = const [
+      (100, 10),
+      (600, 15),
+      (900, 25),
+      (3000, 70),
+    ],
   }) async {
     if (!enabled || !ctrl.value.isInitialized) return;
     var total = ctrl.value.duration.inSeconds;
@@ -51,13 +49,11 @@ class PlaybackHelpers {
     // Short / unknown: do not seek (avoids killing 9s teasers or live)
     if (total <= 0 || total < minSec) return;
 
-    final minutes = total / 60;
-    final int skipSeconds;
-    if (minutes >= ruleStartMin && minutes <= ruleEndMin) {
-      skipSeconds = ruleSec;
-    } else {
-      skipSeconds = defaultSec;
+    var skipSeconds = 0;
+    for (final (at, sec) in tiers) {
+      if (total >= at && sec > skipSeconds) skipSeconds = sec;
     }
+    if (skipSeconds <= 0) return;
     if (total - skipSeconds < 5) return;
 
     try {

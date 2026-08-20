@@ -860,10 +860,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
             enabled: s.skipIntro && widget.source != SearchSource.huangguo,
             fallbackDurationSec: preloadDetail.durationSec,
             minSec: s.skipIntroMinSec,
-            ruleStartMin: s.skipIntroRuleStartMin,
-            ruleEndMin: s.skipIntroRuleEndMin,
-            ruleSec: s.skipIntroRuleSec,
-            defaultSec: s.skipIntroDefaultSec,
+            tiers: s.skipIntroTiers,
           ),
         );
       }
@@ -1087,10 +1084,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         enabled: s.skipIntro && widget.source != SearchSource.huangguo,
         fallbackDurationSec: detail.durationSec,
         minSec: s.skipIntroMinSec,
-        ruleStartMin: s.skipIntroRuleStartMin,
-        ruleEndMin: s.skipIntroRuleEndMin,
-        ruleSec: s.skipIntroRuleSec,
-        defaultSec: s.skipIntroDefaultSec,
+        tiers: s.skipIntroTiers,
       ),
     );
     await player.play();

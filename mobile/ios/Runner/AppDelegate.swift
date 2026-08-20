@@ -1218,16 +1218,17 @@ enum SystemProxyReader {
 
 enum PrivacyNativeWipe {
   /// Lightweight per-launch wipe: clears only the caches that grow over time
-  /// (WebView disk/memory cache, offline app cache, service workers, URLCache).
-  /// Cookies, localStorage, UserDefaults, Documents and keychain are preserved
-  /// so settings, watch history and site sessions survive restarts.
+  /// (WebView disk/memory cache, offline app cache, URLCache).
+  /// Cookies, localStorage, sessionStorage, UserDefaults, Documents and
+  /// keychain are preserved so settings, watch history and site sessions
+  /// survive restarts. (WKWebsiteDataTypeServiceWorkers was deprecated in
+  /// iOS 17 and removed from the SDK — do not reference it.)
   static func clearLaunchCache() {
     URLCache.shared.removeAllCachedResponses()
     let types: Set<String> = [
       WKWebsiteDataTypeDiskCache,
       WKWebsiteDataTypeMemoryCache,
       WKWebsiteDataTypeOfflineWebApplicationCache,
-      WKWebsiteDataTypeServiceWorkers,
     ]
     WKWebsiteDataStore.default().removeData(
       ofTypes: types,

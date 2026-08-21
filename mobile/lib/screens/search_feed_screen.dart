@@ -961,7 +961,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       if (_detailCache.containsKey(index)) {
         detail = _detailCache[index]!;
       } else {
-        detail = await _fetchDetail(item.url, item: item);
+        detail = await _fetchDetail(item.url, item: item)
+            .timeout(const Duration(seconds: 12));
         _detailCache[index] = detail;
       }
       _maybeExpandSeries(item, index);

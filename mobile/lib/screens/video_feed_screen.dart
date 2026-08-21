@@ -1651,7 +1651,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (_detailCache.containsKey(index)) {
         detail = _detailCache[index]!;
       } else {
-        detail = await _fetchDetail(item.url);
+        detail = await _fetchDetail(item.url)
+            .timeout(const Duration(seconds: 12));
         _detailCache[index] = detail;
       }
     } catch (e) {
@@ -1977,6 +1978,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _pageCtrl.jumpToPage(_currentIndex);
       } catch (_) {}
     }
+    // Indices just rebased, so invalidate any in-flight _playIndex that
+    // captured a pre-trim index: it would otherwise commit _detailCache[...]
+    // / _items[...] for a DIFFERENT video. Bumping the seq makes it abort at
+    // its next `seq != _loadSeq` guard and re-arm against the rebased list.
+    _loadSeq++;
   }
 
   Future<void> _disposeController() async {

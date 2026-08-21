@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -78,6 +80,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   Duration? _dragStartPosition;
   Duration? _dragTargetPosition;
   String _seekPreviewText = '';
+
+  /// 退出按钮自动隐藏计时器：仅保留最近一次，重排前取消，避免快速连点
+  /// 累积多个 future 导致按钮提前隐藏。
+  Timer? _hideTimer;
 
   void _onHorizontalDragStart(DragStartDetails details) {
     final ctrl = widget.controller;
@@ -179,8 +185,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       setState(() {
         _showExitButton = !_showExitButton;
       });
+      _hideTimer?.cancel();
       if (_showExitButton) {
-        Future.delayed(const Duration(seconds: 3), () {
+        _hideTimer = Timer(const Duration(seconds: 3), () {
           if (mounted && _showExitButton) {
             setState(() {
               _showExitButton = false;
@@ -358,9 +365,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         GestureDetector(
           onTap: _onTapScreen,
           onDoubleTap: _onDoubleTapScreen,
-          onHorizontalDragStart: _onHorizontalDragStart,
-          onHorizontalDragUpdate: _onHorizontalDragUpdate,
-          onHorizontalDragEnd: _onHorizontalDragEnd,
+          // 横屏手势进度预览仅在全屏/横屏启用：竖屏横向滑动不应触发
+          // “±Ns →” 预览覆盖在视频上。
+          onHorizontalDragStart: widget.immersive ? _onHorizontalDragStart : null,
+          onHorizontalDragUpdate: widget.immersive
+              ? _onHorizontalDragUpdate
+              : null,
+          onHorizontalDragEnd: widget.immersive ? _onHorizontalDragEnd : null,
           child: _buildVideoSurface(),
         ),
         // 横屏手势进度预览
@@ -426,7 +437,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             if (showFFButton)
               Positioned(
                 left: 16,
-                bottom: 60,
+                bottom: 76,
                 child: SafeArea(
                   child: GestureDetector(
                     onTap: widget.onFastForward,
@@ -603,6 +614,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    super.dispose();
   }
 }
 

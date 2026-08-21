@@ -27,17 +27,22 @@ class VideoItem {
     this.badge,
   });
 
+  // 正则一次性编译（viewkey 在 feed 热路径对每个 item 调用多次）。
+  static final _viewkeyRe = RegExp(r'viewkey=([^&#]+)');
+  static final _xvideoRe = RegExp(r'/video\.([a-zA-Z0-9]+)');
+  static final _mitaoRe = RegExp(r'/vod/play/id/(\d+)');
+
   String get viewkey {
     if (episode != null) {
       return '$url#ep$episode';
     }
-    final m = RegExp(r'viewkey=([^&#]+)').firstMatch(url);
+    final m = _viewkeyRe.firstMatch(url);
     if (m != null) return m.group(1)!;
     // XVideos: /video.xxxxx/slug
-    final x = RegExp(r'/video\.([a-zA-Z0-9]+)').firstMatch(url);
+    final x = _xvideoRe.firstMatch(url);
     if (x != null) return x.group(1)!;
     // mitaohk: /vod/play/id/123/
-    final mt = RegExp(r'/vod/play/id/(\d+)').firstMatch(url);
+    final mt = _mitaoRe.firstMatch(url);
     if (mt != null) return 'mt${mt.group(1)}';
     return url;
   }

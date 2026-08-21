@@ -1,8 +1,10 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/video_item.dart';
 import '../services/app_settings.dart';
+import '../services/source_catalog.dart';
 
 /// Shared playback helpers for feed / search-feed.
 class PlaybackHelpers {
@@ -124,15 +126,10 @@ class PlaybackHelpers {
         seconds * 4 < detail.durationSec) {
       return true;
     }
-    const longFormSites = {
-      'eporner',
-      'redtube',
-      '7mmtv',
-      'javmix',
-      'javgg',
-      'bestjavporn',
-    };
-    return longFormSites.contains(siteId) && seconds <= 75;
+    // 长片源站点 id 集中维护在 SourceCatalog（见 longFormPreviewSiteIds 注释），
+    // 不在此处硬编码，避免站点列表更新后判断失效。
+    return SourceCatalog.longFormPreviewSiteIds.contains(siteId) &&
+        seconds <= 75;
   }
 
   /// Brief non-blocking toast.
@@ -158,21 +155,18 @@ class PlaybackHelpers {
   }
 
   /// Map raw exceptions to short Chinese hints (no proxy essays).
+  ///
+  /// Prefers structured [DioException] fields ([DioException.type] /
+  /// [DioException.response] status code) over `toString()` string matching,
+  /// which is fragile across Dio/Flutter upgrades and localizations. String
+  /// matching is kept only as a last-resort fallback for non-Dio errors.
   static String friendlyError(Object error) {
+    if (error is DioException) {
+      final structured = _friendlyFromDio(error);
+      if (structured != null) return structured;
+    }
     final s = error.toString();
     final low = s.toLowerCase();
-    if (s.contains('PhubException:')) {
-      final core = s.replaceFirst('PhubException: ', '').trim();
-      if (core.contains('404') ||
-          core.contains('不存在') ||
-          low.contains('not found')) {
-        return '内容不存在(404)';
-      }
-      // Keep short adapter messages; strip long proxy advice if present.
-      final cut = core.split('\n').first.trim();
-      if (cut.contains('404')) return '内容不存在(404)';
-      return cut.length > 80 ? '${cut.substring(0, 80)}…' : cut;
-    }
     if (low.contains('404') || low.contains('not found')) {
       return '内容不存在(404)';
     }
@@ -197,6 +191,34 @@ class PlaybackHelpers {
     return s;
   }
 
+  /// Structured classification for [DioException]; returns null when it does
+  /// not map cleanly (so the caller can fall back to message matching).
+  static String? _friendlyFromDio(DioException e) {
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.transformTimeout:
+        return '网络超时';
+      case DioExceptionType.connectionError:
+        return '网络异常';
+      case DioExceptionType.badCertificate:
+        return '安全连接失败';
+      case DioExceptionType.cancel:
+        return '请求已取消';
+      case DioExceptionType.badResponse:
+        final code = e.response?.statusCode ?? 0;
+        if (code == 404) return '内容不存在(404)';
+        if (code == 403 || code == 401) return '访问被拒绝($code)';
+        if (code == 408) return '源站请求超时 (408)';
+        if (code == 429) return '请求过于频繁 (429)，请稍后重试';
+        if (code > 0) return '源站返回异常状态 ($code)';
+        return null;
+      case DioExceptionType.unknown:
+        return null;
+    }
+  }
+
   static String fmtDuration(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60);
@@ -205,76 +227,6 @@ class PlaybackHelpers {
       return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
     }
     return '$m:${s.toString().padLeft(2, '0')}';
-  }
-}
-
-/// Circular side control — fixed size so a column of buttons shares one center line.
-class FeedCircleButton extends StatelessWidget {
-  const FeedCircleButton({
-    super.key,
-    required this.icon,
-    required this.onTap,
-    this.size = 22,
-  });
-
-  final IconData icon;
-  final VoidCallback onTap;
-  final double size;
-
-  static const double box = 48;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: box,
-      height: box,
-      child: Material(
-        color: Colors.black54,
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: Center(
-            child: Icon(icon, color: Colors.white, size: size),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Side controls: fast forward (left) + mute (right), same horizontal line.
-/// Fullscreen lives under the title on the left.
-class FeedSideControls extends StatelessWidget {
-  const FeedSideControls({
-    super.key,
-    required this.muted,
-    required this.onMute,
-    required this.onFastForward,
-  });
-
-  final bool muted;
-  final VoidCallback onMute;
-  final VoidCallback onFastForward;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        FeedCircleButton(
-          icon: Icons.forward_30,
-          onTap: onFastForward,
-          size: 24,
-        ),
-        const SizedBox(width: 8),
-        FeedCircleButton(
-          icon: muted ? Icons.volume_off : Icons.volume_up,
-          onTap: onMute,
-          size: 24,
-        ),
-      ],
-    );
   }
 }
 

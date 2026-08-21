@@ -425,6 +425,19 @@ class GenericSiteApi {
     return [site.primaryHost];
   }
 
+  /// Best-effort index of [baseRaw] within the site's mirror list, normalizing
+  /// trailing slashes on both sides so a ranker-stripped base always matches a
+  /// catalog entry (which may carry a '/'). Returns null when not found, so a
+  /// stale/mismatched base never stores a corrupt -1 index.
+  int? _rankMirrorIndex(SiteDef site, String baseRaw) {
+    final target = baseRaw.replaceAll(RegExp(r'/$'), '');
+    final mirrors = _mirrorsFor(site);
+    for (var i = 0; i < mirrors.length; i++) {
+      if (mirrors[i].replaceAll(RegExp(r'/$'), '') == target) return i;
+    }
+    return null;
+  }
+
   /// Mirror base for the currently-preferred mirror, clamped so a stale index
   /// (catalog changed between sessions) can never throw RangeError.
   String _preferredMirrorBase(SiteDef site) {
@@ -851,7 +864,8 @@ class GenericSiteApi {
             if (out.length >= limit) break;
           }
           if (out.isNotEmpty) {
-            _mirrorIndex[site.id] = _mirrorsFor(site).indexOf(baseRaw);
+            final idx = _rankMirrorIndex(site, baseRaw);
+            if (idx != null) _mirrorIndex[site.id] = idx;
             return out;
           }
         } catch (_) {}
@@ -885,7 +899,8 @@ class GenericSiteApi {
           if (out.length >= limit) break;
         }
         if (out.isNotEmpty) {
-          _mirrorIndex[site.id] = _mirrorsFor(site).indexOf(baseRaw);
+          final idx = _rankMirrorIndex(site, baseRaw);
+          if (idx != null) _mirrorIndex[site.id] = idx;
           return out;
         }
       } catch (e) {

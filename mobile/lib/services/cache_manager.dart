@@ -13,6 +13,12 @@ class CacheManager {
   static const _minInterval = Duration(minutes: 30);
   static const _minVideosBetween = 40;
 
+  /// 测量结果缓存：一次真实扫描在 [_measureTtl] 内复用，避免每次
+  /// `onVideoPlayed` 都对整个 temp 目录做递归扫描。
+  static const _measureTtl = Duration(minutes: 15);
+  static double? _cachedSizeMB;
+  static DateTime? _cachedAt;
+
   static DateTime? _lastCheck;
   static int _videosSinceCheck = 0;
   static bool _running = false;
@@ -58,6 +64,9 @@ class CacheManager {
         debugPrint(
             'Cache size ${cacheSize.toStringAsFixed(0)}MB exceeds limit, cleaning...');
         await _cleanCache();
+        // 清理后测量值已变化，丢掉缓存让下次真实重算。
+        _cachedSizeMB = null;
+        _cachedAt = null;
         final newSize = await _getCacheSizeInMB();
         debugPrint(
           'Cache cleaned: ${cacheSize.toStringAsFixed(0)}MB → ${newSize.toStringAsFixed(0)}MB',
@@ -77,6 +86,14 @@ class CacheManager {
   }
 
   static Future<double> _getCacheSizeInMB() async {
+    // 缓存复用：TTL 内直接返回上次真实扫描结果，避免每次播放都全目录递归。
+    final cached = _cachedSizeMB;
+    final cachedAt = _cachedAt;
+    if (cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < _measureTtl) {
+      return cached;
+    }
     try {
       final tempDir = await getTemporaryDirectory();
       // Measure the WHOLE temp directory, not just libCachedImageData:
@@ -96,7 +113,10 @@ class CacheManager {
           } catch (_) {}
         }
       }
-      return totalSize / (1024 * 1024);
+      final mb = totalSize / (1024 * 1024);
+      _cachedSizeMB = mb;
+      _cachedAt = DateTime.now();
+      return mb;
     } catch (_) {
       return 0;
     }

@@ -37,15 +37,11 @@ Future<void> main() async {
     history.load(),
   ]);
 
-  runApp(PlayerApp(
-    settings: settings,
-    layout: layout,
-    history: history,
-  ));
-
   // Wipe transient caches on every cold start so disk usage never grows
   // unbounded (the app has no download feature). Deferred to after the first
   // frame so the recursive temp-dir scan never competes with first paint.
+  // Registered BEFORE runApp so the post-frame callback is guaranteed to land
+  // on the first frame (a callback added after runApp races the warm-up frame).
   WidgetsBinding.instance.addPostFrameCallback((_) {
     // ignore: unawaited_futures
     CacheManager.clearOnLaunch();
@@ -59,4 +55,10 @@ Future<void> main() async {
     // ignore: unawaited_futures
     MirrorRanker.instance.warmup(sites: allSites);
   });
+
+  runApp(PlayerApp(
+    settings: settings,
+    layout: layout,
+    history: history,
+  ));
 }

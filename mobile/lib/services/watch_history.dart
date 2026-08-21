@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -21,10 +22,6 @@ class WatchHistory extends ChangeNotifier {
   final List<VideoItem> _items = [];
   bool _ready = false;
 
-  /// The file attribute is set once on the existing file — no need to re-issue
-  /// the platform call on every persist.
-  static bool _backupExcluded = false;
-
   /// Serializes concurrent [_persist] calls so rapid record/remove sequences
   /// cannot interleave writes.
   Future<void> _writeTail = Future.value();
@@ -32,6 +29,24 @@ class WatchHistory extends ChangeNotifier {
   /// Resolved once after load; avoids re-issuing the platform call on every
   /// record/remove/clear.
   File? _file;
+
+  /// iOS backup-exclude 只执行一次：并发调用共享同一个 future，避免重复
+  /// 触碰平台求通道（Completer 即状态锁）。
+  Completer<void>? _backupExcludeOn;
+
+  Future<void> _ensureBackupExcluded(String path) async {
+    if (!Platform.isIOS) return;
+    final existing = _backupExcludeOn;
+    if (existing != null) return existing.future;
+    final completer = Completer<void>();
+    _backupExcludeOn = completer;
+    try {
+      await FileUtils.excludeFromBackup(path);
+    } catch (_) {
+      // 失败也保持已完成，避免无限重试；下次写入会重建 completer。
+    }
+    completer.complete();
+  }
 
   bool get ready => _ready;
 
@@ -75,11 +90,8 @@ class WatchHistory extends ChangeNotifier {
           }
         }
       }
-      // iOS: mark the file excluded from iCloud backups once on load.
-      if (Platform.isIOS && !_backupExcluded) {
-        await FileUtils.excludeFromBackup(f.path);
-        _backupExcluded = true;
-      }
+      // iOS: mark the file excluded from iCloud backups once.
+      await _ensureBackupExcluded(f.path);
     } catch (_) {
       // Missing/corrupt file or unavailable storage → start empty.
     }
@@ -127,13 +139,8 @@ class WatchHistory extends ChangeNotifier {
       try {
         final f = await _historyFile();
         await f.writeAsString(jsonEncode(data), flush: true);
-        // iOS: keep sensitive history out of iCloud backups. Guarded, so the
-        // platform call fires at most once per session (normally during
-        // load(); this retries in case that attempt failed early).
-        if (Platform.isIOS && !_backupExcluded) {
-          await FileUtils.excludeFromBackup(f.path);
-          _backupExcluded = true;
-        }
+        // iOS: keep sensitive history out of iCloud backups (once per session).
+        await _ensureBackupExcluded(f.path);
       } catch (_) {
         // Storage unavailable (e.g. unit tests) — nothing to do.
       }

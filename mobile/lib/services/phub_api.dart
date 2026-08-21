@@ -205,7 +205,9 @@ class PhubApi {
     final token = CancelToken();
     // Cascade the instance-level cancel (page exit / tab switch) into this
     // per-request token.
-    if (!_cancelToken.isCancelled) {
+    if (_cancelToken.isCancelled) {
+      token.cancel();
+    } else {
       // ignore: discarded_futures
       _cancelToken.whenCancel.then((_) {
         if (!token.isCancelled) token.cancel();

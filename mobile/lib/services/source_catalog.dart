@@ -99,6 +99,18 @@ class SiteDef {
 class SourceCatalog {
   SourceCatalog._();
 
+  /// 长片源（完整 VOD）站点 id。预览/广告/保护夹片判定用：这些站点返回的
+  /// 有效但极短的 MP4 多属未授权预览。中心化维护，供 playback_helpers 引用。
+  /// 通用解析（用户自添加）的长片源若也出现"短预览被误判"，在此追加。
+  static const longFormPreviewSiteIds = <String>{
+    'eporner',
+    'redtube',
+    '7mmtv',
+    'javmix',
+    'javgg',
+    'bestjavporn',
+  };
+
   // Chinese short labels via \u escapes (avoid file encoding breakage).
   static const vodTags = <SiteTag>[
     SiteTag(

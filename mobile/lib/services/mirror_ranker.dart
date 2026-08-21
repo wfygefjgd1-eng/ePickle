@@ -348,7 +348,8 @@ class _MirrorStats {
   bool get isFailing => failStreak >= MirrorRanker.maxFailureStreak;
 
   void recordLatency(double ms) {
-    ewaMs = successes <= 1 ? ms : ewaMs * (1 - _ewmaAlpha) + ms * _ewmaAlpha;
+    // 首次成功记录作为基线（successes 在调用前已被 ++，故 == 1 即首次）。
+    ewaMs = successes == 1 ? ms : ewaMs * (1 - _ewmaAlpha) + ms * _ewmaAlpha;
   }
 
   Map<String, Object> toJson() => {

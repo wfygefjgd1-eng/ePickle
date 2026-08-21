@@ -71,13 +71,19 @@ class AppSettings extends ChangeNotifier {
 
   int get skipIntroMinSec => _skipIntroMinSec;
 
-  /// 四档 (阈值秒, 跳过秒)。从低到高排列。
-  List<(int atSec, int skipSec)> get skipIntroTiers => [
+  /// 四档 (阈值秒, 跳过秒)。从低到高排列。缓存复用，档位变更时失效重建。
+  List<(int atSec, int skipSec)>? _tiers;
+  List<(int atSec, int skipSec)> get skipIntroTiers =>
+      _tiers ??= _buildTiers();
+
+  List<(int atSec, int skipSec)> _buildTiers() => [
         (_skipTier1At, _skipTier1Sec),
         (_skipTier2At, _skipTier2Sec),
         (_skipTier3At, _skipTier3Sec),
         (_skipTier4At, _skipTier4Sec),
       ];
+
+  void _invalidateTiers() => _tiers = null;
 
   Future<void> load() async {
     try {
@@ -109,6 +115,7 @@ class AppSettings extends ChangeNotifier {
       _huangguoDomain = _normalizeHuangguoDomain(
         p.getString(_kHuangguoDomain) ?? huangguoDefaultDomain,
       );
+      _invalidateTiers();
     } catch (_) {
       // SharedPreferences unavailable (plugin missing / store corrupt).
       // Every assignment above uses `?? <initializer-default>`, so the field
@@ -126,45 +133,20 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setSkipIntro(bool v) async {
-    if (_skipIntro == v) return;
-    _skipIntro = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kSkipIntro, v);
-    } catch (_) {}
-  }
+  Future<void> setSkipIntro(bool v) =>
+      _setBool(_kSkipIntro, v,
+          current: _skipIntro, apply: (n) => _skipIntro = n);
 
-  Future<void> setMuted(bool v) async {
-    if (_muted == v) return;
-    _muted = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kMuted, v);
-    } catch (_) {}
-  }
+  Future<void> setMuted(bool v) =>
+      _setBool(_kMuted, v, current: _muted, apply: (n) => _muted = n);
 
-  Future<void> setAutoRotate(bool v) async {
-    if (_autoRotate == v) return;
-    _autoRotate = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kAutoRotate, v);
-    } catch (_) {}
-  }
+  Future<void> setAutoRotate(bool v) =>
+      _setBool(_kAutoRotate, v,
+          current: _autoRotate, apply: (n) => _autoRotate = n);
 
-  Future<void> setAutoLowerOnStall(bool v) async {
-    if (_autoLowerOnStall == v) return;
-    _autoLowerOnStall = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kAutoLowerOnStall, v);
-    } catch (_) {}
-  }
+  Future<void> setAutoLowerOnStall(bool v) =>
+      _setBool(_kAutoLowerOnStall, v,
+          current: _autoLowerOnStall, apply: (n) => _autoLowerOnStall = n);
 
   /// 设置黄果规则主域名（自动补全 https:// 并去掉结尾斜杠）。
   Future<void> setHuangguoDomain(String v) async {
@@ -196,65 +178,28 @@ class AppSettings extends ChangeNotifier {
     ).toString();
   }
 
-  Future<void> setQualityCap(int v) async {
-    if (_qualityCap == v) return;
-    _qualityCap = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setInt(_kQualityCap, v);
-    } catch (_) {}
-  }
+  Future<void> setQualityCap(int v) =>
+      _setInt(_kQualityCap, v, current: _qualityCap, apply: (n) => _qualityCap = n);
 
-  Future<void> setShowSiteBackButton(bool v) async {
-    if (_showSiteBackButton == v) return;
-    _showSiteBackButton = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kShowSiteBackButton, v);
-    } catch (_) {}
-  }
+  Future<void> setShowSiteBackButton(bool v) =>
+      _setBool(_kShowSiteBackButton, v,
+          current: _showSiteBackButton, apply: (n) => _showSiteBackButton = n);
 
-  Future<void> setShowSearchBackButton(bool v) async {
-    if (_showSearchBackButton == v) return;
-    _showSearchBackButton = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kShowSearchBackButton, v);
-    } catch (_) {}
-  }
+  Future<void> setShowSearchBackButton(bool v) =>
+      _setBool(_kShowSearchBackButton, v,
+          current: _showSearchBackButton, apply: (n) => _showSearchBackButton = n);
 
-  Future<void> setShowFullscreenButton(bool v) async {
-    if (_showFullscreenButton == v) return;
-    _showFullscreenButton = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kShowFullscreenButton, v);
-    } catch (_) {}
-  }
+  Future<void> setShowFullscreenButton(bool v) =>
+      _setBool(_kShowFullscreenButton, v,
+          current: _showFullscreenButton, apply: (n) => _showFullscreenButton = n);
 
-  Future<void> setShowMuteButton(bool v) async {
-    if (_showMuteButton == v) return;
-    _showMuteButton = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kShowMuteButton, v);
-    } catch (_) {}
-  }
+  Future<void> setShowMuteButton(bool v) =>
+      _setBool(_kShowMuteButton, v,
+          current: _showMuteButton, apply: (n) => _showMuteButton = n);
 
-  Future<void> setShowFastForwardButton(bool v) async {
-    if (_showFastForwardButton == v) return;
-    _showFastForwardButton = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kShowFastForwardButton, v);
-    } catch (_) {}
-  }
+  Future<void> setShowFastForwardButton(bool v) =>
+      _setBool(_kShowFastForwardButton, v,
+          current: _showFastForwardButton, apply: (n) => _showFastForwardButton = n);
 
   Future<void> setSkipIntroMinSec(int v) =>
       _setSkipIntroInt(_kSkipIntroMinSec, v.clamp(5, 7200), (n) {
@@ -267,11 +212,14 @@ class AppSettings extends ChangeNotifier {
         switch (index) {
           case 0:
             _skipTier1At = n;
+            break;
           case 1:
             _skipTier2At = n;
+            break;
           case 2:
             _skipTier3At = n;
-          case 3:
+            break;
+          default:
             _skipTier4At = n;
         }
       });
@@ -281,11 +229,14 @@ class AppSettings extends ChangeNotifier {
         switch (index) {
           case 0:
             _skipTier1Sec = n;
+            break;
           case 1:
             _skipTier2Sec = n;
+            break;
           case 2:
             _skipTier3Sec = n;
-          case 3:
+            break;
+          default:
             _skipTier4Sec = n;
         }
       });
@@ -311,6 +262,7 @@ class AppSettings extends ChangeNotifier {
   ) async {
     if (value == _currentSkipIntro(key)) return;
     apply(value);
+    _invalidateTiers();
     notifyListeners();
     try {
       final p = await SharedPreferences.getInstance();
@@ -329,4 +281,34 @@ class AppSettings extends ChangeNotifier {
         _kSkipTier3Sec => _skipTier3Sec,
         _ => _skipTier4Sec,
       };
+
+  Future<void> _setBool(
+    String key,
+    bool value, {
+    required bool current,
+    required void Function(bool) apply,
+  }) async {
+    if (current == value) return;
+    apply(value);
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(key, value);
+    } catch (_) {}
+  }
+
+  Future<void> _setInt(
+    String key,
+    int value, {
+    required int current,
+    required void Function(int) apply,
+  }) async {
+    if (current == value) return;
+    apply(value);
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setInt(key, value);
+    } catch (_) {}
+  }
 }

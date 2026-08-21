@@ -106,12 +106,18 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _prewarmHomeFeeds() async {
     if (_prewarmStarted || !mounted) return;
+    _prewarmStarted = true;
     // Don't spend network if the app was backgrounded within the delay.
     if (WidgetsBinding.instance.lifecycleState !=
         AppLifecycleState.resumed) {
+      // Not resumed yet — re-arm the timer once instead of silently dropping
+      // the prewarm forever (a one-shot timer that fires during the brief
+      // transition to resumed must not skip the warm cache permanently).
+      _prewarmTimer = Timer(const Duration(milliseconds: 450), () {
+        if (mounted) unawaited(_prewarmHomeFeeds());
+      });
       return;
     }
-    _prewarmStarted = true;
     final sites = context
         .read<LayoutSettings>()
         .enabledVideoSites

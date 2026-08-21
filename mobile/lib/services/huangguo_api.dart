@@ -104,7 +104,9 @@ class HuangGuoApi {
   Future<String> _getHtmlOnce(String url, {Duration? timeout}) async {
     final token = CancelToken();
     // Cascade the instance-level cancel (page exit / tab switch).
-    if (!_cancelToken.isCancelled) {
+    if (_cancelToken.isCancelled) {
+      token.cancel();
+    } else {
       // ignore: discarded_futures
       _cancelToken.whenCancel.then((_) {
         if (!token.isCancelled) token.cancel();
@@ -647,6 +649,13 @@ class HuangGuoApi {
     }
     if (episodeItems.isNotEmpty) {
       _episodesCache[seriesKey] = List<VideoItem>.unmodifiable(episodeItems);
+      // 有界缓存：浏览多部短剧时逐部保留集列表会让内存无限增长。
+      // 超过上限时淘汰最早写入的键（保持最近浏览的可回看）。
+      const maxEpisodesCache = 40;
+      if (_episodesCache.length > maxEpisodesCache) {
+        final keys = _episodesCache.keys.toList();
+        _episodesCache.remove(keys.first);
+      }
     }
 
     var durationSec = 0;

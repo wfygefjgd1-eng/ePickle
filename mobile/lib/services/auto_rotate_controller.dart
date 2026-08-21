@@ -236,12 +236,15 @@ class AutoRotateController {
         _landscapeMode = true;
         _holdExitUntilLandscape = false;
         if (side != null) _appliedSide = side;
+        break;
       case AutoRotateAction.exitLandscape:
         _landscapeMode = false;
         _holdExitUntilLandscape = false;
         _appliedSide = null;
+        break;
       case AutoRotateAction.switchSide:
         if (side != null) _appliedSide = side;
+        break;
     }
   }
 

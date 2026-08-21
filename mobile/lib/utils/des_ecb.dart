@@ -6,6 +6,7 @@ import 'dart:typed_data';
 /// It intentionally exposes decryption only. The sites use CryptoJS DES with
 /// ECB mode and PKCS7 padding, keyed by the first eight UTF-8 bytes of the
 /// video id.
+@Deprecated('DES-ECB 属不安全算法，仅用于站点特定遗留解密，请勿在新代码复用')
 class DesEcbPkcs7 {
   DesEcbPkcs7._();
 

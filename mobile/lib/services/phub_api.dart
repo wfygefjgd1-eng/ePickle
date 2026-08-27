@@ -459,7 +459,10 @@ class PhubApi {
     }
     final durationSec = int.tryParse('${flash['video_duration']}') ?? 0;
     final thumb = flash['image_url']?.toString();
-    final unavailable = '${flash['video_unavailable']}' != 'false';
+    // Missing field must NOT be treated as "unavailable" (would skip
+    // playable videos on pages that omit the key entirely).
+    final dynamic unavRaw = flash['video_unavailable'];
+    final unavailable = unavRaw == true || unavRaw == 'true';
     final countryBlocked = '${flash['video_unavailable_country']}' == 'true';
     final isVertical = '${flash['isVertical']}' == 'true';
 
@@ -559,6 +562,13 @@ class PhubApi {
     // the chunk pass missed (data-* attributes change often) and adds items
     // only it could see.
     final results = _parseViaViewkeyChunks(html, seen);
+    // Skip the costly full-DOM parse when the chunk path already produced
+    // well-formed entries with thumbnails — DOM parse is a heavy
+    // html_parser pass over the entire page and is only useful to (a)
+    // backfill missing thumbs, (b) discover entries the chunk regex split
+    // missed. Both are exceptional; the fast path covers the vast majority.
+    final needsDom = results.isEmpty || results.any((e) => e.thumb == null);
+    if (!needsDom) return results;
     final domItems = _parseViaDom(html, seen);
     final byVk = <String, VideoItem>{for (final d in domItems) d.viewkey: d};
     for (var i = 0; i < results.length; i++) {

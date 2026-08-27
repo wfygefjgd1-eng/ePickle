@@ -312,6 +312,9 @@ class GenericSiteApi {
 
   bool _isBlockedHtml(String html) {
     final trim = html.trimLeft();
+    // Short JSON responses (e.g. {"error":"..."}, API 4xx/5xx bodies) must
+    // never be treated as Cloudflare/age-gate blocking pages — doing so
+    // wastes a WKWebView render slot on every API-style failure.
     if (trim.startsWith('{') || trim.startsWith('[')) return false;
     if (html.length < 350) return true;
     final low = html.toLowerCase();
@@ -1606,12 +1609,11 @@ class GenericSiteApi {
           ? _extractKvsStreams(html, url)
           : await _followEmbeds(html, url, url, depth: 2);
     }
-    if (streams.isEmpty) {
-      streams = <StreamQuality>[
-        ..._extractEncryptedSiteStreams(html, url),
-        ..._extractKvsStreams(html, url),
-      ];
-    }
+    // Note: _extractEncryptedSiteStreams / _extractKvsStreams were already
+    // dispatched above for our55/xqq88 and javmix/javgg. The previous
+    // "run them again on miss" pass was pure duplicate work — both
+    // functions do full HTML regex scans and were being invoked twice for
+    // most pages. Skip straight to the next extractor.
     if (streams.isEmpty) {
       streams = _extractVideoInitialDataStreams(html, url);
     }

@@ -121,9 +121,15 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         : 0.0;
 
     String formatTime(Duration d) {
-      final min = d.inMinutes;
+      final h = d.inHours;
+      final min = d.inMinutes % 60;
       final sec = d.inSeconds % 60;
-      return '$min:${sec.toString().padLeft(2, '0')}';
+      final mm = min.toString().padLeft(2, '0');
+      final ss = sec.toString().padLeft(2, '0');
+      if (h > 0) {
+        return '$h:$mm:$ss';
+      }
+      return '$min:$ss';
     }
 
     setState(() {

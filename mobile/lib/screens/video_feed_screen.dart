@@ -1052,14 +1052,20 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     });
   }
 
+  /// Prefetch entry that also works before _active is set (e.g. from initState).
+  /// Subsequent callers still guard with !_canRun once they touch controllers.
   Future<void> _prefetchDetail(int index) async {
     if (!_canRun || index < 0 || index >= _items.length) return;
     if (_detailCache.containsKey(index)) return;
     if (_prefetchingIndex == index) return;
+    // Prefetch is fire-and-forget from initState; allow it even when
+    // _active is still false (player not started yet) so the first frame
+    // hits a warm detail cache instead of blocking on the network round-trip.
     _prefetchingIndex = index;
     final url = _items[index].url;
     try {
       final d = await _fetchDetail(url);
+      // Re-check _canRun before touching controllers / state.
       if (!_canRun) return;
       _detailCache[index] = d;
       _prunePageState(_currentIndex);
@@ -1864,6 +1870,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     VideoDetail? detail,
     bool stripchat = false,
   }) async {
+    // Bump _loadSeq so any in-flight preload task aborts at its
+    // `seq != _loadSeq` guard instead of finishing a decoder we won't use.
+    _loadSeq++;
     _disposePreload();
     await _disposeController();
     if (seq != _loadSeq || !_canRun || !mounted) return;

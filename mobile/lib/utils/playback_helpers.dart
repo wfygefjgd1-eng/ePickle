@@ -9,8 +9,8 @@ import '../services/source_catalog.dart';
 /// Shared playback helpers for feed / search-feed.
 class PlaybackHelpers {
   /// Decoder budget shared by every vertical-feed implementation.
-  /// Active player + 3 lookahead slots (same on iOS/Android).
-  static const preloadSlotCount = 3;
+  /// Active player + 2 lookahead slots on mobile (was 3).
+  static const preloadSlotCount = 2;
 
   /// [skipIntro] with the user's settings (跳过片头折叠配置)。
   static Future<void> skipIntroFromSettings(

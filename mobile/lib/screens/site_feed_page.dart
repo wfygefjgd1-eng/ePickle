@@ -43,11 +43,6 @@ class _SiteFeedPageState extends State<SiteFeedPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _ensureKeys();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _keys.isNotEmpty) {
-        _keys[0].currentState?.startPlaying();
-      }
-    });
   }
 
   @override
@@ -171,7 +166,7 @@ class _SiteFeedPageState extends State<SiteFeedPage>
                     kind: _kindAt(i),
                     site: site,
                     tagId: tabs[i].id,
-                    autoStart: false,
+                    autoStart: i == 0,
                   ),
               ],
             ),

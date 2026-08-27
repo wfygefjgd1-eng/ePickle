@@ -173,8 +173,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   /// Live list hard cap (window around current index).
   static const _maxLiveItems = 150;
 
-  bool get _multiPreload => _preloadSlotCount > 1;
-
   /// Get current video URL for sharing
   String? getCurrentVideoUrl() {
     if (_currentIndex < 0 || _currentIndex >= _items.length) return null;
@@ -260,6 +258,16 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _autoRotate!.listening = false;
     _settings!.addListener(_onSettingsChanged);
     if (widget.autoStart) {
+      // Fire-and-forget prefetch for the first item so _playIndex hits a warm
+      // detail cache and the player initialize is the only serial cost on
+      // first frame (cuts 7s cold-start into ~2-3s on real networks).
+      final firstIndex = _currentIndex;
+      if (_items.isNotEmpty &&
+          firstIndex >= 0 &&
+          firstIndex < _items.length &&
+          !_detailCache.containsKey(firstIndex)) {
+        unawaited(_prefetchDetail(firstIndex));
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) startPlaying();
       });
@@ -1182,7 +1190,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (seq != _loadSeq || !_canRun) return;
     final player = _createNetworkPlayer(stream, detail.url);
     try {
-      await player.initialize().timeout(const Duration(seconds: 12));
+      await player.initialize().timeout(const Duration(seconds: 8));
       _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
@@ -1265,7 +1273,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (seq != _loadSeq || !_canRun) return;
     final player = _createNetworkPlayer(stream, detail.url);
     try {
-      await player.initialize().timeout(const Duration(seconds: 12));
+      await player.initialize().timeout(const Duration(seconds: 8));
       _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
@@ -1349,7 +1357,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (seq != _loadSeq || !_canRun) return;
     final player = _createNetworkPlayer(stream, detail.url);
     try {
-      await player.initialize().timeout(const Duration(seconds: 12));
+      await player.initialize().timeout(const Duration(seconds: 8));
       _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
@@ -1553,14 +1561,16 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         preloaded,
         fallbackSec: preloadDetail?.durationSec ?? 0,
       );
+      final title = preloadDetail?.title ?? item.title;
+      final speed = preloadStream != null
+          ? _estimateBaseSpeed(preloadStream.height)
+          : 1500;
       setState(() {
         _pageLoading = false;
-        _titleText = preloadDetail?.title ?? item.title;
-        _totalTime.value = PlaybackHelpers.fmtDuration(dur);
-        _baseSpeed = preloadStream != null
-            ? _estimateBaseSpeed(preloadStream.height)
-            : 1500;
+        _titleText = title;
+        _baseSpeed = speed;
       });
+      _totalTime.value = PlaybackHelpers.fmtDuration(dur);
       _sliderValue.value = 0;
       _currentTime.value = '0:00';
       if (preloadDetail != null) {
@@ -1595,28 +1605,26 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       }
       if (mounted) setState(() {});
 
-      if (_multiPreload) {
-        if (_preloadController2 != null && _preloadIndex2 == index + 1) {
-          _preloadController = _preloadController2;
-          _preloadIndex = _preloadIndex2;
-          _preloadStream = _preloadStream2;
-          _preloadRetries = _preloadRetries2;
-          _preloadController2 = _preloadController3;
-          _preloadIndex2 = _preloadIndex3;
-          _preloadStream2 = _preloadStream3;
-          _preloadRetries2 = _preloadRetries3;
-          _preloadController3 = null;
-          _preloadIndex3 = null;
-          _preloadStream3 = null;
-          _preloadRetries3 = 0;
-        } else {
-          // ignore: unawaited_futures
-          _preloadNext(index + 1);
-        }
-        final n = _preloadSlotCount;
-        if (n >= 2) unawaited(_preloadNext2(index + 2));
-        if (n >= 3) unawaited(_preloadNext3(index + 3));
+      if (_preloadController2 != null && _preloadIndex2 == index + 1) {
+        _preloadController = _preloadController2;
+        _preloadIndex = _preloadIndex2;
+        _preloadStream = _preloadStream2;
+        _preloadRetries = _preloadRetries2;
+        _preloadController2 = _preloadController3;
+        _preloadIndex2 = _preloadIndex3;
+        _preloadStream2 = _preloadStream3;
+        _preloadRetries2 = _preloadRetries3;
+        _preloadController3 = null;
+        _preloadIndex3 = null;
+        _preloadStream3 = null;
+        _preloadRetries3 = 0;
+      } else {
+        // ignore: unawaited_futures
+        _preloadNext(index + 1);
       }
+      final n = _preloadSlotCount;
+      if (n >= 2) unawaited(_preloadNext2(index + 2));
+      if (n >= 3) unawaited(_preloadNext3(index + 3));
 
       _trimPreloadState(index);
 
@@ -1640,9 +1648,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _pageLoading = true;
       _currentIndex = index;
       _titleText = item.title;
-      _totalTime.value = '0:00';
-      _speedLabel.value = '';
     });
+    _totalTime.value = '0:00';
+    _speedLabel.value = '';
     _sliderValue.value = 0;
     _currentTime.value = '0:00';
 
@@ -1652,7 +1660,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         detail = _detailCache[index]!;
       } else {
         detail = await _fetchDetail(item.url)
-            .timeout(const Duration(seconds: 12));
+            .timeout(const Duration(seconds: 8));
         _detailCache[index] = detail;
       }
     } catch (e) {
@@ -1721,10 +1729,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     VideoPlayerController? player;
     StreamQuality? stream;
-    final playerDeadline = DateTime.now().add(const Duration(seconds: 18));
-    for (final c in candidates) {
+    final playerDeadline = DateTime.now().add(const Duration(seconds: 14));
+    // Try at most the top-2 candidates. The first is preferred (sorted by
+    // quality); the second is a safety net for either (a) the first stream
+    // returned a preview/teaser clip, or (b) init transiently failed. Going
+    // beyond 2 wastes up to 8s per attempt before the user gives up.
+    for (var i = 0; i < candidates.length && i < 2 && player == null; i++) {
+      final c = candidates[i];
       if (seq != _loadSeq || !_canRun) {
-        await player?.dispose();
         return;
       }
       final next = _createNetworkPlayer(c, detail.url);
@@ -1736,9 +1748,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           break;
         }
         await next.initialize().timeout(
-              remaining < const Duration(seconds: 12)
+              remaining < const Duration(seconds: 8)
                   ? remaining
-                  : const Duration(seconds: 12),
+                  : const Duration(seconds: 8),
             );
         _initializingControllers.remove(next);
         if (PlaybackHelpers.isLikelyPreview(

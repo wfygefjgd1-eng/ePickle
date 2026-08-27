@@ -309,6 +309,13 @@ class MainActivity : FlutterActivity() {
                 "finalUrl" to conn.url.toString(),
                 "cookies" to cookies
             )
+        } catch (e: Exception) {
+            return mapOf(
+                "statusCode" to 0,
+                "body" to "",
+                "finalUrl" to rawUrl,
+                "cookies" to emptyMap()
+            )
         } finally {
             activeTasks.remove(id)
             conn?.disconnect()

@@ -354,6 +354,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
@@ -364,23 +365,39 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
           Expanded(child: Text('\u6807\u7b7e \u00b7 ${widget.site.name}')),
         ]),
       ),
-      body: Row(children: [
-        SizedBox(width: 92, child: _buildTagRail()),
-        const VerticalDivider(width: 1, color: Colors.white10),
-        Expanded(child: _buildResults()),
-      ]),
+      body: compact
+          ? Column(children: [
+              SizedBox(
+                key: const ValueKey('compact_tag_selector'),
+                height: 64,
+                child: _buildTagRail(horizontal: true),
+              ),
+              const Divider(height: 1, color: Colors.white10),
+              Expanded(child: _buildResults()),
+            ])
+          : Row(children: [
+              SizedBox(width: 92, child: _buildTagRail()),
+              const VerticalDivider(width: 1, color: Colors.white10),
+              Expanded(child: _buildResults()),
+            ]),
     );
   }
 
-  Widget _buildTagRail() => ListView.separated(
-        padding: EdgeInsets.fromLTRB(
-          8,
-          10,
-          8,
-          180 + MediaQuery.viewPaddingOf(context).bottom,
-        ),
+  Widget _buildTagRail({bool horizontal = false}) => ListView.separated(
+        scrollDirection: horizontal ? Axis.horizontal : Axis.vertical,
+        padding: horizontal
+            ? const EdgeInsets.symmetric(horizontal: 8, vertical: 7)
+            : EdgeInsets.fromLTRB(
+                8,
+                10,
+                8,
+                180 + MediaQuery.viewPaddingOf(context).bottom,
+              ),
         itemCount: _tags.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 7),
+        separatorBuilder: (_, __) => SizedBox(
+          width: horizontal ? 7 : 0,
+          height: horizontal ? 0 : 7,
+        ),
         itemBuilder: (_, i) {
           final tag = _tags[i];
           final selected = tag.id == _selected?.id;
@@ -389,7 +406,8 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
             onTap: () => _select(tag),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 160),
-              height: 62,
+              width: horizontal ? 92 : null,
+              height: horizontal ? 50 : 62,
               decoration: BoxDecoration(
                 color: selected
                     ? const Color(0x33FF6B35)
@@ -398,24 +416,45 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
                 border: Border.all(
                     color: selected ? const Color(0xFFFF6B35) : Colors.white10),
               ),
-              child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(selected ? tag.iconSelected : tag.icon,
-                        size: 21,
-                        color: selected
-                            ? const Color(0xFFFF6B35)
-                            : Colors.white70),
-                    const SizedBox(height: 3),
-                    Text(tag.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 11)),
-                  ]),
+              child: horizontal
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          selected ? tag.iconSelected : tag.icon,
+                          size: 19,
+                          color: selected
+                              ? const Color(0xFFFF6B35)
+                              : Colors.white70,
+                        ),
+                        const SizedBox(width: 5),
+                        Flexible(child: _buildTagLabel(tag)),
+                      ],
+                    )
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          selected ? tag.iconSelected : tag.icon,
+                          size: 21,
+                          color: selected
+                              ? const Color(0xFFFF6B35)
+                              : Colors.white70,
+                        ),
+                        const SizedBox(height: 3),
+                        _buildTagLabel(tag),
+                      ],
+                    ),
             ),
           );
         },
+      );
+
+  Widget _buildTagLabel(SiteTag tag) => Text(
+        tag.label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: Colors.white, fontSize: 11),
       );
 
   Widget _buildResults() {
@@ -455,7 +494,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
     }
     if (_selected == null) {
       return const Center(
-          child: Text('\u4ece\u5de6\u4fa7\u9009\u62e9\u6807\u7b7e',
+          child: Text('\u9009\u62e9\u6807\u7b7e\u67e5\u770b\u5185\u5bb9',
               style: TextStyle(color: Colors.white54)));
     }
     return ListView.builder(

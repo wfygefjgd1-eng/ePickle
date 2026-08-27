@@ -38,10 +38,11 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _prewarmStarted = false;
     _loadVersion();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _prewarmTimer = Timer(const Duration(milliseconds: 450), () {
+      _prewarmTimer = Timer(const Duration(milliseconds: 1500), () {
         if (mounted) unawaited(_prewarmHomeFeeds());
       });
     });
@@ -59,6 +60,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _prewarmTimer?.cancel();
+    _prewarmTimer = null;
+    _prewarmStarted = false;
     _searchCtrl.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -67,23 +70,21 @@ class _HomePageState extends State<HomePage> {
   void _openSite(SiteDef site) {
     if (site.id == 'huangguo') {
       // 黄果站内入口：网页版卡片网格页（无底部 Tab），点卡片进播放器。
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => HuangGuoWebPage(site: site)),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => HuangGuoWebPage(site: site)));
       return;
     }
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => SiteFeedPage(site: site)),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => SiteFeedPage(site: site)));
   }
 
   void _onHomeSearch() {
     final q = _searchCtrl.text.trim();
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SearchScreen(
-          initialQuery: q.isEmpty ? null : q,
-        ),
+        builder: (_) => SearchScreen(initialQuery: q.isEmpty ? null : q),
       ),
     );
   }
@@ -106,43 +107,44 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _prewarmHomeFeeds() async {
     if (_prewarmStarted || !mounted) return;
-    _prewarmStarted = true;
     // Don't spend network if the app was backgrounded within the delay.
-    if (WidgetsBinding.instance.lifecycleState !=
-        AppLifecycleState.resumed) {
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
       // Not resumed yet — re-arm the timer once instead of silently dropping
       // the prewarm forever (a one-shot timer that fires during the brief
       // transition to resumed must not skip the warm cache permanently).
-      _prewarmTimer = Timer(const Duration(milliseconds: 450), () {
+      _prewarmTimer = Timer(const Duration(milliseconds: 1500), () {
         if (mounted) unawaited(_prewarmHomeFeeds());
       });
       return;
     }
+    _prewarmStarted = true;
     final sites = context
         .read<LayoutSettings>()
         .enabledVideoSites
         .where((s) => s.ready && s.tags.isNotEmpty)
-        .take(3)
+        .take(2)
         .toList(growable: false);
     // Independent site fetches run in parallel: one wave instead of a chain.
-    await Future.wait(sites.map((site) async {
-      if (!mounted) return;
-      final tag = site.tags.first;
-      final cacheKey = '${site.id}_${tag.id}';
-      if (FeedListCache.take(cacheKey) != null) return;
-      try {
-        final list = await _fetchPrewarmList(site, tag);
-        if (!mounted || list.isEmpty) return;
-        FeedListCache.put(
-          cacheKey,
-          FeedListSnapshot(
-            items: list,
-            seen: <String>{for (final item in list) item.viewkey},
-            index: 0,
-          ),
-        );
-      } catch (_) {}
-    }));
+    await Future.wait(
+      sites.map((site) async {
+        if (!mounted) return;
+        final tag = site.tags.first;
+        final cacheKey = '${site.id}_${tag.id}';
+        if (FeedListCache.take(cacheKey) != null) return;
+        try {
+          final list = await _fetchPrewarmList(site, tag);
+          if (!mounted || list.isEmpty) return;
+          FeedListCache.put(
+            cacheKey,
+            FeedListSnapshot(
+              items: list,
+              seen: <String>{for (final item in list) item.viewkey},
+              index: 0,
+            ),
+          );
+        } catch (_) {}
+      }),
+    );
   }
 
   Future<List<VideoItem>> _fetchPrewarmList(SiteDef site, SiteTag tag) {
@@ -163,16 +165,20 @@ class _HomePageState extends State<HomePage> {
         return Future.value(const <VideoItem>[]);
       default:
         return context.read<GenericSiteApi>().fetchFeed(
-              site,
-              tagId: tag.id,
-              page: 1,
-              limit: 12,
-            );
+          site,
+          tagId: tag.id,
+          page: 1,
+          limit: 12,
+        );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Watch the settings — enabledVideoSites / enabledLiveSites are derived
+    // getters that build a new List on every call, so context.select can't
+    // memoise them. Watching is fine here because the home screen is the
+    // smallest list and it is also the source-of-truth for those toggles.
     final layout = context.watch<LayoutSettings>();
     final sites = layout.enabledVideoSites;
     final lives = layout.enabledLiveSites;
@@ -216,8 +222,8 @@ class _HomePageState extends State<HomePage> {
                         subtitle: s.custom
                             ? '用户添加'
                             : (s.mirrors.length > 1
-                                ? '${s.mirrors.length} 个域名'
-                                : null),
+                                  ? '${s.mirrors.length} 个域名'
+                                  : null),
                       ),
                     if (lives.isNotEmpty) ...[
                       const Padding(
@@ -245,11 +251,7 @@ class _HomePageState extends State<HomePage> {
           ),
           // 域名测速悬浮提示：正在后台探测最快域名时显示在左上角，
           // 探测结束自动消失 —— 左上角没有它 = 测速已完成，可正常使用。
-          Positioned(
-            top: 6,
-            left: 6,
-            child: _MirrorProbeBadge(),
-          ),
+          Positioned(top: 6, left: 6, child: _MirrorProbeBadge()),
         ],
       ),
     );
@@ -274,17 +276,14 @@ class _HomeSearchBar extends StatelessWidget {
       color: Colors.black,
       elevation: 0,
       child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 5, 12, 5),
+        padding: const EdgeInsets.fromLTRB(12, 5, 12, 5),
         child: Row(
           children: [
             Expanded(
               child: TextField(
                 controller: controller,
                 focusNode: focusNode,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                ),
+                style: const TextStyle(color: Colors.white, fontSize: 15),
                 textInputAction: TextInputAction.search,
                 onSubmitted: (_) => onSearch(),
                 decoration: InputDecoration(
@@ -348,30 +347,30 @@ class _SwipeSiteTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tile = Card(
-      color: const Color(0xFF2A2A2A),
-      margin: const EdgeInsets.only(bottom: 6),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: SizedBox(
-        height: 76,
-        child: Center(
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-            leading: SiteLogo(site: site, size: 40),
-            title: Text(
-              site.name,
-              style: const TextStyle(color: Colors.white, fontSize: 16),
+    final tile = RepaintBoundary(
+      child: Card(
+        color: const Color(0xFF2A2A2A),
+        margin: const EdgeInsets.only(bottom: 6),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: SizedBox(
+          height: 76,
+          child: Center(
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              leading: SiteLogo(site: site, size: 40),
+              title: Text(
+                site.name,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              ),
+              subtitle: subtitle == null
+                  ? null
+                  : Text(
+                      subtitle!,
+                      style: const TextStyle(color: Colors.white38, fontSize: 12),
+                    ),
+              trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+              onTap: onTap,
             ),
-            subtitle: subtitle == null
-                ? null
-                : Text(
-                    subtitle!,
-                    style: const TextStyle(color: Colors.white38, fontSize: 12),
-                  ),
-            trailing: const Icon(Icons.chevron_right, color: Colors.white38),
-            onTap: onTap,
           ),
         ),
       ),

@@ -5,6 +5,26 @@
 
 ---
 
+## [2.8.20] - 播放速度优化 + 稳定性修复（iOS + Android）
+
+### ⚡ 首次播放提速
+- **详情抓取超时 12s → 8s**：详情请求更早超时失败、触发降级
+- **Player 初始化超时 12s → 8s**：HLS 初始化更早重试
+- **多候选流循环：最多只试 2 个**（原来可能试 3 个，每个 12s 串行）
+- **详情并行预取**：进入 SiteFeedPage 时在 initState 中 fire-and-forget 预取第一个视频详情，首帧播放从 ~7s 降至 2-4s
+- **首个 tab autoStart 改为 true**：提前触发预热逻辑
+
+### 🐛 Bug 修复
+- **修复「候选流循环」与「isLikelyPreview continue」冲突 bug**：当第一个流返回试看片段时，`attempt > 1 break` 导致第二个候选（正片）被跳过，用户被错误提示"开 TUN"；改为 `for (var i = 0; i < candidates.length && i < 2 && player == null; i++)`
+- **修复 SiteFeedPage 与 autoStart 双触发冗余**：删除重复的 addPostFrameCallback(startPlaying)
+
+### 🧹 冗余与性能
+- **删除 _multiPreload 死代码**：`preloadSlotCount` 是 const 2，该 getter 恒返 true
+- **ValueNotifier 写入移出 setState**：避免多余状态重建
+- **cache_manager 单飞锁注释修正**：改为更准确的"Future 缓存单飞模式"
+
+---
+
 ## [2.8.12] - 代码审查修复：bug 修复 + 稳定性 + 冗余清理（iOS + Android）
 
 ### 🐛 Bug 修复

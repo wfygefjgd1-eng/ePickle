@@ -7,7 +7,8 @@ class FeedListCache {
   static final Map<String, FeedListSnapshot> _map = {};
 
   /// Max items kept per tab snapshot (around current index).
-  static const maxItems = 100;
+  /// Reduced to 60 for mobile memory efficiency (was 100).
+  static const maxItems = 60;
 
   /// Read the cached snapshot without removing it.
   static FeedListSnapshot? take(String kind) => _map[kind];

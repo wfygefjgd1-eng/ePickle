@@ -21,15 +21,26 @@ class CacheManager {
 
   static DateTime? _lastCheck;
   static int _videosSinceCheck = 0;
-  static bool _running = false;
+
+  /// Single-flight lock using a cached Future: the first caller starts the
+  /// work, every concurrent caller gets the same in-flight future.  Safer than
+  /// a bool flag (no race between `if (_active != null) return` and the
+  /// subsequent assignment).  Nulled out via `whenComplete` so the next call
+  /// after completion starts fresh.
+  static Future<void>? _activeClearOnLaunch;
+  static Future<void>? _activeCheck;
 
   /// On every app launch: wipe transient caches (image cache, temp files,
   /// WebView cache, URLCache). Settings, watch history, cookies and keychain
   /// are intentionally preserved so the app stays usable and sites keep
   /// their sessions. Never blocks startup (fire-and-forget from main()).
-  static Future<void> clearOnLaunch() async {
-    if (_running) return;
-    _running = true;
+  static Future<void> clearOnLaunch() {
+    return _activeClearOnLaunch ??= _runClearOnLaunch().whenComplete(() {
+      _activeClearOnLaunch = null;
+    });
+  }
+
+  static Future<void> _runClearOnLaunch() async {
     try {
       // Native: WKWebView cache + URLCache (cookies preserved).
       await PrivacyWipe.clearLaunchCache();
@@ -38,24 +49,28 @@ class CacheManager {
       debugPrint('ePickle: on-launch cache clear finished');
     } catch (e) {
       debugPrint('ePickle: on-launch cache clear failed: $e');
-    } finally {
-      _running = false;
     }
   }
 
   /// On launch: force one check (still throttled against concurrent runs).
-  static Future<void> checkAndCleanIfNeeded({bool force = false}) async {
-    if (_running) return;
+  static Future<void> checkAndCleanIfNeeded({bool force = false}) {
+    final active = _activeCheck;
+    if (active != null) return active;
     final now = DateTime.now();
     if (!force) {
       _videosSinceCheck++;
       if (_lastCheck != null &&
           now.difference(_lastCheck!) < _minInterval &&
           _videosSinceCheck < _minVideosBetween) {
-        return;
+        return Future<void>.value();
       }
     }
-    _running = true;
+    return _activeCheck = _runCheck(now).whenComplete(() {
+      _activeCheck = null;
+    });
+  }
+
+  static Future<void> _runCheck(DateTime now) async {
     _lastCheck = now;
     _videosSinceCheck = 0;
     try {
@@ -74,8 +89,6 @@ class CacheManager {
       }
     } catch (e) {
       debugPrint('Cache check failed: $e');
-    } finally {
-      _running = false;
     }
   }
 

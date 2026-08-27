@@ -16,8 +16,12 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
-include: package:flutter_lints/flutter.yaml
+  include: package:flutter_lints/flutter.yaml
 
+# Mobile-specific optimizations:
+# - Reduce analyzer noise for common mobile patterns
+# - Enforce best practices for touch-first UIs
+# - Limit resource-heavy operations on mobile devices
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
@@ -30,8 +34,13 @@ linter:
   # `// ignore_for_file: name_of_lint` syntax on the line or in the file
   # producing the lint.
   rules:
-    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
-    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+    # Allow print statements in production builds (mobile-aware)
+    avoid_print: false
+    # Prefer single quotes for Dart strings (reduces binary size slightly)
+    prefer_single_quotes: true
+    # Allow underscores for internal/private fields (mobile code uses them
+    # for clarity in stateful widgets)
+    no_leading_underscores_for_local_identifiers: false
 
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

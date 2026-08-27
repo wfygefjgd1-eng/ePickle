@@ -18,10 +18,7 @@ import 'search_feed_screen.dart';
 
 /// Multi-site search: left site tabs, right results for the selected site.
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({
-    super.key,
-    this.initialQuery,
-  });
+  const SearchScreen({super.key, this.initialQuery});
 
   final String? initialQuery;
 
@@ -120,8 +117,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _enQuery = en;
 
     for (final site in sites) {
-      final query =
-          (site.id == 'mitao' || site.id == 'huangguo') ? q : en;
+      final query = (site.id == 'mitao' || site.id == 'huangguo') ? q : en;
       // ignore: unawaited_futures
       _searchOne(site, query, 1, replace: true, gen: gen);
     }
@@ -176,7 +172,8 @@ class _SearchScreenState extends State<SearchScreen> {
         _results[id] = merged;
         _page[id] = page;
         _loading[id] = false;
-        _hasMore[id] = list.isNotEmpty &&
+        _hasMore[id] =
+            list.isNotEmpty &&
             fresh.isNotEmpty &&
             merged.length < _maxResultsPerSrc;
       });
@@ -255,8 +252,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final items = activeSite == null
         ? const <VideoItem>[]
         : (_results[activeSite.id] ?? []);
-    final loading =
-        activeSite == null ? false : (_loading[activeSite.id] ?? false);
+    final loading = activeSite == null
+        ? false
+        : (_loading[activeSite.id] ?? false);
     final err = activeSite == null ? null : _error[activeSite.id];
     final canPop = Navigator.of(context).canPop();
 
@@ -273,147 +271,209 @@ class _SearchScreenState extends State<SearchScreen> {
         verticalDirection: VerticalDirection.up,
         children: [
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  width: 108,
-                  child: Material(
-                    color: const Color(0xFF1A1A1A),
-                    child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      itemCount: sites.length,
-                      itemBuilder: (_, i) {
-                        final s = sites[i];
-                        final selected = s.id == activeSite?.id;
-                        final count = (_results[s.id] ?? []).length;
-                        final busy = _loading[s.id] ?? false;
-                        return InkWell(
-                          onTap: () => setState(() => _activeSiteId = s.id),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 12,
-                            ),
-                            color: selected
-                                ? const Color(0x22FF6B35)
-                                : Colors.transparent,
-                            child: Column(
-                              children: [
-                                SiteLogo(site: s, size: 36),
-                                const SizedBox(height: 6),
-                                Text(
-                                  s.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: selected
-                                        ? const Color(0xFFFF6B35)
-                                        : Colors.white70,
-                                    fontSize: 11,
-                                    fontWeight: selected
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                if (busy)
-                                  const SizedBox(
-                                    width: 10,
-                                    height: 10,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 1.5,
-                                      color: Color(0xFFFF6B35),
-                                    ),
-                                  )
-                                else if (count > 0)
-                                  Text(
-                                    '$count',
-                                    style: const TextStyle(
-                                      color: Colors.white38,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 600;
+                final results = _buildResultsBody(
+                  activeSite,
+                  items,
+                  loading,
+                  err,
+                );
+                if (compact) {
+                  return Column(
+                    children: [
+                      SizedBox(
+                        key: const ValueKey('compact_site_selector'),
+                        height: 72,
+                        child: _buildSiteSelector(
+                          sites,
+                          activeSite,
+                          horizontal: true,
+                        ),
+                      ),
+                      const Divider(height: 1, color: Colors.white12),
+                      Expanded(child: results),
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: 108,
+                      child: _buildSiteSelector(
+                        sites,
+                        activeSite,
+                        horizontal: false,
+                      ),
                     ),
-                  ),
-                ),
-                const VerticalDivider(width: 1, color: Colors.white12),
-                Expanded(
-                  child: _buildResultsBody(
-                    activeSite,
-                    items,
-                    loading,
-                    err,
-                  ),
-                ),
-              ],
+                    const VerticalDivider(width: 1, color: Colors.white12),
+                    Expanded(child: results),
+                  ],
+                );
+              },
             ),
           ),
-          Material(
-            color: const Color(0xFF1E1E1E),
-            elevation: 8,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      focusNode: _focus,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                      ),
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (_) => _runAll(),
-                      decoration: InputDecoration(
-                        hintText: '搜索全部已启用网站',
-                        hintStyle: const TextStyle(color: Colors.white38),
-                        filled: true,
-                        fillColor: const Color(0xFF2A2A2A),
-                        isDense: true,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
+          SafeArea(
+            top: false,
+            child: Material(
+              color: const Color(0xFF1E1E1E),
+              elevation: 8,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focus,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
                         ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          color: Colors.white38,
-                          size: 20,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (_) => _runAll(),
+                        decoration: InputDecoration(
+                          hintText: '搜索全部已启用网站',
+                          hintStyle: const TextStyle(color: Colors.white38),
+                          filled: true,
+                          fillColor: const Color(0xFF2A2A2A),
+                          isDense: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(24),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.search,
+                            color: Colors.white38,
+                            size: 20,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF6B35),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 12,
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      style: IconButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF6B35),
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(48, 48),
                       ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24),
-                      ),
+                      onPressed: _runAll,
+                      tooltip: '搜索',
+                      icon: const Icon(Icons.search),
                     ),
-                    onPressed: _runAll,
-                    child: const Text('搜'),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSiteSelector(
+    List<SiteDef> sites,
+    SiteDef? activeSite, {
+    required bool horizontal,
+  }) {
+    return Material(
+      color: const Color(0xFF1A1A1A),
+      child: ListView.builder(
+        scrollDirection: horizontal ? Axis.horizontal : Axis.vertical,
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontal ? 8 : 0,
+          vertical: 8,
+        ),
+        itemCount: sites.length,
+        itemBuilder: (_, i) {
+          final site = sites[i];
+          final selected = site.id == activeSite?.id;
+          final count = (_results[site.id] ?? []).length;
+          final busy = _loading[site.id] ?? false;
+          return SizedBox(
+            width: horizontal ? 82 : null,
+            child: InkWell(
+              borderRadius: horizontal ? BorderRadius.circular(8) : null,
+              onTap: () => setState(() => _activeSiteId = site.id),
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: horizontal ? 4 : 12,
+                ),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? const Color(0x22FF6B35)
+                      : Colors.transparent,
+                  borderRadius: horizontal ? BorderRadius.circular(8) : null,
+                ),
+                child: horizontal
+                    ? Row(
+                        children: [
+                          SiteLogo(site: site, size: 28),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: _buildSiteStatus(
+                              site,
+                              selected,
+                              busy,
+                              count,
+                            ),
+                          ),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          SiteLogo(site: site, size: 36),
+                          const SizedBox(height: 6),
+                          _buildSiteStatus(site, selected, busy, count),
+                        ],
+                      ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSiteStatus(SiteDef site, bool selected, bool busy, int count) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          site.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: selected ? const Color(0xFFFF6B35) : Colors.white70,
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+        const SizedBox(height: 2),
+        if (busy)
+          const SizedBox(
+            width: 10,
+            height: 10,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              color: Color(0xFFFF6B35),
+            ),
+          )
+        else if (count > 0)
+          Text(
+            '$count',
+            style: const TextStyle(color: Colors.white38, fontSize: 10),
+          )
+        else
+          const SizedBox(height: 10),
+      ],
     );
   }
 
@@ -509,10 +569,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             );
           }
-          return VideoCard(
-            item: items[i],
-            onTap: () => _openFeed(site, i),
-          );
+          return VideoCard(item: items[i], onTap: () => _openFeed(site, i));
         },
       ),
     );

@@ -962,7 +962,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         detail = _detailCache[index]!;
       } else {
         detail = await _fetchDetail(item.url, item: item)
-            .timeout(const Duration(seconds: 12));
+            .timeout(const Duration(seconds: 8));
         _detailCache[index] = detail;
       }
       _maybeExpandSeries(item, index);
@@ -1005,8 +1005,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     VideoPlayerController? player;
     StreamQuality? stream;
-    final playerDeadline = DateTime.now().add(const Duration(seconds: 18));
-    for (final c in candidates) {
+    final playerDeadline = DateTime.now().add(const Duration(seconds: 14));
+    // Try at most the top-2 candidates. The first is preferred (sorted by
+    // quality); the second is a safety net for either (a) the first stream
+    // returned a preview/teaser clip, or (b) init transiently failed. Going
+    // beyond 2 wastes up to 8s per attempt before the user gives up.
+    for (var i = 0; i < candidates.length && i < 2; i++) {
+      final c = candidates[i];
       if (seq != _seq || !_canRun) {
         await player?.dispose();
         return;
@@ -1020,9 +1025,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           break;
         }
         await next.initialize().timeout(
-          remaining < const Duration(seconds: 12)
+          remaining < const Duration(seconds: 8)
               ? remaining
-              : const Duration(seconds: 12),
+              : const Duration(seconds: 8),
         );
         _initializingControllers.remove(next);
         if (PlaybackHelpers.isLikelyPreview(
@@ -1265,7 +1270,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (seq != _seq || !_canRun) return;
     final player = _createNetworkPlayer(stream, detail.url);
     try {
-      await player.initialize().timeout(const Duration(seconds: 12));
+      await player.initialize().timeout(const Duration(seconds: 8));
       _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
@@ -1346,7 +1351,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (seq != _seq || !_canRun) return;
     final player = _createNetworkPlayer(stream, detail.url);
     try {
-      await player.initialize().timeout(const Duration(seconds: 12));
+      await player.initialize().timeout(const Duration(seconds: 8));
       _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
@@ -1427,7 +1432,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (seq != _seq || !_canRun) return;
     final player = _createNetworkPlayer(stream, detail.url);
     try {
-      await player.initialize().timeout(const Duration(seconds: 12));
+      await player.initialize().timeout(const Duration(seconds: 8));
       _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,

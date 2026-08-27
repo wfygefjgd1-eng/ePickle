@@ -35,8 +35,6 @@ linter:
   rules:
     # Allow print statements in production builds (mobile-aware)
     avoid_print: false
-    # Prefer single quotes for Dart strings (reduces binary size slightly)
-    prefer_single_quotes: true
     # Allow underscores for internal/private fields (mobile code uses them
     # for clarity in stateful widgets)
     no_leading_underscores_for_local_identifiers: false

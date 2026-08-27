@@ -314,7 +314,7 @@ class MainActivity : FlutterActivity() {
                 "statusCode" to 0,
                 "body" to "",
                 "finalUrl" to rawUrl,
-                "cookies" to emptyMap()
+                "cookies" to emptyMap<String, String>()
             )
         } finally {
             activeTasks.remove(id)

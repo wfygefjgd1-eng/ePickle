@@ -22,7 +22,7 @@ void main() {
     expect(headers['Origin'], 'https://fixture.test');
   });
 
-  test('all platforms use three preload decoder slots', () {
-    expect(PlaybackHelpers.preloadSlotCount, 3);
+  test('all platforms use two preload decoder slots', () {
+    expect(PlaybackHelpers.preloadSlotCount, 2);
   });
 }

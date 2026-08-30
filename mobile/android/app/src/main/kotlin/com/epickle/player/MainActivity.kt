@@ -32,7 +32,12 @@ import java.net.URI
 import java.net.URL
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import org.json.JSONArray
 import org.json.JSONTokener
 
@@ -46,11 +51,14 @@ class MainActivity : FlutterActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val activeTasks = ConcurrentHashMap<String, HttpURLConnection>()
     private val activeRenderRequests = mutableMapOf<String, BrowserRenderRequest>()
+
+    /// Get requests still queued on the executor. If the activity dies before
+    /// they start, onDestroy answers them so the Dart side never hangs.
+    private val pendingGetReplies = ConcurrentLinkedQueue<MethodChannel.Result>()
     private var stripchatView: StripchatLiveView? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        AppContextHolder.ctx = this
         val messenger = flutterEngine.dartExecutor.binaryMessenger
 
         // Dio cannot see Android system proxy; WebView can. Expose it to Dart.
@@ -84,13 +92,36 @@ class MainActivity : FlutterActivity() {
             } ?: emptyMap()
             val timeoutMs = (args["timeoutMs"] as? Int) ?: 10000
             when (call.method) {
-                "get" -> executor.execute {
-                    try {
-                        val resp = httpGet(rawUrl, headers, timeoutMs)
-                        mainHandler.post { result.success(resp) }
-                    } catch (e: Exception) {
-                        mainHandler.post {
-                            result.error("http_failed", e.message, null)
+                "get" -> {
+                    val safe = ReplyOnce(result)
+                    pendingGetReplies.add(safe)
+                    executor.execute {
+                        // Running now — no longer "queued"; this task owns the reply.
+                        pendingGetReplies.remove(safe)
+                        try {
+                            val resp = httpGet(rawUrl, headers, timeoutMs)
+                            mainHandler.post { safe.success(resp) }
+                        } catch (e: Exception) {
+                            mainHandler.post {
+                                safe.error("http_failed", e.message, null)
+                            }
+                        }
+                    }
+                }
+                "getBytes" -> {
+                    val safe = ReplyOnce(result)
+                    pendingGetReplies.add(safe)
+                    val aesKey = args?.get("aesKeyHex") as? String
+                    val aesIv = args?.get("aesIvHex") as? String
+                    executor.execute {
+                        pendingGetReplies.remove(safe)
+                        try {
+                            val bytes = httpGetBytes(rawUrl, headers, timeoutMs, aesKey, aesIv)
+                            mainHandler.post { safe.success(bytes) }
+                        } catch (e: Exception) {
+                            mainHandler.post {
+                                safe.error("native_http_failed", e.message, null)
+                            }
                         }
                     }
                 }
@@ -151,8 +182,16 @@ class MainActivity : FlutterActivity() {
         MethodChannel(messenger, channelPrivacy).setMethodCallHandler { call, result ->
             when (call.method) {
                 "nuclearWipe" -> {
-                    wipeEverything()
-                    result.success(null)
+                    // Recursive deletes over app_webview/cache/files plus a
+                    // synchronous prefs commit can take seconds on slow
+                    // storage — never block the platform (main) thread.
+                    val safe = ReplyOnce(result)
+                    executor.execute {
+                        try {
+                            wipeEverything()
+                        } catch (_: Exception) {}
+                        mainHandler.post { safe.success(null) }
+                    }
                 }
                 "exitApp" -> {
                     result.success(null)
@@ -172,13 +211,16 @@ class MainActivity : FlutterActivity() {
                     val url = params?.get("url") as? String ?: "https://stripchat.com/"
                     val muted = params?.get("muted") as? Boolean ?: true
                     val stripchatMode = params?.get("stripchatMode") as? Boolean ?: true
+                    var created: StripchatLiveView? = null
                     val view = StripchatLiveView(context, url, muted, stripchatMode) {
                         // Release the strong Activity-side reference once
                         // Flutter disposes the view; otherwise the destroyed
                         // view (and its WebView) is pinned until the
-                        // activity dies.
-                        stripchatView = null
+                        // activity dies. Identity check: a stale instance
+                        // disposed late must not drop the NEWEST view's ref.
+                        if (stripchatView === created) stripchatView = null
                     }
+                    created = view
                     stripchatView = view
                     return view
                 }
@@ -322,6 +364,74 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // ---------- Binary GET (covers/CDN images; mirrors iOS getBytes) ----------
+
+    /// GET returning raw bytes. When [aesKey] and [aesIv] are 16-byte ASCII
+    /// strings the body is decrypted (AES-128-CBC, no padding) before being
+    /// returned — HuangGuo "images" are ciphertext until decrypted.
+    private fun httpGetBytes(
+        rawUrl: String,
+        headers: Map<String, String>,
+        timeoutMs: Int,
+        aesKey: String?,
+        aesIv: String?,
+    ): ByteArray {
+        val id = UUID.randomUUID().toString()
+        var conn: HttpURLConnection? = null
+        try {
+            val url = URL(rawUrl)
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
+                instanceFollowRedirects = true
+                for ((k, v) in headers) setRequestProperty(k, v)
+                if (headers.keys.none { it.equals("Cookie", ignoreCase = true) }) {
+                    CookieManager.getInstance().getCookie(rawUrl)?.let {
+                        setRequestProperty("Cookie", it)
+                    }
+                }
+            }
+            activeTasks[id] = conn
+            conn.connect()
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                throw IllegalStateException("HTTP $code for $rawUrl")
+            }
+            val body = conn.inputStream.use { it.readBytes() }
+            if (body.isEmpty()) return body
+            val keyBytes = aesKey?.toByteArray(Charsets.UTF_8)
+            val ivBytes = aesIv?.toByteArray(Charsets.UTF_8)
+            if (keyBytes != null && ivBytes != null &&
+                keyBytes.size == 16 && ivBytes.size == 16
+            ) {
+                return aesDecryptCbcNoPadding(body, keyBytes, ivBytes)
+                    ?: throw IllegalStateException(
+                        "AES decrypt failed for $rawUrl"
+                    )
+            }
+            return body
+        } finally {
+            activeTasks.remove(id)
+            conn?.disconnect()
+        }
+    }
+
+    private fun aesDecryptCbcNoPadding(
+        data: ByteArray,
+        key: ByteArray,
+        iv: ByteArray,
+    ): ByteArray? {
+        try {
+            if (data.isEmpty() || data.size % 16 != 0) return null
+            val cipher = Cipher.getInstance("AES/CBC/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
+            return cipher.doFinal(data)
+        } catch (_: Exception) {
+            return null
+        }
+    }
+
     // ---------- Privacy Wipe ----------
 
     private fun wipeEverything() {
@@ -373,9 +483,34 @@ class MainActivity : FlutterActivity() {
         activeRenderRequests.clear()
         activeTasks.values.forEach { try { it.disconnect() } catch (_: Exception) {} }
         activeTasks.clear()
+        // Queued-but-unstarted get/getBytes tasks would never run after
+        // shutdownNow — answer them so the Dart side cannot hang forever.
+        while (true) {
+            val pending = pendingGetReplies.poll() ?: break
+            mainHandler.post {
+                try {
+                    pending.error("http_failed", "Activity destroyed", null)
+                } catch (_: Exception) {}
+            }
+        }
         executor.shutdownNow()
         super.onDestroy()
     }
+}
+
+/// Guarantees the platform-channel reply fires at most once, no matter how
+/// many teardown paths race to answer the same call.
+private class ReplyOnce(private val origin: MethodChannel.Result) : MethodChannel.Result {
+    private val done = AtomicBoolean(false)
+    private fun once(block: () -> Unit) {
+        if (done.compareAndSet(false, true)) block()
+    }
+
+    override fun success(result: Any?) = once { origin.success(result) }
+    override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) =
+        once { origin.error(errorCode, errorMessage, errorDetails) }
+
+    override fun notImplemented() = once { origin.notImplemented() }
 }
 
 private fun parseCookieHeader(header: String?): Map<String, String> {
@@ -572,10 +707,6 @@ private class BrowserRenderRequest(
         }
         webView = null
     }
-}
-
-object AppContextHolder {
-    var ctx: Context? = null
 }
 
 // ---------- Stripchat Live WebView (aligned with iOS loading UX) ----------

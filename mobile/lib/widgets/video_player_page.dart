@@ -107,8 +107,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final deltaX = details.globalPosition.dx - _dragStartX!;
     final screenWidth = MediaQuery.of(context).size.width;
 
-    // 璺濈鏄犲皠锛氭嫋鍔ㄥ睆骞?1/6 瀹藉害 = 60绉?
-    final secondsPerScreenWidth = 360.0; // 鍏ㄥ睆瀹藉害 = 6鍒嗛挓
+    // 拖动映射：拖动 1/6 屏幕宽度 = 60 秒。
+    final secondsPerScreenWidth = 360.0; // 全屏宽度 = 6 分钟
     final deltaSec = (deltaX / screenWidth * secondsPerScreenWidth).round();
 
     final newPos = _dragStartPosition! + Duration(seconds: deltaSec);
@@ -135,9 +135,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     setState(() {
       _dragTargetPosition = clampedPos;
       if (deltaSec > 0) {
-        _seekPreviewText = '+$deltaSec绉?鈫?${formatTime(clampedPos)}';
+        _seekPreviewText = '+$deltaSec秒 → ${formatTime(clampedPos)}';
       } else if (deltaSec < 0) {
-        _seekPreviewText = '$deltaSec绉?鈫?${formatTime(clampedPos)}';
+        _seekPreviewText = '$deltaSec秒 → ${formatTime(clampedPos)}';
       } else {
         _seekPreviewText = formatTime(clampedPos);
       }
@@ -169,6 +169,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         : 0.0;
     // Commit via parent so progress timer / stall arm stay in sync.
     widget.onSeekEnd(ratio);
+  }
+
+  /// Gesture arena lost — the drag never "ends". Clear drag state and let the
+  /// parent release _seeking, or the progress bar freezes until the next drag.
+  void _onHorizontalDragCancel() {
+    if (_dragStartX == null && _dragStartPosition == null) return;
+    setState(() {
+      _dragStartX = null;
+      _dragStartPosition = null;
+      _dragTargetPosition = null;
+      _seekPreviewText = '';
+    });
+    widget.onSeekEnd(widget.sliderValue.value.clamp(0.0, 1.0));
   }
 
   void _togglePlayPause() {
@@ -378,6 +391,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               ? _onHorizontalDragUpdate
               : null,
           onHorizontalDragEnd: widget.immersive ? _onHorizontalDragEnd : null,
+          onHorizontalDragCancel: widget.immersive
+              ? _onHorizontalDragCancel
+              : null,
           child: _buildVideoSurface(),
         ),
         // 横屏手势进度预览
@@ -468,7 +484,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   child: FeedProgressBar(
                     slider: widget.sliderValue,
                     curTime: widget.currentTime,
-                    totalTime: widget.totalTime.value,
+                    totalTime: widget.totalTime,
                     onChanged: widget.onSeekPreview,
                     onChangeStart: (_) => widget.onSeekStart(),
                     onChangeEnd: widget.onSeekEnd,
@@ -549,7 +565,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 child: FeedProgressBar(
                   slider: widget.sliderValue,
                   curTime: widget.currentTime,
-                  totalTime: widget.totalTime.value,
+                  totalTime: widget.totalTime,
                   onChanged: widget.onSeekPreview,
                   onChangeStart: (_) => widget.onSeekStart(),
                   onChangeEnd: widget.onSeekEnd,

@@ -106,7 +106,10 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
 
   void _rememberCache() {
     if (_items.isEmpty) return;
-    _cache[_cacheKey] = _ChannelCache(_items, _page, _hasMore, _scroll.offset);
+    // ScrollController throws when no scroll view is attached (loading /
+    // error body) — treat the offset as 0 there.
+    final offset = _scroll.hasClients ? _scroll.offset : 0.0;
+    _cache[_cacheKey] = _ChannelCache(_items, _page, _hasMore, offset);
   }
 
   void _selectChannel(String id) {
@@ -593,17 +596,21 @@ class _HgCover extends StatefulWidget {
 }
 
 class _HgCoverState extends State<_HgCover> {
+  /// In-memory cover cache: bounded LRU (re-insertion refreshes recency).
   static final _mem = <String, Uint8List>{};
-  static const _memLimit = 600;
+  static const _memLimit = 150;
 
   Uint8List? _bytes;
+  bool _loading = false;
 
   @override
   void initState() {
     super.initState();
     HgCoverLog.retrySignal.addListener(_onRetrySignal);
-    final hit = _mem[widget.url];
+    final hit = _mem.remove(widget.url);
     if (hit != null) {
+      // Re-insert to refresh LRU recency.
+      _mem[widget.url] = hit;
       _bytes = hit;
     } else {
       unawaited(_loadNative());
@@ -617,38 +624,46 @@ class _HgCoverState extends State<_HgCover> {
   }
 
   void _onRetrySignal() {
-    if (!mounted || _bytes != null) return;
+    if (!mounted || _bytes != null || _loading) return;
     unawaited(_loadNative());
     if (mounted) setState(() {});
   }
 
   Future<void> _loadNative() async {
+    if (_loading) return;
+    _loading = true;
     HgCoverLog.add('cover native try: ${widget.url}');
-    final bytes = await NativeBrowserHttp.getBytes(
-      widget.url,
-      headers: AppHttpHeaders.forMediaUrl(widget.url),
-      timeout: const Duration(seconds: 8),
-      aesKeyHex: HuangGuoApi.mediaAesKey,
-      aesIvHex: HuangGuoApi.mediaAesIv,
-    );
-    if (!mounted) return;
-    if (bytes != null && bytes.isNotEmpty) {
-      final magic = bytes.length >= 2
-          ? '${bytes[0].toRadixString(16).padLeft(2, '0')}'
-            '${bytes[1].toRadixString(16).padLeft(2, '0')}'
-          : 'short';
-      final isJpeg = bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8;
-      HgCoverLog.add(
-        'cover native OK ${bytes.length}B magic=$magic ${isJpeg ? 'JPEG' : ''}: '
-        '${widget.url}');
-      _mem[widget.url] = bytes;
-      if (_mem.length > _memLimit) {
-        _mem.remove(_mem.keys.first);
+    try {
+      final bytes = await NativeBrowserHttp.getBytes(
+        widget.url,
+        headers: AppHttpHeaders.forMediaUrl(widget.url),
+        timeout: const Duration(seconds: 8),
+        aesKeyHex: HuangGuoApi.mediaAesKey,
+        aesIvHex: HuangGuoApi.mediaAesIv,
+      );
+      if (!mounted) return;
+      if (bytes != null && bytes.isNotEmpty) {
+        final magic = bytes.length >= 2
+            ? '${bytes[0].toRadixString(16).padLeft(2, '0')}'
+              '${bytes[1].toRadixString(16).padLeft(2, '0')}'
+            : 'short';
+        final isJpeg =
+            bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8;
+        HgCoverLog.add(
+          'cover native OK ${bytes.length}B magic=$magic ${isJpeg ? 'JPEG' : ''}: '
+          '${widget.url}');
+        _mem.remove(widget.url);
+        _mem[widget.url] = bytes;
+        if (_mem.length > _memLimit) {
+          _mem.remove(_mem.keys.first);
+        }
+        setState(() => _bytes = bytes);
+      } else {
+        HgCoverLog.add('cover native FAILED: ${widget.url}');
+        setState(() {});
       }
-      setState(() => _bytes = bytes);
-    } else {
-      HgCoverLog.add('cover native FAILED: ${widget.url}');
-      setState(() {});
+    } finally {
+      _loading = false;
     }
   }
 
@@ -660,6 +675,9 @@ class _HgCoverState extends State<_HgCover> {
         b,
         fit: BoxFit.cover,
         gaplessPlayback: true,
+        // Grid cells are ~100-150px wide; decode at that size to keep the
+        // image cache small instead of pinning full CDN resolution.
+        cacheWidth: 320,
         errorBuilder: (_, __, ___) {
           HgCoverLog.add('cover decode error: ${widget.url}');
           return const ColoredBox(color: Color(0xFF141414));

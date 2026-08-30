@@ -148,11 +148,23 @@ void main() {
     const pageUrl = 'https://fixture.test/embed/32176';
     const mediaUrl =
         'https://fixture.test/get_file/7/abc/32176.mp4/?embed=true';
+    // KVS extraction is dispatched per-site (javmix/javgg family) and only
+    // preferred on the main page when a fresh contentUrl marker exists.
+    const kvsSite = SiteDef(
+      id: 'javmix',
+      name: 'JAVMix fixture',
+      kind: SiteKind.video,
+      tags: [],
+      color: 0,
+      letter: 'J',
+      mirrors: ['https://fixture.test'],
+    );
     final dio = Dio();
     dio.httpClientAdapter = _FixtureAdapter({
       pageUrl: _FixtureResponse(
         _html('''
           <script>
+            const player = {"contentUrl": "https://fixture.test/get_file/marker/32176.mp4/?embed=true"};
             video_alt_url1: 'function/0/https://img.test/32176.mp4.jpg',
             video_url: 'function/0/$mediaUrl'
           </script>
@@ -160,7 +172,10 @@ void main() {
       ),
     });
 
-    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(
+      kvsSite,
+      pageUrl,
+    );
     final urls = detail.streams.map((stream) => stream.url);
 
     expect(urls, contains(mediaUrl));
@@ -252,6 +267,16 @@ void main() {
     const mediaUrl = 'https://cdn2.shayubf.com/20200222/Tlr76hci/index.m3u8';
     const encrypted =
         'xkoiCz64PL0ivzt27wOsj5aJ5r8Xvt9P5cmuIFXPJizNxnJ2pA3oiyZrIiY2yTE5gtx7f539bcJrKNJfiHy2hslOy1hD2E+k';
+    // DES extraction is dispatched per-site (our55/xqq88 family).
+    const desSite = SiteDef(
+      id: 'our55',
+      name: 'Our55 fixture',
+      kind: SiteKind.video,
+      tags: [],
+      color: 0,
+      letter: 'O',
+      mirrors: ['https://fixture.test'],
+    );
     final dio = Dio();
     dio.httpClientAdapter = _FixtureAdapter({
       pageUrl: _FixtureResponse(
@@ -268,7 +293,10 @@ void main() {
       ),
     });
 
-    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(
+      desSite,
+      pageUrl,
+    );
 
     expect(detail.streams.map((stream) => stream.url), contains(mediaUrl));
   });
@@ -278,6 +306,15 @@ void main() {
     const pageUrl = 'https://fixture.test/video/current.html';
     const encrypted =
         r'2JRsK7P1DMg82YkW7R2L3VoMnVluQ\/MlmuoQ9vWrAqaR6WPNHxIA5de9GRjKvoERxZMhZ9hXSW8VOqWtUV\/55qkagjY8Klnt';
+    const desSite = SiteDef(
+      id: 'our55',
+      name: 'Our55 fixture',
+      kind: SiteKind.video,
+      tags: [],
+      color: 0,
+      letter: 'O',
+      mirrors: ['https://fixture.test'],
+    );
     final dio = Dio();
     dio.httpClientAdapter = _FixtureAdapter({
       pageUrl: _FixtureResponse(
@@ -294,7 +331,10 @@ void main() {
       ),
     });
 
-    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(
+      desSite,
+      pageUrl,
+    );
 
     expect(detail.streams, isNotEmpty);
     expect(detail.streams.first.url, contains('.m3u8'));

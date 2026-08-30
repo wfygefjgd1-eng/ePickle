@@ -60,10 +60,14 @@ class PhubApi {
   String get _base =>
       MirrorRanker.instance.preferredBase(SourceCatalog.pornhub);
 
+  /// Swap in a fresh cancel token, then cancel the old one. New requests
+  /// read [_cancelToken] after the swap (so they are never cancelled by this
+  /// call) while in-flight ones hold the old token and abort.
   void cancelRequests([String reason = 'cancelled']) {
-    final token = _cancelToken;
-    _cancelToken = CancelToken();
-    if (!token.isCancelled) token.cancel(reason);
+    final old = _cancelToken;
+    final next = CancelToken();
+    _cancelToken = next;
+    if (!old.isCancelled) old.cancel(reason);
   }
 
   final Dio _dio;

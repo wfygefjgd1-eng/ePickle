@@ -75,21 +75,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _currentIndex = 0;
   int _loadSeq = 0;
 
-  /// Pre-buffered next video controller (paused, muted) for instant swipe.
-  VideoPlayerController? _preloadController;
-  int? _preloadIndex;
-  StreamQuality? _preloadStream;
-  int _preloadRetries = 0;
-
-  VideoPlayerController? _preloadController2;
-  int? _preloadIndex2;
-  StreamQuality? _preloadStream2;
-  int _preloadRetries2 = 0;
-
-  VideoPlayerController? _preloadController3;
-  int? _preloadIndex3;
-  StreamQuality? _preloadStream3;
-  int _preloadRetries3 = 0;
+  /// Pre-buffered next video controllers (paused, muted) for instant swipe.
+  final List<PreloadSlot> _preloadSlots = [];
 
   /// Consecutive failed plays (no signal / blocked / unavailable) before
   /// auto-skip gives up — prevents an infinite skip loop on a dead feed.
@@ -172,6 +159,59 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   /// Live list hard cap (window around current index).
   static const _maxLiveItems = 150;
+
+  /// Initialize or resize preload slots list to match current slot count.
+  void _ensurePreloadSlots() {
+    final count = _preloadSlotCount;
+    if (_preloadSlots.length < count) {
+      _preloadSlots.addAll(
+        List.generate(count - _preloadSlots.length, (_) => PreloadSlot()),
+      );
+    } else if (_preloadSlots.length > count) {
+      // Dispose excess slots
+      for (var i = count; i < _preloadSlots.length; i++) {
+        _disposePreloadSlot(_preloadSlots[i]);
+      }
+      _preloadSlots.removeRange(count, _preloadSlots.length);
+    }
+  }
+
+  /// Dispose a single preload slot.
+  void _disposePreloadSlot(PreloadSlot slot) {
+    final p = slot.controller;
+    slot.controller = null;
+    slot.index = null;
+    slot.stream = null;
+    slot.retries = 0;
+    if (p != null) {
+      // ignore: unawaited_futures
+      p.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p.dispose();
+        } catch (_) {}
+      });
+    }
+  }
+
+  /// Swap the buffered content of [src] into slot 0 so an already-buffered
+  /// next video survives the slot reshuffle without re-initializing.
+  void _promoteSlot(PreloadSlot src) {
+    if (src.index == null || src.controller == null) return;
+    if (identical(src, _preloadSlots.first)) return;
+    final dst = _preloadSlots.first;
+    final c = dst.controller;
+    final i = dst.index;
+    final s = dst.stream;
+    final r = dst.retries;
+    dst.controller = src.controller;
+    dst.index = src.index;
+    dst.stream = src.stream;
+    dst.retries = src.retries;
+    src.controller = c;
+    src.index = i;
+    src.stream = s;
+    src.retries = r;
+  }
 
   /// Get current video URL for sharing
   String? getCurrentVideoUrl() {
@@ -441,26 +481,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final players = <VideoPlayerController>[
       if (_controller != null) _controller!,
       if (_frozenController != null) _frozenController!,
-      if (_preloadController != null) _preloadController!,
-      if (_preloadController2 != null) _preloadController2!,
-      if (_preloadController3 != null) _preloadController3!,
       ..._initializingControllers,
     ];
     _controller = null;
     _frozenController = null;
     _frozenIndex = null;
-    _preloadController = null;
-    _preloadIndex = null;
-    _preloadStream = null;
-    _preloadRetries = 0;
-    _preloadController2 = null;
-    _preloadIndex2 = null;
-    _preloadStream2 = null;
-    _preloadRetries2 = 0;
-    _preloadController3 = null;
-    _preloadIndex3 = null;
-    _preloadStream3 = null;
-    _preloadRetries3 = 0;
+    for (final slot in _preloadSlots) {
+      _disposePreloadSlot(slot);
+    }
     _initializingControllers.clear();
     for (final player in players.toSet()) {
       unawaited(_mutePauseDispose(player));
@@ -481,46 +509,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   void _disposePreloadSync() {
-    final p = _preloadController;
-    _preloadController = null;
-    _preloadIndex = null;
-    _preloadStream = null;
-    _preloadRetries = 0;
-    if (p != null) {
-      // ignore: unawaited_futures
-      p.pause().catchError((_) {}).whenComplete(() {
-        try {
-          p.dispose();
-        } catch (_) {}
-      });
-    }
-
-    final p2 = _preloadController2;
-    _preloadController2 = null;
-    _preloadIndex2 = null;
-    _preloadStream2 = null;
-    _preloadRetries2 = 0;
-    if (p2 != null) {
-      // ignore: unawaited_futures
-      p2.pause().catchError((_) {}).whenComplete(() {
-        try {
-          p2.dispose();
-        } catch (_) {}
-      });
-    }
-
-    final p3 = _preloadController3;
-    _preloadController3 = null;
-    _preloadIndex3 = null;
-    _preloadStream3 = null;
-    _preloadRetries3 = 0;
-    if (p3 != null) {
-      // ignore: unawaited_futures
-      p3.pause().catchError((_) {}).whenComplete(() {
-        try {
-          p3.dispose();
-        } catch (_) {}
-      });
+    for (final slot in _preloadSlots) {
+      _disposePreloadSlot(slot);
     }
   }
 
@@ -696,15 +686,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (seq != _loadSeq || !_canRun || index >= _items.length) return;
       await _prefetchDetail(index);
       if (seq != _loadSeq || !_canRun) return;
-      if (slot == 0) {
-        await _preloadNext(index);
-      } else if (slot == 1) {
-        await _preloadNext2(index);
-      } else {
-        await _preloadNext3(index);
-      }
-    } catch (_) {
-    }
+      await _fillPreloadSlot(slot, index);
+    } catch (_) {}
   }
 
   void startPlaying() {
@@ -735,6 +718,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       return;
     }
     if (_controller != null && _controller!.value.isInitialized) {
+      // pausePlayback() muted the controller before pausing; re-apply the
+      // user's mute preference or a route-return resumes silently forever.
+      _controller!.setVolume(_muted ? 0 : 1);
       _controller!.play();
       _startProgressTimer();
       _restartPreloading();
@@ -987,18 +973,21 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _discardStaleLoad();
         return;
       }
+      final showListError = _items.isEmpty;
       setState(() {
         _loading = false;
         _loadingMore = false;
-        if (_items.isEmpty) {
+        if (showListError) {
           _error = PlaybackHelpers.friendlyError(e);
-        } else if (mounted) {
-          PlaybackHelpers.toast(
-            context,
-            '加载更多失败：${PlaybackHelpers.friendlyError(e)}',
-          );
         }
       });
+      // Side effects (toast) must stay outside the setState closure.
+      if (!showListError) {
+        PlaybackHelpers.toast(
+          context,
+          '加载更多失败：${PlaybackHelpers.friendlyError(e)}',
+        );
+      }
     }
   }
 
@@ -1055,7 +1044,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   /// Prefetch entry that also works before _active is set (e.g. from initState).
   /// Subsequent callers still guard with !_canRun once they touch controllers.
   Future<void> _prefetchDetail(int index) async {
-    if (!_canRun || index < 0 || index >= _items.length) return;
+    // Allow prefetch before startPlaying() flips _active: the whole point is
+    // warming the detail cache while the first frame is still building. Only
+    // a detached widget or a backgrounded app cancels it.
+    if (!mounted || !_appInForeground) return;
+    if (index < 0 || index >= _items.length) return;
     if (_detailCache.containsKey(index)) return;
     if (_prefetchingIndex == index) return;
     // Prefetch is fire-and-forget from initState; allow it even when
@@ -1065,8 +1058,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final url = _items[index].url;
     try {
       final d = await _fetchDetail(url);
-      // Re-check _canRun before touching controllers / state.
-      if (!_canRun) return;
+      // Only caches are touched here — safe before _active. Still bail out
+      // when the widget detached or the app went to background mid-fetch.
+      if (!mounted || !_appInForeground) return;
       _detailCache[index] = d;
       _prunePageState(_currentIndex);
     } catch (_) {
@@ -1077,344 +1071,124 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   void _trimPreloadState(int currentIndex) {
+    _ensurePreloadSlots();
     final minKeep = currentIndex + 1;
     final maxKeep = currentIndex + _preloadSlotCount;
-
-    bool keep(int? index) =>
-        index != null && index >= minKeep && index <= maxKeep;
-
-    void drop(VideoPlayerController? controller) {
-      if (controller == null) return;
-      unawaited(controller.pause().catchError((_) {}).whenComplete(() {
-        try {
-          controller.dispose();
-        } catch (_) {}
-      }));
-    }
-
-    if (!keep(_preloadIndex)) {
-      drop(_preloadController);
-      _preloadController = null;
-      _preloadIndex = null;
-      _preloadStream = null;
-      _preloadRetries = 0;
-    }
-    if (_preloadSlotCount >= 2 && !keep(_preloadIndex2)) {
-      drop(_preloadController2);
-      _preloadController2 = null;
-      _preloadIndex2 = null;
-      _preloadStream2 = null;
-      _preloadRetries2 = 0;
-    }
-    if (_preloadSlotCount >= 3 && !keep(_preloadIndex3)) {
-      drop(_preloadController3);
-      _preloadController3 = null;
-      _preloadIndex3 = null;
-      _preloadStream3 = null;
-      _preloadRetries3 = 0;
+    for (final slot in _preloadSlots) {
+      final idx = slot.index;
+      final keep = idx != null && idx >= minKeep && idx <= maxKeep;
+      if (!keep) _disposePreloadSlot(slot);
     }
   }
 
   void _disposePreload() {
-    final p = _preloadController;
-    _preloadController = null;
-    _preloadIndex = null;
-    _preloadStream = null;
-    _preloadRetries = 0;
-    if (p != null) {
-      // ignore: unawaited_futures
-      p.pause().catchError((_) {}).whenComplete(() {
-        try {
-          p.dispose();
-        } catch (_) {}
-      });
-    }
-
-    final p2 = _preloadController2;
-    _preloadController2 = null;
-    _preloadIndex2 = null;
-    _preloadStream2 = null;
-    _preloadRetries2 = 0;
-    if (p2 != null) {
-      // ignore: unawaited_futures
-      p2.pause().catchError((_) {}).whenComplete(() {
-        try {
-          p2.dispose();
-        } catch (_) {}
-      });
-    }
-
-    final p3 = _preloadController3;
-    _preloadController3 = null;
-    _preloadIndex3 = null;
-    _preloadStream3 = null;
-    _preloadRetries3 = 0;
-    if (p3 != null) {
-      // ignore: unawaited_futures
-      p3.pause().catchError((_) {}).whenComplete(() {
-        try {
-          p3.dispose();
-        } catch (_) {}
-      });
+    for (final slot in _preloadSlots) {
+      _disposePreloadSlot(slot);
     }
   }
 
-  Future<void> _preloadNext(int index) async {
-    if (!_canRun ||
-        index < 0 ||
-        index >= _items.length ||
-        index == _currentIndex) {
-      return;
-    }
-    if (_preloadIndex == index && _preloadController != null) return;
-    final seq = _loadSeq;
-    final detail = _detailCache[index];
-    if (detail == null) return;
-    if (detail.countryBlocked || detail.unavailable) return;
-    final cap = _effectiveQualityCap;
-    final stream = PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
-    if (stream == null) return;
-    if (_preloadIndex == index &&
-        _preloadController != null &&
-        _preloadStream?.url == stream.url) {
-      return;
-    }
-    final existing = _preloadController;
-    final existingIndex = _preloadIndex;
-    _preloadController = null;
-    _preloadIndex = null;
-    _preloadStream = null;
-    _preloadRetries = 0;
-    if (existing != null && existingIndex != index) {
-      // ignore: unawaited_futures
-      existing.pause().catchError((_) {}).whenComplete(() {
-        try {
-          existing.dispose();
-        } catch (_) {}
-      });
-    }
-    if (seq != _loadSeq || !_canRun) return;
-    final player = _createNetworkPlayer(stream, detail.url);
+  /// Fill [slotIdx] with a prepared controller for [index]. Guarded by
+  /// slot.inFlight so a late retry/wave can never double-start a fill and
+  /// leak the first initialized decoder.
+  Future<void> _fillPreloadSlot(int slotIdx, int index) async {
+    _ensurePreloadSlots();
+    if (slotIdx < 0 || slotIdx >= _preloadSlots.length) return;
+    final slot = _preloadSlots[slotIdx];
+    if (slot.inFlight) return;
+    slot.inFlight = true;
     try {
-      await player.initialize().timeout(const Duration(seconds: 8));
-      _initializingControllers.remove(player);
-      if (PlaybackHelpers.isLikelyPreview(
-        player,
-        detail,
-        siteId: widget.site?.id,
-        isLive: widget.site?.kind == SiteKind.live,
-      )) {
-        await player.dispose();
+      while (true) {
+        if (!_canRun ||
+            index < 0 ||
+            index >= _items.length ||
+            index == _currentIndex) {
+          return;
+        }
+        if (slot.index == index && slot.controller != null) return;
+        final seq = _loadSeq;
+        final detail = _detailCache[index];
+        if (detail == null) return;
+        if (detail.countryBlocked || detail.unavailable) return;
+        final cap = _effectiveQualityCap;
+        final stream = PlaybackHelpers.pickStream(detail, cap) ??
+            detail.bestStream;
+        if (stream == null) return;
+        if (slot.index == index &&
+            slot.controller != null &&
+            slot.stream?.url == stream.url) {
+          return;
+        }
+        final existing = slot.controller;
+        final existingIndex = slot.index;
+        slot.controller = null;
+        slot.index = null;
+        slot.stream = null;
+        slot.retries = 0;
+        if (existing != null && existingIndex != index) {
+          // ignore: unawaited_futures
+          existing.pause().catchError((_) {}).whenComplete(() {
+            try {
+              existing.dispose();
+            } catch (_) {}
+          });
+        }
+        if (seq != _loadSeq || !_canRun) return;
+        final player = _createNetworkPlayer(stream, detail.url);
+        try {
+          await player.initialize().timeout(const Duration(seconds: 8));
+          _initializingControllers.remove(player);
+          if (PlaybackHelpers.isLikelyPreview(
+            player,
+            detail,
+            siteId: widget.site?.id,
+            isLive: widget.site?.kind == SiteKind.live,
+          )) {
+            await player.dispose();
+            return;
+          }
+          slot.retries = 0;
+        } catch (e) {
+          _initializingControllers.remove(player);
+          // Retry up to 2 times for transient failures
+          if (slot.retries < 2 && seq == _loadSeq && _canRun) {
+            slot.retries++;
+            try {
+              await player.dispose();
+            } catch (_) {}
+            await Future.delayed(Duration(milliseconds: 300 * slot.retries));
+            continue;
+          }
+          try {
+            await player.dispose();
+          } catch (_) {}
+          return;
+        }
+        if (seq != _loadSeq || !_canRun) {
+          try {
+            await player.dispose();
+          } catch (_) {}
+          return;
+        }
+        slot.controller = player;
+        slot.index = index;
+        slot.stream = stream;
+        try {
+          await player.pause();
+          player.setVolume(0);
+        } catch (_) {}
         return;
       }
-      _preloadRetries = 0;
-    } catch (e) {
-      _initializingControllers.remove(player);
-      // Retry up to 2 times for transient failures
-      if (_preloadRetries < 2 && seq == _loadSeq && _canRun) {
-        _preloadRetries++;
-        try {
-          await player.dispose();
-        } catch (_) {}
-        await Future.delayed(Duration(milliseconds: 300 * _preloadRetries));
-        if (seq == _loadSeq && _canRun) {
-          return _preloadNext(index);
-        }
-      }
-      try {
-        await player.dispose();
-      } catch (_) {}
-      return;
+    } finally {
+      slot.inFlight = false;
     }
-    if (seq != _loadSeq || !_canRun) {
-      try {
-        await player.dispose();
-      } catch (_) {}
-      return;
-    }
-    _preloadController = player;
-    _preloadIndex = index;
-    _preloadStream = stream;
-    _preloadRetries = 0;
-    try {
-      await player.pause();
-      player.setVolume(0);
-    } catch (_) {}
-  }
-
-  Future<void> _preloadNext2(int index) async {
-    if (!_canRun ||
-        index < 0 ||
-        index >= _items.length ||
-        index == _currentIndex) {
-      return;
-    }
-    if (_preloadIndex2 == index && _preloadController2 != null) return;
-    final seq = _loadSeq;
-    final detail = _detailCache[index];
-    if (detail == null) return;
-    if (detail.countryBlocked || detail.unavailable) return;
-    final cap = _effectiveQualityCap;
-    final stream = PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
-    if (stream == null) return;
-    if (_preloadIndex2 == index &&
-        _preloadController2 != null &&
-        _preloadStream2?.url == stream.url) {
-      return;
-    }
-    final existing = _preloadController2;
-    final existingIndex = _preloadIndex2;
-    _preloadController2 = null;
-    _preloadIndex2 = null;
-    _preloadStream2 = null;
-    _preloadRetries2 = 0;
-    if (existing != null && existingIndex != index) {
-      // ignore: unawaited_futures
-      existing.pause().catchError((_) {}).whenComplete(() {
-        try {
-          existing.dispose();
-        } catch (_) {}
-      });
-    }
-    if (seq != _loadSeq || !_canRun) return;
-    final player = _createNetworkPlayer(stream, detail.url);
-    try {
-      await player.initialize().timeout(const Duration(seconds: 8));
-      _initializingControllers.remove(player);
-      if (PlaybackHelpers.isLikelyPreview(
-        player,
-        detail,
-        siteId: widget.site?.id,
-        isLive: widget.site?.kind == SiteKind.live,
-      )) {
-        await player.dispose();
-        return;
-      }
-      _preloadRetries2 = 0;
-    } catch (e) {
-      _initializingControllers.remove(player);
-      // Retry up to 2 times for transient failures
-      if (_preloadRetries2 < 2 && seq == _loadSeq && _canRun) {
-        _preloadRetries2++;
-        try {
-          await player.dispose();
-        } catch (_) {}
-        await Future.delayed(Duration(milliseconds: 300 * _preloadRetries2));
-        if (seq == _loadSeq && _canRun) {
-          return _preloadNext2(index);
-        }
-      }
-      try {
-        await player.dispose();
-      } catch (_) {}
-      return;
-    }
-    if (seq != _loadSeq || !_canRun) {
-      try {
-        await player.dispose();
-      } catch (_) {}
-      return;
-    }
-    _preloadController2 = player;
-    _preloadIndex2 = index;
-    _preloadStream2 = stream;
-    _preloadRetries2 = 0;
-    try {
-      await player.pause();
-      player.setVolume(0);
-    } catch (_) {}
-  }
-
-  // ignore: unused_element
-  Future<void> _preloadNext3(int index) async {
-    if (!_canRun ||
-        index < 0 ||
-        index >= _items.length ||
-        index == _currentIndex) {
-      return;
-    }
-    if (_preloadIndex3 == index && _preloadController3 != null) return;
-    final seq = _loadSeq;
-    final detail = _detailCache[index];
-    if (detail == null) return;
-    if (detail.countryBlocked || detail.unavailable) return;
-    final cap = _effectiveQualityCap;
-    final stream = PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
-    if (stream == null) return;
-    if (_preloadIndex3 == index &&
-        _preloadController3 != null &&
-        _preloadStream3?.url == stream.url) {
-      return;
-    }
-    final existing = _preloadController3;
-    final existingIndex = _preloadIndex3;
-    _preloadController3 = null;
-    _preloadIndex3 = null;
-    _preloadStream3 = null;
-    _preloadRetries3 = 0;
-    if (existing != null && existingIndex != index) {
-      // ignore: unawaited_futures
-      existing.pause().catchError((_) {}).whenComplete(() {
-        try {
-          existing.dispose();
-        } catch (_) {}
-      });
-    }
-    if (seq != _loadSeq || !_canRun) return;
-    final player = _createNetworkPlayer(stream, detail.url);
-    try {
-      await player.initialize().timeout(const Duration(seconds: 8));
-      _initializingControllers.remove(player);
-      if (PlaybackHelpers.isLikelyPreview(
-        player,
-        detail,
-        siteId: widget.site?.id,
-        isLive: widget.site?.kind == SiteKind.live,
-      )) {
-        await player.dispose();
-        return;
-      }
-      _preloadRetries3 = 0;
-    } catch (e) {
-      _initializingControllers.remove(player);
-      // Retry up to 2 times for transient failures
-      if (_preloadRetries3 < 2 && seq == _loadSeq && _canRun) {
-        _preloadRetries3++;
-        try {
-          await player.dispose();
-        } catch (_) {}
-        await Future.delayed(Duration(milliseconds: 300 * _preloadRetries3));
-        if (seq == _loadSeq && _canRun) {
-          return _preloadNext3(index);
-        }
-      }
-      try {
-        await player.dispose();
-      } catch (_) {}
-      return;
-    }
-    if (seq != _loadSeq || !_canRun) {
-      try {
-        await player.dispose();
-      } catch (_) {}
-      return;
-    }
-    _preloadController3 = player;
-    _preloadIndex3 = index;
-    _preloadStream3 = stream;
-    _preloadRetries3 = 0;
-    try {
-      await player.pause();
-      player.setVolume(0);
-    } catch (_) {}
   }
 
   /// Failure-safe play: any error escaping the play path (e.g. a stale
   /// controller state on a rapid swipe) must never surface as an unhandled
   /// async error from a Timer/PageView callback — that kills the whole feed.
-  Future<void> _playIndex(int index) async {
+  Future<void> _playIndex(int index, {Duration? resumeFrom}) async {
     try {
-      await _playIndexInner(index);
+      await _playIndexInner(index, resumeFrom: resumeFrom);
     } catch (e) {
       debugPrint('ePickle _playIndex error: $e');
       if (mounted) {
@@ -1425,7 +1199,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
   }
 
-  Future<void> _playIndexInner(int index) async {
+  Future<void> _playIndexInner(int index, {Duration? resumeFrom}) async {
     if (!_canRun || index < 0 || index >= _items.length) return;
     final seq = ++_loadSeq;
     final item = _items[index];
@@ -1459,7 +1233,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
             '${MirrorRanker.instance.preferredBase(widget.site!)}/$room',
         title: item.title,
         live: true,
-        seq: seq,
         stripchat: true,
       );
       return;
@@ -1474,7 +1247,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     VideoDetail? preloadDetail;
     StreamQuality? preloadStream;
     int? frozenTargetHeight;
-    int preloadSlot = 0; // 1, 2, or 3
+    int preloadSlot = -2; // -1 frozen, >=0 preload slot index
+    _ensurePreloadSlots();
 
     if (_frozenIndex == index &&
         _frozenController != null &&
@@ -1483,29 +1257,20 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       preloadDetail = _detailCache[index];
       frozenTargetHeight = _frozenStreamHeight;
       preloadSlot = -1;
-    } else if (_preloadIndex == index &&
-        _preloadController != null &&
-        _preloadController!.value.isInitialized) {
-      preloaded = _preloadController!;
-      preloadDetail = _detailCache[index];
-      preloadStream = _preloadStream;
-      preloadSlot = 1;
-    } else if (_preloadSlotCount >= 2 &&
-        _preloadIndex2 == index &&
-        _preloadController2 != null &&
-        _preloadController2!.value.isInitialized) {
-      preloaded = _preloadController2!;
-      preloadDetail = _detailCache[index];
-      preloadStream = _preloadStream2;
-      preloadSlot = 2;
-    } else if (_preloadSlotCount >= 3 &&
-        _preloadIndex3 == index &&
-        _preloadController3 != null &&
-        _preloadController3!.value.isInitialized) {
-      preloaded = _preloadController3!;
-      preloadDetail = _detailCache[index];
-      preloadStream = _preloadStream3;
-      preloadSlot = 3;
+    } else {
+      for (var i = 0; i < _preloadSlots.length; i++) {
+        final s = _preloadSlots[i];
+        final c = s.controller;
+        if (s.index == index &&
+            c != null &&
+            c.value.isInitialized) {
+          preloaded = c;
+          preloadDetail = _detailCache[index];
+          preloadStream = s.stream;
+          preloadSlot = i;
+          break;
+        }
+      }
     }
 
     if (preloaded != null) {
@@ -1519,18 +1284,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _frozenController = null;
         _frozenIndex = null;
         preloadStream = null;
-      } else if (preloadSlot == 1) {
-        _preloadController = null;
-        _preloadIndex = null;
-        _preloadStream = null;
-      } else if (preloadSlot == 2) {
-        _preloadController2 = null;
-        _preloadIndex2 = null;
-        _preloadStream2 = null;
-      } else if (preloadSlot == 3) {
-        _preloadController3 = null;
-        _preloadIndex3 = null;
-        _preloadStream3 = null;
+      } else if (preloadSlot >= 0) {
+        final s = _preloadSlots[preloadSlot];
+        s.controller = null;
+        s.index = null;
+        s.stream = null;
       }
 
       if (previous != null && !identical(previous, preloaded)) {
@@ -1579,6 +1337,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _totalTime.value = PlaybackHelpers.fmtDuration(dur);
       _sliderValue.value = 0;
       _currentTime.value = '0:00';
+      // Don't carry the previous video's speed label into this one.
+      _speedLabel.value = '';
+      _lastSpeedLabel = '';
       if (preloadDetail != null) {
         unawaited(
           PlaybackHelpers.skipIntroFromSettings(
@@ -1611,26 +1372,21 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       }
       if (mounted) setState(() {});
 
-      if (_preloadController2 != null && _preloadIndex2 == index + 1) {
-        _preloadController = _preloadController2;
-        _preloadIndex = _preloadIndex2;
-        _preloadStream = _preloadStream2;
-        _preloadRetries = _preloadRetries2;
-        _preloadController2 = _preloadController3;
-        _preloadIndex2 = _preloadIndex3;
-        _preloadStream2 = _preloadStream3;
-        _preloadRetries2 = _preloadRetries3;
-        _preloadController3 = null;
-        _preloadIndex3 = null;
-        _preloadStream3 = null;
-        _preloadRetries3 = 0;
-      } else {
-        // ignore: unawaited_futures
-        _preloadNext(index + 1);
+      // If slot 0 was consumed, shift any slot already holding index+1 into
+      // slot 0 so the buffered controller survives the reshuffle; then fill
+      // every slot uniformly.
+      if (_preloadSlots.isNotEmpty &&
+          _preloadSlots.first.index != index + 1) {
+        for (var i = 1; i < _preloadSlots.length; i++) {
+          if (_preloadSlots[i].index == index + 1) {
+            _promoteSlot(_preloadSlots[i]);
+            break;
+          }
+        }
       }
-      final n = _preloadSlotCount;
-      if (n >= 2) unawaited(_preloadNext2(index + 2));
-      if (n >= 3) unawaited(_preloadNext3(index + 3));
+      for (var i = 0; i < _preloadSlots.length; i++) {
+        unawaited(_fillPreloadSlot(i, index + i + 1));
+      }
 
       _trimPreloadState(index);
 
@@ -1657,6 +1413,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     });
     _totalTime.value = '0:00';
     _speedLabel.value = '';
+    _lastSpeedLabel = '';
     _sliderValue.value = 0;
     _currentTime.value = '0:00';
 
@@ -1707,7 +1464,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         pageUrl: page,
         title: detail.title.isNotEmpty ? detail.title : item.title,
         live: false,
-        seq: seq,
         detail: detail,
       );
       return;
@@ -1725,7 +1481,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         pageUrl: page,
         title: detail.title.isNotEmpty ? detail.title : item.title,
         live: false,
-        seq: seq,
         detail: detail,
       );
       return;
@@ -1790,7 +1545,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           pageUrl: page,
           title: detail.title.isNotEmpty ? detail.title : item.title,
           live: false,
-          seq: seq,
           detail: detail,
         );
         return;
@@ -1832,13 +1586,28 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _titleText = detail.title;
       _totalTime.value = PlaybackHelpers.fmtDuration(effDur);
     });
-    unawaited(
-      PlaybackHelpers.skipIntroFromSettings(
-        player,
-        settings,
-        fallbackDurationSec: detail.durationSec,
-      ),
-    );
+    if (resumeFrom != null && resumeFrom > Duration.zero) {
+      // Quality switch mid-video: restore the old position. skip-intro must
+      // not fire — it would yank a mid-scene viewer back to the intro end.
+      try {
+        await ready.seekTo(resumeFrom).timeout(const Duration(seconds: 4));
+        if (!mounted || !identical(ready, _controller)) return;
+        final d = ready.value.duration;
+        if (d.inMilliseconds > 0) {
+          _sliderValue.value =
+              (resumeFrom.inMilliseconds / d.inMilliseconds).clamp(0.0, 1.0);
+          _currentTime.value = PlaybackHelpers.fmtDuration(resumeFrom);
+        }
+      } catch (_) {}
+    } else {
+      unawaited(
+        PlaybackHelpers.skipIntroFromSettings(
+          player,
+          settings,
+          fallbackDurationSec: detail.durationSec,
+        ),
+      );
+    }
     await ready.play();
     if (seq != _loadSeq || !_canRun) {
       if (identical(_controller, ready)) _controller = null;
@@ -1860,22 +1629,25 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   /// Play a site page inside App WKWebView (Stripchat-style), not system Safari.
+  ///
+  /// Takes its own new seq: bumping [_loadSeq] here aborts any in-flight
+  /// preload/play task, so a seq captured by the caller is already stale by
+  /// the time we run — comparing against it would abort this method itself
+  /// (the bug that made WebView playback dead).
   Future<void> _playInAppBrowser({
     required int index,
     required VideoItem item,
     required String pageUrl,
     required String title,
     required bool live,
-    required int seq,
     VideoDetail? detail,
     bool stripchat = false,
   }) async {
-    // Bump _loadSeq so any in-flight preload task aborts at its
-    // `seq != _loadSeq` guard instead of finishing a decoder we won't use.
     _loadSeq++;
+    final mySeq = _loadSeq;
     _disposePreload();
     await _disposeController();
-    if (seq != _loadSeq || !_canRun || !mounted) return;
+    if (mySeq != _loadSeq || !_canRun || !mounted) return;
     final url = pageUrl.trim();
     if (!url.startsWith('http')) {
       setState(() {
@@ -1972,25 +1744,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     // item's title. Drop all slots; they re-arm on the next play/preload wave.
     final stalePlayers = <VideoPlayerController>[
       if (_frozenController != null) _frozenController!,
-      if (_preloadController != null) _preloadController!,
-      if (_preloadController2 != null) _preloadController2!,
-      if (_preloadController3 != null) _preloadController3!,
     ];
     _frozenController = null;
     _frozenIndex = null;
     _frozenStreamHeight = 0;
-    _preloadController = null;
-    _preloadIndex = null;
-    _preloadStream = null;
-    _preloadRetries = 0;
-    _preloadController2 = null;
-    _preloadIndex2 = null;
-    _preloadStream2 = null;
-    _preloadRetries2 = 0;
-    _preloadController3 = null;
-    _preloadIndex3 = null;
-    _preloadStream3 = null;
-    _preloadRetries3 = 0;
+    for (final slot in _preloadSlots) {
+      _disposePreloadSlot(slot);
+    }
     for (final p in stalePlayers) {
       unawaited(_mutePauseDispose(p));
     }
@@ -2331,6 +2091,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _stallLowering = true;
     _stallLoweredForItem = true;
     _sessionQualityCap = target.height;
+    // Resume from the current position — a mid-scene auto quality drop must
+    // not restart the video from 0:00.
+    final resume = _controller?.value.position;
     try {
       if (mounted) {
         PlaybackHelpers.toast(
@@ -2339,7 +2102,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           duration: const Duration(seconds: 2),
         );
       }
-      if (mounted) await _playIndex(_currentIndex);
+      if (mounted) await _playIndex(_currentIndex, resumeFrom: resume);
     } finally {
       _stallLowering = false;
     }
@@ -2359,7 +2122,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       onFastForward: _fastForward,
       onQualityChanged: () {
         _sessionQualityCap = null;
-        if (mounted) _playIndex(_currentIndex);
+        // Keep the playhead: a manual quality switch restarts from 0:00
+        // otherwise.
+        final resume = _controller?.value.position;
+        if (mounted) _playIndex(_currentIndex, resumeFrom: resume);
       },
     );
   }

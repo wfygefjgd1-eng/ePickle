@@ -263,7 +263,10 @@ import WebKit
           ))
           return
         }
-        let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        // Lossy decode (mirrors Android readText): a strict UTF-8 decode of a
+        // GBK page used to yield "" — parsed fine on Android, zero streams
+        // on iOS for the same URL.
+        let body = data.map { String(decoding: $0, as: UTF8.self) } ?? ""
         var cookies: [String: String] = [:]
         let finalUrl = http.url ?? url
         HTTPCookieStorage.shared.cookies(for: finalUrl)?.forEach {
@@ -560,16 +563,8 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   deinit {
-    // dispose() normally runs first (engine tears the platform view down);
-    // deinit is the last line of defence if it was skipped somehow.
-    teardown()
-  }
-
-  /// Engine teardown hook (FlutterPlatformView.dispose). The gesture
-  /// recognizer and the retry button both retain `self` strongly; without
-  /// breaking those links the view controller lives forever and every open
-  /// leaks a WKWebView (plus its timers and observers).
-  func dispose() {
+    // The engine releases the platform view after removal; deinit is the
+    // teardown path (FlutterPlatformView has no dispose() hook).
     teardown()
   }
 

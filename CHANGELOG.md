@@ -5,6 +5,38 @@
 
 ---
 
+---
+
+## [2.8.22] - 代码审查修复：WebView 播放复活 + 播放器稳定化（iOS + Android）
+
+### 🐛 严重 Bug 修复
+- **修复 WebView/直播播放完全失效（v2.8.21 引入）**：`_playInAppBrowser` 先 `_loadSeq++` 再拿调用方旧 seq 做守卫，`seq != _loadSeq` 恒真导致该方法总是提前返回——Stripchat/直播与所有"无流走网页播放"的视频都卡在黑屏/无限转圈。现在方法内部自取新 seq
+- **修复未提交的半成品重构导致无法编译**：preload 三槽字段被删但 70+ 处引用未迁移；现以统一的 `PreloadSlot` 槽位列表完成重构（两个播放器共用，删除约 450 行重复代码）
+- **修复质量切换/自动降档从 0:00 重播**：切清晰度与卡顿自动降档现在会记住原播放位置并 seek 回去（手动切换与自动降档均生效）
+- **修复进度条拖动被系统手势打断后永久冻结**：补 `onHorizontalDragCancel`，`_seeking` 不再卡死
+- **修复滑动进度提示乱码**：`+5绉?鈫?0:05` → `+5秒 → 0:05`（GBK 双重损坏的字节）
+- **修复黄果频道页切换频道时偶发崩溃**：`ScrollController.offset` 在无滚动视图挂载时抛 StateError，改为 hasClients 守卫
+
+### 🎬 播放器稳定化
+- **预载双启动泄漏修复**：同一槽位并发填充会泄漏一个已初始化解码器；槽位现在带 inFlight 锁
+- **冷启动详情预取真正生效**：`_prefetchDetail` 的 `_canRun` 守卫与注释矛盾，首帧预取从未执行
+- **路由返回/前台恢复恢复音量**：didPushNext 静音后返回会一直无声，startPlaying 现在重设音量
+- **速度标签不串台**：新视频不再短暂显示上一个视频的 Kbps
+- **总时长标签可实时更新**：`FeedProgressBar.totalTime` 改为 ValueNotifier，HLS 时长解析后不再停留 0:00
+- **搜索列表进度条不再整页重建**：速度/总时长改 ValueNotifier，仅标签局部刷新（5 次/秒 → 小部件级）
+- **200 条上限 rebase 后预载重新武装**：`_preloadWaveSeq/_preloadWaveIndex` 重置
+
+### 📱 平台与构建
+- **Android 黄果封面黑块修复**：实现缺失的 `getBytes`（含 AES-128-CBC 解密，与 iOS 对齐）——黄果源封面在 Android 上一律黑屏
+- **Android 隐私擦除移出主线程**：递归删除 + 同步 commit 不再卡 UI（ANR 风险）
+- **Android 排队中的 HTTP 请求在 Activity 销毁时兜底回复**：Dart 侧不再永久挂起
+- **Android Stripchat 视图释放竞态修复**：旧实例 dispose 不再误删新实例引用
+- **删除无用媒体存储权限**（WRITE/READ_EXTERNAL_STORAGE、READ_MEDIA_VIDEO）
+- **iOS 非 UTF-8 页面正文不再返回空串**：与 Android 行为对齐
+- **iOS 删除无效的 dispose() 钩子**（FlutterPlatformView 无此协议方法）
+- **CI 固定 Flutter 3.47.1**；ios-ipa.yml 的 xcodebuild 回退不再被 pipefail 吞掉；删除与 release-build.yml 抢发布命名空间的 iOS publish job
+
+---
 ## [2.8.20] - 播放速度优化 + 稳定性修复（iOS + Android）
 
 ### ⚡ 首次播放提速

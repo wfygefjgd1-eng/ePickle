@@ -560,26 +560,15 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
           // still has more pages to offer.
           onLoadMore: () async {
             if (!mounted) return const <VideoItem>[];
-            if (_loading || _loadingMore || !_hasMore) {
-              return const <VideoItem>[];
-            }
-            final tag = _selected;
-            if (tag == null) return const <VideoItem>[];
-            final api = context.read<GenericSiteApi>();
-            final seen = _items.map((e) => e.viewkey).toSet();
-            final raw =
-                await _fetchItems(api, tag, page: _page + 1, exclude: seen);
+            // Route through _loadMore so the in-flight flag and generation
+            // guard stay authoritative. A parallel duplicate fetch would
+            // request the same page twice and race _hasMore.
+            final oldLength = _items.length;
+            await _loadMore();
             if (!mounted) return const <VideoItem>[];
-            final add = raw.where((e) => seen.add(e.viewkey)).toList();
-            setState(() {
-              _items = [..._items, ...add];
-              _page++;
-              _hasMore = raw.isNotEmpty && add.isNotEmpty;
-            });
-            if (add.isNotEmpty && widget.site.kind != SiteKind.live) {
-              unawaited(_translateRange(_items.length - add.length, _generation));
-            }
-            return add;
+            // _loadMore appends only; return the appended tail.
+            if (_items.length <= oldLength) return const <VideoItem>[];
+            return _items.sublist(oldLength);
           },
         ),
       ),

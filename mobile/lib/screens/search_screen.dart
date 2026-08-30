@@ -164,18 +164,18 @@ class _SearchScreenState extends State<SearchScreen> {
         if (seen.add(e.viewkey)) fresh.add(e);
       }
       var merged = replace ? fresh : [...prev, ...fresh];
-      if (merged.length > _maxResultsPerSrc) {
-        merged = merged.sublist(merged.length - _maxResultsPerSrc);
-        _hasMore[id] = false;
+      // Cap by dropping the newest overflow — never from the front: shifting
+      // indices under a scrolled user breaks the feed's onLoadMore delta
+      // contract (sublist(before)) and can scroll items out from under them.
+      final capped = merged.length > _maxResultsPerSrc;
+      if (capped) {
+        merged = merged.sublist(0, _maxResultsPerSrc);
       }
       setState(() {
         _results[id] = merged;
         _page[id] = page;
         _loading[id] = false;
-        _hasMore[id] =
-            list.isNotEmpty &&
-            fresh.isNotEmpty &&
-            merged.length < _maxResultsPerSrc;
+        _hasMore[id] = list.isNotEmpty && fresh.isNotEmpty && !capped;
       });
     } catch (e) {
       if (!mounted || gen != _searchGen) return;

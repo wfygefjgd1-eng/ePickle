@@ -12,6 +12,7 @@ class PlaybackHelpers {
   /// Active player + 2 lookahead slots on mobile (was 3).
   static const preloadSlotCount = 2;
 
+
   /// [skipIntro] with the user's settings (跳过片头折叠配置)。
   static Future<void> skipIntroFromSettings(
     VideoPlayerController ctrl,
@@ -244,7 +245,7 @@ class FeedProgressBar extends StatelessWidget {
 
   final ValueNotifier<double> slider;
   final ValueNotifier<String> curTime;
-  final String totalTime;
+  final ValueNotifier<String> totalTime;
   final ValueChanged<double> onChanged;
   final ValueChanged<double>? onChangeStart;
   final ValueChanged<double>? onChangeEnd;
@@ -297,16 +298,35 @@ class FeedProgressBar extends StatelessWidget {
               ),
             ),
           ),
-          Text(
-            totalTime,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 10,
-              fontFeatures: [FontFeature.tabularFigures()],
+          ValueListenableBuilder<String>(
+            valueListenable: totalTime,
+            builder: (_, t, __) => Text(
+              t,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 10,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+/// One lookahead buffer slot shared by the vertical feed players: a prepared
+/// (paused, muted) controller plus the item/stream it was built for.
+class PreloadSlot {
+  PreloadSlot();
+
+  VideoPlayerController? controller;
+  int? index;
+  StreamQuality? stream;
+  int retries = 0;
+
+  /// True while a fill task is initializing for this slot. Prevents two
+  /// concurrent fills for the same slot from both committing — the loser
+  /// used to leak a fully initialized decoder.
+  bool inFlight = false;
 }

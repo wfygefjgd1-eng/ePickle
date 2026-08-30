@@ -294,7 +294,11 @@ class AppSettings extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       await p.setBool(key, value);
-    } catch (_) {}
+    } catch (_) {
+      // 写盘失败：回滚内存值并重新 notify
+      apply(current);
+      notifyListeners();
+    }
   }
 
   Future<void> _setInt(
@@ -309,6 +313,10 @@ class AppSettings extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       await p.setInt(key, value);
-    } catch (_) {}
+    } catch (_) {
+      // 写盘失败：回滚内存值并重新 notify
+      apply(current);
+      notifyListeners();
+    }
   }
 }

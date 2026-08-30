@@ -68,26 +68,42 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  void _openSite(SiteDef site) {
-    if (site.id == 'huangguo') {
-      // 黄果站内入口：网页版卡片网格页（无底部 Tab），点卡片进播放器。
-      Navigator.of(
+  // 快速双击会把同一个路由压栈两次（返回时"看起来没反应"）——按打开期间
+  // 加锁的方式防抖：push 的 Future 在出栈时完成，完成后才解锁。
+  bool _navLock = false;
+
+  Future<void> _openSite(SiteDef site) async {
+    if (_navLock) return;
+    _navLock = true;
+    try {
+      if (site.id == 'huangguo') {
+        // 黄果站内入口：网页版卡片网格页（无底部 Tab），点卡片进播放器。
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => HuangGuoWebPage(site: site)),
+        );
+        return;
+      }
+      await Navigator.of(
         context,
-      ).push(MaterialPageRoute(builder: (_) => HuangGuoWebPage(site: site)));
-      return;
+      ).push(MaterialPageRoute(builder: (_) => SiteFeedPage(site: site)));
+    } finally {
+      _navLock = false;
     }
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => SiteFeedPage(site: site)));
   }
 
-  void _onHomeSearch() {
-    final q = _searchCtrl.text.trim();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => SearchScreen(initialQuery: q.isEmpty ? null : q),
-      ),
-    );
+  Future<void> _onHomeSearch() async {
+    if (_navLock) return;
+    _navLock = true;
+    try {
+      final q = _searchCtrl.text.trim();
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SearchScreen(initialQuery: q.isEmpty ? null : q),
+        ),
+      );
+    } finally {
+      _navLock = false;
+    }
   }
 
   void _openSettings() {

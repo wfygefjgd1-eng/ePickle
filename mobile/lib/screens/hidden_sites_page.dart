@@ -43,7 +43,17 @@ class HiddenSitesPage extends StatelessWidget {
                     site.kind == SiteKind.live ? '直播网站' : '点播网站',
                     style: const TextStyle(color: Colors.white38, fontSize: 12),
                   ),
-                  onChanged: (visible) => layout.setSiteHidden(site, !visible),
+                  onChanged: (visible) async {
+                    final ok = await layout.setSiteHidden(site, !visible);
+                    if (!ok && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('至少保留一个视频站点'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
                 );
               },
             ),

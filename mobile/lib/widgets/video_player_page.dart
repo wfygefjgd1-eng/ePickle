@@ -503,6 +503,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               child: _MinimalButton(
                 storageKey: 'settings_button_normal',
                 defaultOffset: const Offset(10, 8),
+                anchorRight: true,
                 icon: Icons.settings,
                 onTap: widget.onOpenSettings,
               ),
@@ -519,6 +520,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                       child: _MinimalButton(
                         storageKey: 'fullscreen_button_normal',
                         defaultOffset: const Offset(50, 8),
+                        anchorRight: true,
                         icon: Icons.fullscreen,
                         onTap: widget.onFullscreen,
                       ),
@@ -535,6 +537,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   ? _MinimalButton(
                       storageKey: 'ff_button_normal',
                       defaultOffset: const Offset(10, 80),
+                      anchorBottom: true,
                       icon: Icons.forward_30,
                       onTap: widget.onFastForward,
                     )
@@ -550,6 +553,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   ? _MinimalButton(
                       storageKey: 'mute_button_normal',
                       defaultOffset: const Offset(10, 80),
+                      anchorRight: true,
+                      anchorBottom: true,
                       icon: widget.muted ? Icons.volume_off : Icons.volume_up,
                       onTap: widget.onMute,
                     )
@@ -652,12 +657,18 @@ class _MinimalButton extends StatefulWidget {
     required this.defaultOffset,
     required this.icon,
     required this.onTap,
+    this.anchorRight = false,
+    this.anchorBottom = false,
   });
 
   final String storageKey;
   final Offset defaultOffset;
   final IconData icon;
   final VoidCallback onTap;
+  // defaultOffset 是按钮锚点相对的字段：anchorRight 时为距右边的距离，
+  // anchorBottom 时为距底边的距离（与外层 Positioned 的语义一致）。
+  final bool anchorRight;
+  final bool anchorBottom;
 
   @override
   State<_MinimalButton> createState() => _MinimalButtonState();
@@ -675,6 +686,7 @@ class _MinimalButtonState extends State<_MinimalButton> {
   final ValueNotifier<bool> _pressingNotifier = ValueNotifier<bool>(false);
   Size? _viewportSize;
   EdgeInsets? _viewportPadding;
+  bool _loadClamped = false;
 
   @override
   void initState() {
@@ -695,6 +707,11 @@ class _MinimalButtonState extends State<_MinimalButton> {
     final y = prefs.getDouble('${widget.storageKey}_offset_y');
     if (x != null && y != null && mounted) {
       _savedOffset = Offset(x, y);
+      if (_viewportSize != null) {
+        // 首帧已构建：直接收敛旧偏移；否则留给 build 里的迁移逻辑。
+        _loadClamped = true;
+        _savedOffset = _clampOffset(_savedOffset!);
+      }
       _offsetNotifier.value = _savedOffset!;
     }
   }
@@ -709,15 +726,28 @@ class _MinimalButtonState extends State<_MinimalButton> {
     final size =
         _viewportSize ?? const Size(double.maxFinite, double.maxFinite);
     final pad = _viewportPadding ?? EdgeInsets.zero;
+    // 40 = 按钮 footprint。clamp 的是按钮的绝对左边/上边，再换算回锚点
+    // 偏移量——右/底锚定的按钮 dx/dy 轴是镜像的，不能直接套左/上锚的边界。
+    const btn = 40.0;
+    final minLeft = pad.left;
+    final maxLeft = size.width - pad.right - btn;
+    final minTop = pad.top;
+    final maxTop = size.height - pad.bottom - btn;
+    final absLeft = widget.anchorRight
+        ? size.width - widget.defaultOffset.dx + o.dx
+        : widget.defaultOffset.dx + o.dx;
+    final absTop = widget.anchorBottom
+        ? size.height - widget.defaultOffset.dy + o.dy
+        : widget.defaultOffset.dy + o.dy;
+    final clampedLeft = absLeft.clamp(minLeft, maxLeft);
+    final clampedTop = absTop.clamp(minTop, maxTop);
     return Offset(
-      o.dx.clamp(
-        -widget.defaultOffset.dx,
-        size.width - widget.defaultOffset.dx - 40 - pad.right,
-      ),
-      o.dy.clamp(
-        -widget.defaultOffset.dy,
-        size.height - widget.defaultOffset.dy - 40 - pad.bottom,
-      ),
+      widget.anchorRight
+          ? clampedLeft - (size.width - widget.defaultOffset.dx)
+          : clampedLeft - widget.defaultOffset.dx,
+      widget.anchorBottom
+          ? clampedTop - (size.height - widget.defaultOffset.dy)
+          : clampedTop - widget.defaultOffset.dy,
     );
   }
 
@@ -727,6 +757,13 @@ class _MinimalButtonState extends State<_MinimalButton> {
     final mq = MediaQuery.of(context);
     _viewportSize = mq.size;
     _viewportPadding = mq.padding;
+    // 旧版本保存的偏移量按左上锚定 clamp，右/底锚定按钮可能被存到屏幕外；
+    // 视口已知后一次性收敛回屏内。
+    if (!_loadClamped && _savedOffset != null) {
+      _loadClamped = true;
+      _savedOffset = _clampOffset(_savedOffset!);
+      _offsetNotifier.value = _savedOffset!;
+    }
 
     return ValueListenableBuilder<Offset>(
       valueListenable: _offsetNotifier,
@@ -738,6 +775,9 @@ class _MinimalButtonState extends State<_MinimalButton> {
             _isDragging = true;
             _pressingNotifier.value = true;
             _dragStartOffset = _savedOffset ?? Offset.zero;
+            // 没有移动就松手时也走 onLongPressEnd，必须先把当前拖拽值
+            // 复位到起点，否则会把上一次拖拽的残留（或 0）存成新位置。
+            _currentDragOffset = _dragStartOffset;
             _offsetNotifier.value = _dragStartOffset;
           },
           onLongPressMoveUpdate: (details) {
@@ -752,6 +792,10 @@ class _MinimalButtonState extends State<_MinimalButton> {
             _isDragging = false;
             _pressingNotifier.value = false;
             _saveOffset(_currentDragOffset);
+          },
+          onLongPressCancel: () {
+            _isDragging = false;
+            _pressingNotifier.value = false;
           },
           child: ValueListenableBuilder<bool>(
             valueListenable: _pressingNotifier,

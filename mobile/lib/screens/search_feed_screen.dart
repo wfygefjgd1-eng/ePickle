@@ -1115,8 +1115,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     await player.play();
     if (seq != _seq || !_canRun) {
       if (identical(_controller, player)) _controller = null;
-      await player.pause().catchError((_) {});
-      await player.dispose();
+      // A newer play may have already frozen this controller into the frozen
+      // slot while we awaited play(); disposing it here would poison that
+      // slot with a dead controller. Only dispose when we still own it.
+      if (!identical(_frozenController, player)) {
+        await player.pause().catchError((_) {});
+        await player.dispose().catchError((_) {});
+      }
       return;
     }
     // _restartPreloading() above already launched the wave covering
@@ -1363,6 +1368,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } catch (_) {}
     }
     try {
+      // 长按 3 倍速期间被冻结的控制器，回看时会以 3x 重放 —— 冻结时一并还原。
+      await controller.setPlaybackSpeed(1.0);
       await controller.setVolume(0);
       await controller.pause();
     } catch (_) {}
@@ -1778,6 +1785,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
             },
             onLongPressStart: (_) => _onLongPressBoost(true),
             onLongPressEnd: (_) => _onLongPressBoost(false),
+            onLongPressCancel: () => _onLongPressBoost(false),
             onHorizontalDragStart: _onHorizontalDragStart,
             onHorizontalDragUpdate: _onHorizontalDragUpdate,
             onHorizontalDragEnd: _onHorizontalDragEnd,

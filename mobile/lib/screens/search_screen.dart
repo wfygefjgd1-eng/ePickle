@@ -200,7 +200,11 @@ class _SearchScreenState extends State<SearchScreen> {
     await _searchOne(site, q, next, replace: false, gen: _searchGen);
   }
 
-  void _openFeed(SiteDef site, int index) {
+  // 双击防抖：同一结果列表被压栈两次会让第一次返回"看起来没反应"。
+  bool _navLock = false;
+
+  Future<void> _openFeed(SiteDef site, int index) async {
+    if (_navLock) return;
     final items = _results[site.id] ?? [];
     if (items.isEmpty) return;
     final source = switch (site.id) {
@@ -210,27 +214,32 @@ class _SearchScreenState extends State<SearchScreen> {
       'huangguo' => SearchSource.huangguo,
       _ => SearchSource.generic,
     };
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => SearchFeedScreen(
-          items: List<VideoItem>.from(items),
-          source: source,
-          initialIndex: index,
-          title: site.name,
-          // Generic sites need the real SiteDef so detail resolution keeps the
-          // site-specific parser branches AND mirror failover (instead of
-          // degrading to a synthetic custom-site detail query).
-          site: source == SearchSource.generic ? site : null,
-          onLoadMore: () async {
-            final before = (_results[site.id] ?? []).length;
-            await _loadMore(site);
-            final all = _results[site.id] ?? [];
-            if (all.length <= before) return const <VideoItem>[];
-            return all.sublist(before);
-          },
+    _navLock = true;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SearchFeedScreen(
+            items: List<VideoItem>.from(items),
+            source: source,
+            initialIndex: index,
+            title: site.name,
+            // Generic sites need the real SiteDef so detail resolution keeps the
+            // site-specific parser branches AND mirror failover (instead of
+            // degrading to a synthetic custom-site detail query).
+            site: source == SearchSource.generic ? site : null,
+            onLoadMore: () async {
+              final before = (_results[site.id] ?? []).length;
+              await _loadMore(site);
+              final all = _results[site.id] ?? [];
+              if (all.length <= before) return const <VideoItem>[];
+              return all.sublist(before);
+            },
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _navLock = false;
+    }
   }
 
   @override

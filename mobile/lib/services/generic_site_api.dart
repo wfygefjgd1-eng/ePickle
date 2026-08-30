@@ -678,21 +678,22 @@ class GenericSiteApi {
 
     final shouldTryHtml = results.isEmpty ||
         (site.kind == SiteKind.video && results.length < limit);
+    var parsedAnyPage = false;
     if (shouldTryHtml) {
       final paths = _listPaths(site, tagId, safePage);
       // The accept predicate runs twice per probe (once to decide whether a
-      // native render is needed, once to validate the final html). It parses
-      // against the real [seen], so the second pass must not re-parse against
-      // an already-fed [seen] — memoize the parse per base so a page that
-      // parsed fine is never reported as "structure changed".
-      final memo = <String, List<VideoItem>>{};
+      // native render is needed, once to validate the final html) — and once
+      // per mirror per path. Parsing against a throwaway set keeps it free of
+      // side effects, so re-parsing the same html always yields the same
+      // result. The parse cache is keyed by the html ITSELF, not the mirror
+      // base: different paths (and the native-render retry) serve DIFFERENT
+      // html for the same base, and keying by base reused a stale parse
+      // across them (killing every fallback path after the first success).
+      final parsedByHtml = <String, List<VideoItem>>{};
       // [seen] snapshot before this loop: the first page's own items are new
       // relative to it (so they survive), while items re-offered by later
       // paths/sources (already consumed upstream) fall out.
       final startSeen = <String>{...seen};
-      // The accept predicate already parses the winning page; remember the
-      // result so the winner isn't parsed a second time.
-      final parsedByBase = <String, List<VideoItem>>{};
       for (final pathFn in paths) {
         if (results.length >= limit) break;
         try {
@@ -701,22 +702,22 @@ class GenericSiteApi {
             pathFn,
             deadline: deadline,
             accept: (html, base) {
-              final items = memo.putIfAbsent(
-                base,
+              final items = parsedByHtml.putIfAbsent(
+                html,
                 () => _parseFeedResponse(
                   html,
                   base,
-                  seen,
+                  <String>{},
                   site,
                   tagId: tagId,
                 ),
               );
               if (items.isEmpty) return false;
-              parsedByBase[base] = items;
               return true;
             },
           );
-          final items = parsedByBase[fetched.base] ?? const <VideoItem>[];
+          final items = parsedByHtml[fetched.html] ?? const <VideoItem>[];
+          if (items.isNotEmpty) parsedAnyPage = true;
           final fresh = <VideoItem>[];
           for (final it in items) {
             if (startSeen.add(it.viewkey)) fresh.add(it);
@@ -735,6 +736,9 @@ class GenericSiteApi {
         throw PhubException('${site.name} 列表解析超时，请重试或切换网络');
       }
       if (lastError != null) throw lastError;
+      // 页面结构正常、只是所有条目都被去重过滤（信息流失速）：不是故障，
+      // 返回空列表让上层推进页码，而不是误报"结构已改版"。
+      if (parsedAnyPage) return const [];
       throw PhubException('${site.name} 页面已返回，但解析不到视频列表（页面结构可能已改版）');
     }
     if (results.length > limit) return results.sublist(0, limit);
@@ -1266,25 +1270,24 @@ class GenericSiteApi {
     final startSeen = <String>{...seen};
     for (final pathFn in paths) {
       try {
-        final parsedByBase = <String, List<VideoItem>>{};
-        // Memoize per base: the accept runs twice per probe and re-parsing
-        // against an already-fed [seen] would report a false empty page.
-        final memo = <String, List<VideoItem>>{};
+        // Accept 解析必须无副作用：用一次性 set 解析并按 html 本身缓存。
+        // 按 base 缓存会在原生渲染重试时复用被拦截页的空解析 —— 渲染出的
+        // 新 html 永远不会被解析，搜索在 Cloudflare 站上必挂。
+        final parsedByHtml = <String, List<VideoItem>>{};
         final fetched = await _fetchPageWithMirrors(
           site,
           pathFn,
           deadline: deadline,
           accept: (html, base) {
-            final items = memo.putIfAbsent(
-              base,
-              () => _parseSearchResponse(html, base, seen, site),
+            final items = parsedByHtml.putIfAbsent(
+              html,
+              () => _parseSearchResponse(html, base, <String>{}, site),
             );
             if (items.isEmpty) return false;
-            parsedByBase[base] = items;
             return true;
           },
         );
-        final list = parsedByBase[fetched.base] ?? const <VideoItem>[];
+        final list = parsedByHtml[fetched.html] ?? const <VideoItem>[];
         final fresh = <VideoItem>[];
         for (final it in list) {
           if (startSeen.add(it.viewkey)) fresh.add(it);

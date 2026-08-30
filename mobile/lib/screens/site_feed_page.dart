@@ -138,9 +138,11 @@ class _SiteFeedPageState extends State<SiteFeedPage>
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, _) {
-        _stopAllFeedsImmediately();
-        if (!didPop) {
-          unawaited(_exitToHome());
+        // 只在真正出栈时停止播放。被否决的 pop（子 VideoFeedScreen 全屏中
+        // canPop:false）由子页自己的 PopScope 负责恢复：这里若也响应否决，
+        // 会杀掉所有播放并把整个页面退出去，而不是仅退出全屏。
+        if (didPop) {
+          _stopAllFeedsImmediately();
         }
       },
       child: Scaffold(

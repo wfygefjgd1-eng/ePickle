@@ -531,47 +531,56 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
     );
   }
 
+  // 双击防抖：同一卡片压栈两次会让第一次返回"看起来没反应"。
+  bool _navLock = false;
+
   Future<void> _openPlayer(int index) async {
-    final items = List<VideoItem>.from(_items);
-    if (widget.site.kind == SiteKind.live) {
+    if (_navLock) return;
+    _navLock = true;
+    try {
+      final items = List<VideoItem>.from(_items);
+      if (widget.site.kind == SiteKind.live) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => VideoFeedScreen(
+              site: widget.site,
+              tagId: _selected?.id,
+              initialItems: items,
+              initialIndex: index,
+              autoStart: true,
+            ),
+          ),
+        );
+        return;
+      }
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => VideoFeedScreen(
-            site: widget.site,
-            tagId: _selected?.id,
-            initialItems: items,
+          builder: (_) => SearchFeedScreen(
+            items: items,
+            source: _playbackSource,
             initialIndex: index,
-            autoStart: true,
+            title: widget.site.name,
+            site: widget.site,
+            // Keep the directory paged while the player feed is open: without
+            // this the feed stops at the first page even though the directory
+            // still has more pages to offer.
+            onLoadMore: () async {
+              if (!mounted) return const <VideoItem>[];
+              // Route through _loadMore so the in-flight flag and generation
+              // guard stay authoritative. A parallel duplicate fetch would
+              // request the same page twice and race _hasMore.
+              final oldLength = _items.length;
+              await _loadMore();
+              if (!mounted) return const <VideoItem>[];
+              // _loadMore appends only; return the appended tail.
+              if (_items.length <= oldLength) return const <VideoItem>[];
+              return _items.sublist(oldLength);
+            },
           ),
         ),
       );
-      return;
+    } finally {
+      _navLock = false;
     }
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => SearchFeedScreen(
-          items: items,
-          source: _playbackSource,
-          initialIndex: index,
-          title: widget.site.name,
-          site: widget.site,
-          // Keep the directory paged while the player feed is open: without
-          // this the feed stops at the first page even though the directory
-          // still has more pages to offer.
-          onLoadMore: () async {
-            if (!mounted) return const <VideoItem>[];
-            // Route through _loadMore so the in-flight flag and generation
-            // guard stay authoritative. A parallel duplicate fetch would
-            // request the same page twice and race _hasMore.
-            final oldLength = _items.length;
-            await _loadMore();
-            if (!mounted) return const <VideoItem>[];
-            // _loadMore appends only; return the appended tail.
-            if (_items.length <= oldLength) return const <VideoItem>[];
-            return _items.sublist(oldLength);
-          },
-        ),
-      ),
-    );
   }
 }

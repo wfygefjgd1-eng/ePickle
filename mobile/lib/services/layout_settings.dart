@@ -237,8 +237,19 @@ class LayoutSettings extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> setSiteHidden(SiteDef site, bool hidden) async {
+  /// Returns false (and leaves state untouched) when hiding this site would
+  /// leave no visible video site — same "at least one video site" policy as
+  /// [toggleVideoSite]. Callers show feedback instead of silently no-oping.
+  Future<bool> setSiteHidden(SiteDef site, bool hidden) async {
     if (hidden) {
+      if (site.kind != SiteKind.live) {
+        final otherVisible = _enabledVideoIds
+            .map(SourceCatalog.byId)
+            .whereType<SiteDef>()
+            .where((s) => s.id != site.id && !isSiteHidden(s))
+            .length;
+        if (otherVisible == 0) return false;
+      }
       _hiddenSiteKeys = {..._hiddenSiteKeys, site.id};
     } else {
       _hiddenSiteKeys = {..._hiddenSiteKeys}..remove(site.id);
@@ -248,6 +259,7 @@ class LayoutSettings extends ChangeNotifier {
       final p = await SharedPreferences.getInstance();
       await p.setStringList(_kHiddenSites, _hiddenSiteKeys.toList());
     } catch (_) {}
+    return true;
   }
 
   Future<void> restoreDefaultLayout() async {

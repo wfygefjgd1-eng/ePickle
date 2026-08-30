@@ -803,7 +803,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
             exclude: _seen,
             limit: limit,
           );
-      if (list.isNotEmpty && requestedPage == _genericPage) {
+      if (requestedPage == _genericPage) {
+        // Advance on every successful fetch — an all-duplicate page (every
+        // item filtered out by exclude) must still move the counter forward,
+        // otherwise load-more re-requests the same page forever.
         _genericPage++;
       }
       return list;
@@ -837,7 +840,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _genericPage = 1;
       }
       if (randomize) list.shuffle();
-      if (list.isNotEmpty && requestedPage == _genericPage) {
+      if (requestedPage == _genericPage) {
+        // Advance even when dedupe left nothing — same stall as above.
         _genericPage++;
       } else if (list.isNotEmpty && _genericPage == 1) {
         _genericPage = 2;
@@ -1655,7 +1659,17 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     await ready.play();
     if (seq != _loadSeq || !_canRun) {
       if (identical(_controller, ready)) _controller = null;
-      await ready.dispose();
+      // A newer play may have already frozen this controller into the frozen
+      // slot while we awaited play(); disposing it here would poison that
+      // slot with a dead controller. Only dispose when we still own it.
+      if (!identical(_frozenController, ready)) {
+        try {
+          await ready.pause();
+        } catch (_) {}
+        try {
+          await ready.dispose();
+        } catch (_) {}
+      }
       return;
     }
     // The preload wave launched by _restartPreloading() above already covers
@@ -2272,6 +2286,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
             },
             onLongPressStart: (_) => _controller?.setPlaybackSpeed(3.0),
             onLongPressEnd: (_) => _controller?.setPlaybackSpeed(1.0),
+            onLongPressCancel: () => _controller?.setPlaybackSpeed(1.0),
             child: VideoPlayerPage(
               items: _items,
               currentIndex: _currentIndex,
@@ -2322,6 +2337,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       } catch (_) {}
     }
     try {
+      // 长按 3 倍速期间被冻结的控制器，回看时会以 3x 重放 —— 冻结时一并还原。
+      await controller.setPlaybackSpeed(1.0);
       await controller.setVolume(0);
       await controller.pause();
     } catch (_) {}

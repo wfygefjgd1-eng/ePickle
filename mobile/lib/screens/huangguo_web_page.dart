@@ -124,10 +124,16 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     });
     final cached = _cache[_cacheKey];
     if (cached != null) {
+      // 命中缓存：作废在途加载（否则上一个频道/搜索的结果会覆盖这里），
+      // 并清掉可能残留的错误/加载态，避免缓存内容被错误页挡住。
+      _generation++;
       setState(() {
         _items = cached.items;
         _page = cached.page;
         _hasMore = cached.hasMore;
+        _error = null;
+        _loading = false;
+        _loadingMore = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_scroll.hasClients) return;
@@ -238,41 +244,50 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     }
   }
 
+  // 双击防抖：同一卡片压栈两次会让第一次返回"看起来没反应"。
+  bool _navLock = false;
+
   Future<void> _openPlayer(int index) async {
-    final item = _items[index];
-    // 专题卡片：进入该专题的剧集列表页（复用本页）。
-    if (item.url.contains('/topics/')) {
-      final path = Uri.tryParse(item.url)?.path ?? '/topics/';
+    if (_navLock) return;
+    _navLock = true;
+    try {
+      final item = _items[index];
+      // 专题卡片：进入该专题的剧集列表页（复用本页）。
+      if (item.url.contains('/topics/')) {
+        final path = Uri.tryParse(item.url)?.path ?? '/topics/';
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => HuangGuoWebPage(
+              site: widget.site,
+              topicPath: path,
+              topicTitle: item.title,
+            ),
+          ),
+        );
+        return;
+      }
+      final items = List<VideoItem>.from(_items);
+      final title = _query.isEmpty ? _channelName : '\u641c\u7d22\u300a$_query\u300b';
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => HuangGuoWebPage(
+          builder: (_) => SearchFeedScreen(
+            items: items,
+            source: SearchSource.huangguo,
             site: widget.site,
-            topicPath: path,
-            topicTitle: item.title,
+            title: title,
+            initialIndex: index,
+            onLoadMore: () async {
+              final before = _items.length;
+              await _loadMore();
+              if (_items.length <= before) return const <VideoItem>[];
+              return _items.sublist(before);
+            },
           ),
         ),
       );
-      return;
+    } finally {
+      _navLock = false;
     }
-    final items = List<VideoItem>.from(_items);
-    final title = _query.isEmpty ? _channelName : '\u641c\u7d22\u300a$_query\u300b';
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => SearchFeedScreen(
-          items: items,
-          source: SearchSource.huangguo,
-          site: widget.site,
-          title: title,
-          initialIndex: index,
-          onLoadMore: () async {
-            final before = _items.length;
-            await _loadMore();
-            if (_items.length <= before) return const <VideoItem>[];
-            return _items.sublist(before);
-          },
-        ),
-      ),
-    );
   }
 
   @override

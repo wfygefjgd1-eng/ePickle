@@ -255,7 +255,9 @@ class MitaoApi {
         );
       }
     }
-    if (results.isEmpty && (failCount > 0 || tried > 0)) {
+    // 只有全部请求都失败才报"无法访问源站"：空结果也可能只是抓到的
+    // 全是已看过的条目（信息流失速），不是网络问题。
+    if (results.isEmpty && tried > 0 && failCount == tried) {
       throw PhubException(
         '无法访问源站（$failCount/$tried 失败）。'
         '系统未代理时请开 TUN，或设置里填写/检测代理',

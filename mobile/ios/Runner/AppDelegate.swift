@@ -316,9 +316,11 @@ import WebKit
           details: nil
         )
       } else if let http = response as? HTTPURLResponse,
-                (200...299).contains(http.statusCode),
-                var body = data, !body.isEmpty {
-        if let keyHex = aesKeyHex, let ivHex = aesIvHex,
+                (200...299).contains(http.statusCode) {
+        // 空 200 是合法成功（Android 端同样处理），不能当 bad_response 拒掉。
+        var body = data ?? Data()
+        if !body.isEmpty,
+           let keyHex = aesKeyHex, let ivHex = aesIvHex,
            let key = AppDelegate.dataFromAscii(keyHex), key.count == 16,
            let iv = AppDelegate.dataFromAscii(ivHex), iv.count == 16 {
           if let plain = self?.aesDecryptCBCNoPadding(body, key: key, iv: iv) {
@@ -902,6 +904,9 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   @objc private func resumeFromBackground() {
+    // 用户手动暂停（livePaused）时不要强行续播：回前台只跳过系统级的
+    // pauseForBackground，不覆盖用户的暂停意图。
+    guard !livePaused else { return }
     resumeLive()
   }
 

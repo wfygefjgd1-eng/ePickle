@@ -94,7 +94,9 @@ class PhubApi {
       RegExp(r'flashvars_\d+\s*=\s*(\{.*?\});', dotAll: true);
   static final _flashvarsReQuoted =
       RegExp(r'''["']flashvars_\d+["']\s*[:=]\s*(\{.*?\})''', dotAll: true);
-  static final _viewkeyRe = RegExp(r'viewkey=([a-f0-9]+)');
+  // viewkey 域名段不只有纯 hex：现代 key 带 "ph" 前缀（ph63dc…），
+  // 收窄到 [a-f0-9] 会漏抓整页视频并把 key 截断。
+  static final _viewkeyRe = RegExp(r'viewkey=([a-z0-9]+)');
   static final _durRe = RegExp(
     r'class="[^"]*dur[^"]*"[^>]*>\s*(\d+:\d+(?::\d+)?)\s*<',
   );
@@ -269,6 +271,9 @@ class PhubApi {
           'https://www.pornhub.com/',
         ],
         categoryId: null,
+        // primary 恰好占满默认 maxUrls=5，固定顺序会导致 load-more 每次都
+        // 抓同样的 5 页、看完后永远无新内容。随机化后每次调用覆盖不同页面。
+        shuffleAll: true,
       );
 
   /// Newest feed（"新" tab）— o=cm = most recently uploaded, distinct from
@@ -290,6 +295,8 @@ class PhubApi {
           'https://www.pornhub.com/video?o=cm&page=5',
         ],
         categoryId: null,
+        // 同 fetchRecommend：固定顺序会让 load-more 永远只抓这 5 页。
+        shuffleAll: true,
       );
 
   /// Asian category feed (`c=1`). Fully shuffled like 热闹 (random order + pages).
@@ -402,7 +409,10 @@ class PhubApi {
     }
 
     if (results.isEmpty) {
-      if (failCount > 0 || tried > 0) {
+      // tried 对每个发过的 URL 都 +1，"tried > 0" 恒真 —— 空结果不一定是
+      // 源站不可达，也可能只是抓到的全是已看过的条目（信息流失速）。只有
+      // 全部请求都失败时才报"无法访问源站"，否则静默返回空列表。
+      if (tried > 0 && failCount == tried) {
         throw PhubException(
           '无法访问源站（$failCount/$tried 失败）。'
           '系统未代理时请开 TUN，或设置里填写/检测代理',
@@ -599,7 +609,7 @@ class PhubApi {
   List<VideoItem> _parseViaViewkeyChunks(String html, Set<String> seen) {
     final results = <VideoItem>[];
     final chunks =
-        html.split(RegExp(r'(?=view_video\.php\?viewkey=[a-f0-9]+)'));
+        html.split(RegExp(r'(?=view_video\.php\?viewkey=[a-z0-9]+)'));
     if (chunks.length < 2) return results;
 
     for (var i = 1; i < chunks.length; i++) {
@@ -779,7 +789,7 @@ class PhubApi {
       return 'https://www.pornhub.com/view_video.php?$query';
     }
     // bare viewkey
-    if (RegExp(r'^[a-f0-9]+$').hasMatch(t)) {
+    if (RegExp(r'^[a-z0-9]+$').hasMatch(t)) {
       return 'https://www.pornhub.com/view_video.php?viewkey=$t';
     }
     return t;

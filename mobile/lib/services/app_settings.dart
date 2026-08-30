@@ -260,14 +260,21 @@ class AppSettings extends ChangeNotifier {
     int value,
     void Function(int) apply,
   ) async {
-    if (value == _currentSkipIntro(key)) return;
+    final prev = _currentSkipIntro(key);
+    if (value == prev) return;
     apply(value);
     _invalidateTiers();
     notifyListeners();
     try {
       final p = await SharedPreferences.getInstance();
       await p.setInt(key, value);
-    } catch (_) {}
+    } catch (_) {
+      // 写盘失败：回滚内存值并重新 notify（与 _setBool/_setInt 一致），
+      // 否则 UI 显示新值但下次启动静默变回旧值。
+      apply(prev);
+      _invalidateTiers();
+      notifyListeners();
+    }
   }
 
   int _currentSkipIntro(String key) => switch (key) {

@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../models/video_item.dart';
+import '../services/feed_detail_cache.dart';
 import '../services/feed_list_cache.dart';
 import '../services/generic_site_api.dart';
 import '../services/layout_settings.dart';
@@ -142,9 +143,69 @@ class _HomePageState extends State<HomePage> {
               index: 0,
             ),
           );
+          // Complete the chain: warm the first two details too, so tapping
+          // the card skips the detail round-trip and goes straight to player
+          // initialization. Small bounded cost (2 HTML fetches per prewarmed
+          // site), exactly what the user plays first.
+          for (final item in list.take(2)) {
+            unawaited(_prewarmDetail(site, item));
+          }
         } catch (_) {}
       }),
     );
+  }
+
+  /// Prefetch one item's detail into [FeedDetailCache].
+  ///
+  /// Routing MUST mirror the player screens' `_fetchDetail` (URL-based
+  /// overrides first, then the site's own parser): caching a detail parsed
+  /// with the wrong site's rules would poison the feed's playback.
+  Future<void> _prewarmDetail(SiteDef site, VideoItem item) async {
+    final low = item.url.toLowerCase();
+    try {
+      final Future<VideoDetail> fetch;
+      if (low.contains('huangguoai')) {
+        // HuangGuo detail/episode flow lives in HuangGuoWebPage — skip.
+        return;
+      } else if (low.contains('xvideos.com') || low.contains('xvideos.es')) {
+        fetch = context.read<XvideosApi>().getVideoDetail(item.url);
+      } else if (low.contains('mitaohk.com')) {
+        fetch = context.read<MitaoApi>().getVideoDetail(item.url);
+      } else if (low.contains('pornhub.com') || low.contains('pornhub.org')) {
+        fetch = context.read<PhubApi>().getVideoDetail(item.url);
+      } else if (site.id == 'pornhub' ||
+          site.id == 'xvideos' ||
+          site.id == 'mitao') {
+        // Built-in card item that stayed on its own host family.
+        fetch = switch (site.id) {
+          'pornhub' => context.read<PhubApi>().getVideoDetail(item.url),
+          'xvideos' => context.read<XvideosApi>().getVideoDetail(item.url),
+          _ => context.read<MitaoApi>().getVideoDetail(item.url),
+        };
+      } else {
+        // Generic sites: the screens parse a URL that points at another
+        // catalog site with THAT site's rules — never prewarm those, the
+        // cached detail could carry the wrong parser's streams.
+        SiteDef? hostSite;
+        for (final s in SourceCatalog.all) {
+          if (s.kind != SiteKind.video) continue;
+          final hit = s.mirrors.any((m) {
+            final h = Uri.tryParse(m)?.host.toLowerCase() ?? '';
+            return h.isNotEmpty && low.contains(h);
+          });
+          if (hit) {
+            hostSite = s;
+            break;
+          }
+        }
+        if (hostSite != null && hostSite.id != site.id) return;
+        fetch = context.read<GenericSiteApi>().getVideoDetail(site, item.url);
+      }
+      final detail = await fetch;
+      if (!detail.countryBlocked && !detail.unavailable) {
+        FeedDetailCache.put(item.url, detail);
+      }
+    } catch (_) {}
   }
 
   Future<List<VideoItem>> _fetchPrewarmList(SiteDef site, SiteTag tag) {

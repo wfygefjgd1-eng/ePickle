@@ -19,6 +19,7 @@ import '../services/xvideos_api.dart';
 import '../services/app_settings.dart';
 import '../services/app_route_observer.dart';
 import '../services/auto_rotate_controller.dart';
+import '../services/feed_detail_cache.dart';
 import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
 import '../utils/http_headers.dart';
@@ -92,7 +93,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   /// 列表结构版本：插入剧集条目后递增，使在途预取结果作废。
   int _itemsEpoch = 0;
-  int? _prefetchingIndex;
+
   int _preloadWaveSeq = 0;
   int _preloadWaveIndex = -1;
   PlayerChrome? _chrome;
@@ -208,6 +209,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _autoRotate!.enabled = _settings!.autoRotate;
     _settings!.addListener(_onSettingsChanged);
     _autoRotate!.start();
+    // Start the first detail fetch immediately (one frame before play would)
+    // — the play path shares the same in-flight request via _detailFor, so
+    // the first frame opens without a duplicate fetch.
+    unawaited(_prefetchDetail(_index));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_canRun) _playIndex(_index);
     });
@@ -532,22 +537,28 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   Future<void> _runPreloadCycle(int seq) async {
-    final jobs = <Future<void>>[];
+    // Details are cheap HTML fetches — start them all up front in parallel.
     for (var slot = 0; slot < _preloadSlotCount; slot++) {
       final index = _index + slot + 1;
       if (index >= _items.length) break;
-      jobs.add(_warmPreloadSlot(seq, index, slot));
+      unawaited(_prefetchDetail(index));
     }
-    await Future.wait(jobs);
-  }
-
-  Future<void> _warmPreloadSlot(int seq, int index, int slot) async {
-    try {
-      if (seq != _seq || !_canRun || index >= _items.length) return;
-      await _prefetchDetail(index);
+    // Media fills are heavy — run them ONE at a time so background
+    // prebuffering never starves the video that is actually on screen.
+    for (var slot = 0; slot < _preloadSlotCount; slot++) {
       if (seq != _seq || !_canRun) return;
-      await _fillPreloadSlot(slot, index);
-    } catch (_) {}
+      final index = _index + slot + 1;
+      if (index >= _items.length) return;
+      try {
+        await _detailFor(index);
+      } catch (_) {
+        continue; // No detail (failed/unavailable) → nothing to preload.
+      }
+      if (seq != _seq || !_canRun) return;
+      try {
+        await _fillPreloadSlot(slot, index);
+      } catch (_) {}
+    }
   }
 
   void _cancelBackgroundWork() {
@@ -708,6 +719,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           // re-arm on the next play/preload wave.
           _itemsEpoch++;
           _detailCache.clear();
+          _inflightDetails.clear();
           _retried.clear();
           _frozenController = null;
           _frozenIndex = null;
@@ -904,9 +916,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
             }
           }
         }
-        for (var i = 0; i < _preloadSlots.length; i++) {
-          unawaited(_fillPreloadSlot(i, index + i + 1));
-        }
+        // Re-run the (sequential) preload wave for the window after the new
+        // current index.
+        _restartPreloading();
       } else {
         unawaited(_fillPreloadSlot(0, index + 1));
         unawaited(_prefetchDetail(index + 2));
@@ -942,13 +954,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     VideoDetail detail;
     try {
-      if (_detailCache.containsKey(index)) {
-        detail = _detailCache[index]!;
-      } else {
-        detail = await _fetchDetail(item.url, item: item)
-            .timeout(const Duration(seconds: 8));
-        _detailCache[index] = detail;
-      }
+      // Shares the in-flight fetch with the initState prefetch — no duplicate
+      // request when play starts while a prefetch is running.
+      detail = await _detailFor(index).timeout(const Duration(seconds: 8));
       _maybeExpandSeries(item, index);
     } catch (e) {
       if (mounted && seq == _seq) {
@@ -1142,25 +1150,57 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     } catch (_) {}
   }
 
+  /// Shared in-flight detail fetches so concurrent callers (play path,
+  /// prefetch, preload wave) reuse ONE network round-trip per index instead
+  /// of racing duplicate requests.
+  final Map<int, Future<VideoDetail>> _inflightDetails = {};
+
+  /// Resolve the detail for [index]: cache hit → in-flight hit → fetch.
+  /// The commit back into [_detailCache] is guarded by the item URL captured
+  /// at start so a list rebase mid-fetch cannot attach the result to a
+  /// different video.
+  Future<VideoDetail> _detailFor(int index) {
+    final cached = _detailCache[index];
+    if (cached != null) return Future.value(cached);
+    final inFlight = _inflightDetails[index];
+    if (inFlight != null) return inFlight;
+    if (index < 0 || index >= _items.length) {
+      return Future.error(StateError('detail index out of range: $index'));
+    }
+    final item = _items[index];
+    final url = item.url;
+    // Home-screen prewarm may have fetched this detail already (same video
+    // opened via a feed card earlier in the session).
+    final prewarmed = FeedDetailCache.take(url);
+    if (prewarmed != null) {
+      _detailCache[index] = prewarmed;
+      return Future.value(prewarmed);
+    }
+    final future = _fetchDetail(url, item: item).then((d) {
+      _inflightDetails.remove(index);
+      if (mounted && index < _items.length && _items[index].url == url) {
+        _detailCache[index] = d;
+        _maybeExpandSeries(item, index);
+      }
+      return d;
+    }).catchError((Object e) {
+      _inflightDetails.remove(index);
+      throw e;
+    });
+    _inflightDetails[index] = future;
+    return future;
+  }
+
+  /// Fire-and-forget prefetch; shares its request via [_detailFor].
   Future<void> _prefetchDetail(int index) async {
     if (!_canRun || index < 0 || index >= _items.length) return;
     if (_detailCache.containsKey(index)) return;
-    if (_prefetchingIndex == index) return;
-    _prefetchingIndex = index;
-    final seq = _seq;
-    final epoch = _itemsEpoch;
-    final item = _items[index];
     try {
-      final d = await _fetchDetail(item.url, item: item);
-      if (seq != _seq || !_canRun || epoch != _itemsEpoch) return;
-      _detailCache[index] = d;
-      _maybeExpandSeries(item, index);
-      if (epoch != _itemsEpoch) return;
+      final d = await _detailFor(index);
+      if (d.countryBlocked || d.unavailable) return;
       _prunePageState(_index);
     } catch (_) {
       // Ignore errors in prefetch
-    } finally {
-      if (_prefetchingIndex == index) _prefetchingIndex = null;
     }
   }
 
@@ -1188,7 +1228,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
     // 插入后旧索引错位：清掉索引缓存与预载，按新列表重新预取。
     _detailCache.removeWhere((k, _) => k > index);
-    _prefetchingIndex = null;
+    _inflightDetails.clear();
     _preloadWaveSeq = -1;
     _preloadWaveIndex = -1;
     _disposePreloadSync();

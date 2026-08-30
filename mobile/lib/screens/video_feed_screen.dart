@@ -20,6 +20,7 @@ import '../services/app_settings.dart';
 import '../services/app_route_observer.dart';
 import '../services/auto_rotate_controller.dart';
 import '../services/cache_manager.dart';
+import '../services/feed_detail_cache.dart';
 import '../services/feed_list_cache.dart';
 import '../services/mirror_ranker.dart';
 import '../services/player_chrome.dart';
@@ -114,7 +115,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   double _smoothedSpeedKbps = 0;
   int _speedSamples = 0;
   final Map<int, VideoDetail> _detailCache = {};
-  int? _prefetchingIndex;
   int _preloadCycle = 0;
   int _preloadWaveIndex = -1;
   bool _seeking = false;
@@ -672,22 +672,31 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   Future<void> _runPreloadCycle(int seq) async {
-    final jobs = <Future<void>>[];
+    // Details are cheap HTML fetches — start them all up front in parallel so
+    // each fill finds a warm detail.
     for (var slot = 0; slot < _preloadSlotCount; slot++) {
       final index = _currentIndex + slot + 1;
       if (index >= _items.length) break;
-      jobs.add(_warmPreloadSlot(seq, index, slot));
+      unawaited(_prefetchDetail(index));
     }
-    await Future.wait(jobs);
-  }
-
-  Future<void> _warmPreloadSlot(int seq, int index, int slot) async {
-    try {
-      if (seq != _loadSeq || !_canRun || index >= _items.length) return;
-      await _prefetchDetail(index);
+    // Media fills are heavy (full decoder init + buffer) — run them ONE at a
+    // time so background prebuffering never starves the video that is
+    // actually on screen (stall → auto-lower would otherwise be triggered by
+    // our own preloads).
+    for (var slot = 0; slot < _preloadSlotCount; slot++) {
       if (seq != _loadSeq || !_canRun) return;
-      await _fillPreloadSlot(slot, index);
-    } catch (_) {}
+      final index = _currentIndex + slot + 1;
+      if (index >= _items.length) return;
+      try {
+        await _detailFor(index);
+      } catch (_) {
+        continue; // No detail (failed/unavailable) → nothing to preload.
+      }
+      if (seq != _loadSeq || !_canRun) return;
+      try {
+        await _fillPreloadSlot(slot, index);
+      } catch (_) {}
+    }
   }
 
   void startPlaying() {
@@ -955,6 +964,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         // ignore: unawaited_futures
         _translateItemsRange(translateStart);
       }
+      // First list landed: warm the details of the first items right away —
+      // the imminent first play reuses the same in-flight fetch via
+      // _detailFor, and the next swipes hit a warm cache.
+      if (_controller == null && _browserLiveUrl == null && _canRun) {
+        for (var i = 0; i < 3 && i < _items.length; i++) {
+          unawaited(_prefetchDetail(i));
+        }
+      }
       if (_canRun &&
           _items.isNotEmpty &&
           _controller == null &&
@@ -1041,8 +1058,50 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     });
   }
 
-  /// Prefetch entry that also works before _active is set (e.g. from initState).
-  /// Subsequent callers still guard with !_canRun once they touch controllers.
+  /// Shared in-flight detail fetches so concurrent callers (initState
+  /// prefetch, play path, preload wave, list-landed prefetch) reuse ONE
+  /// network round-trip per index instead of racing duplicate requests.
+  final Map<int, Future<VideoDetail>> _inflightDetails = {};
+
+  /// Resolve the detail for [index]: cache hit → in-flight hit → fetch.
+  ///
+  /// The commit back into [_detailCache] is guarded by the item URL captured
+  /// at start: a list rebase (index shift) mid-fetch must never attach the
+  /// result to a different video. Callers awaiting the future always get the
+  /// correct detail for the item they asked about.
+  Future<VideoDetail> _detailFor(int index) {
+    final cached = _detailCache[index];
+    if (cached != null) return Future.value(cached);
+    final inFlight = _inflightDetails[index];
+    if (inFlight != null) return inFlight;
+    if (index < 0 || index >= _items.length) {
+      return Future.error(StateError('detail index out of range: $index'));
+    }
+    final url = _items[index].url;
+    // The home screen may have prefetched this detail while the user was
+    // still picking a card — consume it and skip the network entirely.
+    final prewarmed = FeedDetailCache.take(url);
+    if (prewarmed != null) {
+      _detailCache[index] = prewarmed;
+      return Future.value(prewarmed);
+    }
+    final future = _fetchDetail(url).then((d) {
+      _inflightDetails.remove(index);
+      if (mounted && index < _items.length && _items[index].url == url) {
+        _detailCache[index] = d;
+      }
+      return d;
+    }).catchError((Object e) {
+      _inflightDetails.remove(index);
+      throw e;
+    });
+    _inflightDetails[index] = future;
+    return future;
+  }
+
+  /// Fire-and-forget prefetch that also works before _active is set (e.g.
+  /// from initState). Shares its network request with every other caller via
+  /// [_detailFor], so prefetch + immediate play costs exactly one fetch.
   Future<void> _prefetchDetail(int index) async {
     // Allow prefetch before startPlaying() flips _active: the whole point is
     // warming the detail cache while the first frame is still building. Only
@@ -1050,23 +1109,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (!mounted || !_appInForeground) return;
     if (index < 0 || index >= _items.length) return;
     if (_detailCache.containsKey(index)) return;
-    if (_prefetchingIndex == index) return;
-    // Prefetch is fire-and-forget from initState; allow it even when
-    // _active is still false (player not started yet) so the first frame
-    // hits a warm detail cache instead of blocking on the network round-trip.
-    _prefetchingIndex = index;
-    final url = _items[index].url;
     try {
-      final d = await _fetchDetail(url);
-      // Only caches are touched here — safe before _active. Still bail out
-      // when the widget detached or the app went to background mid-fetch.
-      if (!mounted || !_appInForeground) return;
-      _detailCache[index] = d;
+      final d = await _detailFor(index);
+      // Only caches are touched here — safe before _active.
+      if (d.countryBlocked || d.unavailable) return;
       _prunePageState(_currentIndex);
     } catch (_) {
       // Ignore errors in prefetch
-    } finally {
-      if (_prefetchingIndex == index) _prefetchingIndex = null;
     }
   }
 
@@ -1373,8 +1422,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (mounted) setState(() {});
 
       // If slot 0 was consumed, shift any slot already holding index+1 into
-      // slot 0 so the buffered controller survives the reshuffle; then fill
-      // every slot uniformly.
+      // slot 0 so the buffered controller survives the reshuffle; then re-run
+      // the preload wave (details parallel, media sequential) for the window
+      // after the new current index.
       if (_preloadSlots.isNotEmpty &&
           _preloadSlots.first.index != index + 1) {
         for (var i = 1; i < _preloadSlots.length; i++) {
@@ -1384,9 +1434,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           }
         }
       }
-      for (var i = 0; i < _preloadSlots.length; i++) {
-        unawaited(_fillPreloadSlot(i, index + i + 1));
-      }
+      _restartPreloading();
 
       _trimPreloadState(index);
 
@@ -1419,13 +1467,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     VideoDetail detail;
     try {
-      if (_detailCache.containsKey(index)) {
-        detail = _detailCache[index]!;
-      } else {
-        detail = await _fetchDetail(item.url)
-            .timeout(const Duration(seconds: 8));
-        _detailCache[index] = detail;
-      }
+      // Shares the in-flight fetch with the initState/list prefetch — no
+      // duplicate request when play starts while a prefetch is running.
+      detail = await _detailFor(index).timeout(const Duration(seconds: 8));
     } catch (e) {
       if (!mounted || seq != _loadSeq) return;
       setState(() => _pageLoading = false);
@@ -1739,6 +1783,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _detailCache
       ..clear()
       ..addAll(rebased);
+    // In-flight fetches are keyed by the OLD indices; the URL guard inside
+    // _detailFor keeps them from committing to the wrong item, but drop the
+    // handles so awaiters are not re-sharing a stale entry.
+    _inflightDetails.clear();
     // Rebased indices invalidate frozen/preload slots keyed by old indices:
     // a stale alias could replay a trimmed-away item's stream under a new
     // item's title. Drop all slots; they re-arm on the next play/preload wave.

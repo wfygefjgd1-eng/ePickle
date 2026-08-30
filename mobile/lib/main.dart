@@ -1,3 +1,4 @@
+import 'dart:async' show Timer;
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -48,12 +49,19 @@ Future<void> main() async {
     // Probe every site's mirrors in the background so the first real request
     // of each card already knows the fastest domain (30-min TTL, failures
     // refresh immediately). Covers all ready catalog sites + user customs.
-    final allSites = <SiteDef>[
-      ...SourceCatalog.all.where((s) => s.ready),
-      ...layout.customSites.map((c) => c.site),
-    ];
-    // ignore: unawaited_futures
-    MirrorRanker.instance.warmup(sites: allSites);
+    //
+    // Deferred a few seconds past the first frame: probing HEADs the whole
+    // catalog and competes for bandwidth with the user's very first card
+    // open. Until it runs, requests ride the persisted per-session ranking,
+    // which is already good — the probe only refines it.
+    Timer(const Duration(seconds: 4), () {
+      final allSites = <SiteDef>[
+        ...SourceCatalog.all.where((s) => s.ready),
+        ...layout.customSites.map((c) => c.site),
+      ];
+      // ignore: unawaited_futures
+      MirrorRanker.instance.warmup(sites: allSites);
+    });
   });
 
   runApp(PlayerApp(

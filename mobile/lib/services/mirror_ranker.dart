@@ -219,8 +219,17 @@ class MirrorRanker {
 
   /// Background warm-up: probe every mirror whose site ranking is stale or
   /// has failures. Bounded to [probeConcurrency] concurrent HEADs TOTAL (not
-  /// per site) so launch never opens 4×N sockets next to the first feed load.
-  static const int probeConcurrency = 4;
+  /// per site) so launch never opens dozens of sockets next to the first feed
+  /// load. HEADs are tiny — 8-wide keeps a 35-mirror catalog to ~5 quick
+  /// batches instead of 9 slow ones.
+  static const int probeConcurrency = 8;
+
+  /// Connect budget for a probe. A mirror that cannot even answer a HEAD
+  /// within this window will never rank as the "fastest" domain, so spending
+  /// 6s+ waiting on it only stretches the whole warm-up (and the badge).
+  static const _probeConnectTimeout = Duration(milliseconds: 3500);
+  static const _probeReceiveTimeout = Duration(milliseconds: 5000);
+
   Future<void> warmup({List<SiteDef>? sites}) async {
     await load();
     final targets = (sites ?? const <SiteDef>[])
@@ -255,16 +264,16 @@ class MirrorRanker {
     final sw = Stopwatch()..start();
     try {
       final dio = _probeDio ??= AppHttpClient.create(
-        connectTimeout: const Duration(seconds: 6),
-        receiveTimeout: const Duration(seconds: 8),
+        connectTimeout: _probeConnectTimeout,
+        receiveTimeout: _probeReceiveTimeout,
       );
       final res = await dio.head(
         base,
         options: Options(
           // Any HTTP status means the host is reachable fast.
           validateStatus: (_) => true,
-          sendTimeout: const Duration(seconds: 6),
-          receiveTimeout: const Duration(seconds: 8),
+          sendTimeout: _probeConnectTimeout,
+          receiveTimeout: _probeReceiveTimeout,
         ),
       );
       final code = res.statusCode ?? 0;

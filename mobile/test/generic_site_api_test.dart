@@ -685,7 +685,8 @@ void main() {
     for (final id in [
       'pornhub',
       'xvideos',
-      'mitao',
+      // mitao 已按用户要求从卡片目录移除（2026-09），SiteDef 仍保留供
+      // 自定义解析器复用，但不得再出现在默认启用列表里。
       'xnxx',
       'xhamster',
       'tnaflix',
@@ -711,6 +712,13 @@ void main() {
       expect(SourceCatalog.byId(id), isNull, reason: '$id should be removed');
       expect(enabled, isNot(contains(id)));
     }
+    // mitao 的 SiteDef 仍在（自定义解析器复用），但绝不能出现在目录/默认列表。
+    expect(enabled, isNot(contains('mitao')));
+    expect(
+      SourceCatalog.all.where((s) => s.id == 'mitao'),
+      isEmpty,
+      reason: 'mitao should not be listed as a card',
+    );
     expect(SourceCatalog.defaultLiveId, 'chaturbate');
     expect(SourceCatalog.chaturbate.ready, isTrue);
     expect(SourceCatalog.stripchat.ready, isTrue);

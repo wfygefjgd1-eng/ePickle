@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../models/video_item.dart';
+import '../services/app_settings.dart';
 import '../services/feed_detail_cache.dart';
 import '../services/feed_list_cache.dart';
 import '../services/generic_site_api.dart';
@@ -288,40 +289,49 @@ class _HomePageState extends State<HomePage> {
                 onSearch: _onHomeSearch,
               ),
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                  children: [
-                    for (final s in sites)
-                      _SwipeSiteTile(
-                        site: s,
-                        onTap: () => _openSite(s),
-                        onDelete: () => _removeSite(s),
-                        subtitle: s.custom
-                            ? '用户添加'
-                            : (s.mirrors.length > 1
-                                  ? '${s.mirrors.length} 个域名'
-                                  : null),
-                      ),
-                    if (lives.isNotEmpty) ...[
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(4, 0, 4, 2),
-                        child: Text(
-                          '直播',
-                          style: TextStyle(color: Colors.white54, fontSize: 12),
-                        ),
-                      ),
-                      for (final s in lives)
+                // 探测结束（true→false）时重建一次，卡片据此刷新"域名异常"置灰。
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: MirrorRanker.instance.probing,
+                  builder: (context, _, __) => ListView(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                    children: [
+                      for (final s in sites)
                         _SwipeSiteTile(
                           site: s,
-                          swipeEnabled: false,
                           onTap: () => _openSite(s),
-                          onDelete: () {},
-                          subtitle: s.mirrors.length > 1
-                              ? '${s.mirrors.length} 个域名${s.id == live.id ? ' · 默认直播' : ''}'
-                              : (s.id == live.id ? '默认直播' : null),
+                          onDelete: () => _removeSite(s),
+                          subtitle: s.custom
+                              ? '用户添加'
+                              : (s.mirrors.length > 1
+                                    ? '${s.mirrors.length} 个域名'
+                                    : null),
+                          down: MirrorRanker.instance.isSiteDown(s),
+                          onLongPress: () => _showMirrorOverrideDialog(s),
                         ),
+                      if (lives.isNotEmpty) ...[
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(4, 0, 4, 2),
+                          child: Text(
+                            '直播',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        for (final s in lives)
+                          _SwipeSiteTile(
+                            site: s,
+                            swipeEnabled: false,
+                            onTap: () => _openSite(s),
+                            onDelete: () {},
+                            subtitle: s.mirrors.length > 1
+                                ? '${s.mirrors.length} 个域名${s.id == live.id ? ' · 默认直播' : ''}'
+                                : (s.id == live.id ? '默认直播' : null),
+                          ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ],
@@ -332,6 +342,95 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
+  }
+  /// 长按卡片手动更换站点域名（设置开关开启时才可用）。
+  /// 保存后走 MirrorRanker 持久化存储，重启仍生效；立即用于后续抓取。
+  Future<void> _showMirrorOverrideDialog(SiteDef site) async {
+    if (!mounted) return;
+    final settings = context.read<AppSettings>();
+    if (!settings.manualMirrorEnabled) return;
+    final ranker = MirrorRanker.instance;
+    final current = ranker.manualBase(site.id);
+    final ctrl = TextEditingController(text: current ?? '');
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: Text('更换 ${site.name} 域名',
+            style: const TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              current == null
+                  ? '输入一个新的域名（如 https://新域名.com），保存后立即生效并跨重启保留。'
+                  : '当前手动域名：$current',
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              decoration: const InputDecoration(
+                hintText: 'https://example.com',
+                hintStyle: TextStyle(color: Colors.white24),
+                filled: true,
+                fillColor: Color(0xFF1E1E1E),
+                isDense: true,
+                border: OutlineInputBorder(borderSide: BorderSide.none),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          if (current != null)
+            TextButton(
+              onPressed: () => Navigator.pop(dctx, false),
+              child: const Text('清除',
+                  style: TextStyle(color: Colors.white54)),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, null),
+            child: const Text('取消', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            child:
+                const Text('保存', style: TextStyle(color: Color(0xFFFF6B35))),
+          ),
+        ],
+      ),
+    );
+    if (saved == null) return;
+    if (!saved) {
+      await ranker.clearManualBasePersisted(site.id);
+      if (mounted) setState(() {});
+      return;
+    }
+    // 规范化：补 scheme、去结尾斜杠，必须能解析出 host。
+    var value = ctrl.text.trim();
+    if (value.isEmpty) return;
+    if (!value.startsWith('http://') && !value.startsWith('https://')) {
+      value = 'https://$value';
+    }
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.host.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('域名格式不对，请检查后重试'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+    final normalized = value.replaceAll(RegExp(r'/$'), '');
+    await ranker.setManualBasePersisted(site.id, normalized);
+    if (mounted) setState(() {});
   }
 }
 
@@ -414,6 +513,8 @@ class _SwipeSiteTile extends StatelessWidget {
     required this.onDelete,
     this.subtitle,
     this.swipeEnabled = true,
+    this.down = false,
+    this.onLongPress,
   });
 
   final SiteDef site;
@@ -421,12 +522,18 @@ class _SwipeSiteTile extends StatelessWidget {
   final VoidCallback onDelete;
   final String? subtitle;
   final bool swipeEnabled;
+  // 所有域名都在失败 streak：置灰展示，提示用户该站域名有问题。
+  final bool down;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
+    final effectiveSubtitle = down
+        ? '域名异常，长按卡片可更换域名'
+        : subtitle;
     final tile = RepaintBoundary(
       child: Card(
-        color: const Color(0xFF2A2A2A),
+        color: down ? const Color(0xFF161616) : const Color(0xFF2A2A2A),
         margin: const EdgeInsets.only(bottom: 6),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         child: SizedBox(
@@ -434,19 +541,37 @@ class _SwipeSiteTile extends StatelessWidget {
           child: Center(
             child: ListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-              leading: SiteLogo(site: site, size: 40),
+              leading: Opacity(
+                opacity: down ? 0.35 : 1.0,
+                child: SiteLogo(site: site, size: 40),
+              ),
               title: Text(
                 site.name,
-                style: const TextStyle(color: Colors.white, fontSize: 16),
+                style: TextStyle(
+                  color: down ? Colors.white54 : Colors.white,
+                  fontSize: 16,
+                ),
               ),
-              subtitle: subtitle == null
+              subtitle: effectiveSubtitle == null
                   ? null
                   : Text(
-                      subtitle!,
-                      style: const TextStyle(color: Colors.white38, fontSize: 12),
+                      effectiveSubtitle,
+                      style: TextStyle(
+                        color: down
+                            ? const Color(0xFFC69A55)
+                            : Colors.white38,
+                        fontSize: 12,
+                      ),
                     ),
-              trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+              trailing: down
+                  ? const Icon(
+                      Icons.cloud_off_outlined,
+                      color: Color(0xFFC69A55),
+                      size: 22,
+                    )
+                  : const Icon(Icons.chevron_right, color: Colors.white38),
               onTap: onTap,
+              onLongPress: onLongPress,
             ),
           ),
         ),

@@ -382,6 +382,22 @@ Future<void> showPlayerSettingsSheet(
                               ),
                             ),
                           ),
+                          SwitchListTile(
+                            title: const Text(
+                              '长按卡片更换域名',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            subtitle: const Text(
+                              '开启后长按主页卡片可手动输入新域名，重启后仍生效。',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
+                            ),
+                            activeThumbColor: const Color(0xFFFF6B35),
+                            value: settings.manualMirrorEnabled,
+                            onChanged: settings.setManualMirrorEnabled,
+                          ),
                           ListTile(
                             title: const Text(
                               '一键恢复频道',

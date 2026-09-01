@@ -50,11 +50,13 @@ Future<void> main() async {
     // of each card already knows the fastest domain (30-min TTL, failures
     // refresh immediately). Covers all ready catalog sites + user customs.
     //
-    // Deferred a few seconds past the first frame: probing HEADs the whole
-    // catalog and competes for bandwidth with the user's very first card
-    // open. Until it runs, requests ride the persisted per-session ranking,
-    // which is already good — the probe only refines it.
-    Timer(const Duration(seconds: 4), () {
+    // Starts 800ms after the first frame. Probe HEADs are tiny (headers only,
+    // a few bytes), and the home-page feed prewarm wave starts at ~1.5s, so
+    // firing at 0.8s gets the probe's connection setup (DNS + TLS) done
+    // BEFORE real content loads — the first real request then rides an
+    // already-warm socket instead of fighting the probe for bandwidth. The
+    // home badge (MirrorRanker.probing) shows progress while it runs.
+    Timer(const Duration(milliseconds: 800), () {
       final allSites = <SiteDef>[
         ...SourceCatalog.all.where((s) => s.ready),
         ...layout.customSites.map((c) => c.site),

@@ -60,6 +60,27 @@ class PhubApi {
   String get _base =>
       MirrorRanker.instance.preferredBase(SourceCatalog.pornhub);
 
+  /// 手动换域名（长按卡片）时，所有发往 PH 家域名的请求改写到该域名。
+  static const Set<String> _phFamilyHosts = {
+    'www.pornhub.com', 'pornhub.com', 'www.pornhub.org', 'pornhub.org',
+    'cn.pornhub.com', 'rt.pornhub.com', 'de.pornhub.com', 'fr.pornhub.com',
+  };
+
+  /// [url] 指向 PH 家域名且用户手动钉住了新域名时，返回改写到该域名后的
+  /// URL（保留 path 与 query）；其余情况（未钉域名 / 解析失败 / 非家域名）
+  /// 原样返回。
+  String _rewriteBase(String url) {
+    final override = MirrorRanker.instance.manualBase('pornhub');
+    if (override == null || override.isEmpty) return url;
+    final uri = Uri.tryParse(url);
+    if (uri == null || !_phFamilyHosts.contains(uri.host.toLowerCase())) {
+      return url;
+    }
+    final base = override.replaceAll(RegExp(r'/$'), '');
+    final query = uri.hasQuery && uri.query.isNotEmpty ? '?${uri.query}' : '';
+    return '$base${uri.path}$query';
+  }
+
   /// Swap in a fresh cancel token, then cancel the old one. New requests
   /// read [_cancelToken] after the swap (so they are never cancelled by this
   /// call) while in-flight ones hold the old token and abort.
@@ -160,6 +181,9 @@ class PhubApi {
   }
 
   Future<String> _getHtml(String url) async {
+    // 手动换域名：发往 PH 家域名的请求先改写到用户钉住的域名。未钉域名时
+    // rewritten 与 url 相同，以下行为完全不变。
+    final rewritten = _rewriteBase(url);
     // Failover ladder: fastest-ranked mirror first, then the next mirrors —
     // every mirror stays in play. Each attempt gets its own 10s budget, the
     // ladder as a whole is bounded so a dead top mirror can't hold a request
@@ -177,8 +201,12 @@ class PhubApi {
       final budget = DateTime.now().difference(ladderStarted) +
           _singleRequestTimeout;
       if (budget > const Duration(seconds: 24)) break;
-      final attemptUrl =
-          url.startsWith(_primaryHost) ? '$base${url.substring(_primaryHost.length)}' : url;
+      // 主域名 URL 仍按候选 base 逐个改写（手动钉住的域名由 rankedMirrors
+      // 排在首位，天然先试）；其余 PH 家域名（cn/rt/de/…）用改写后的
+      // rewritten 原样尝试，保证钉住的域名一定被命中。
+      final attemptUrl = url.startsWith(_primaryHost)
+          ? '$base${url.substring(_primaryHost.length)}'
+          : rewritten;
       final watch = Stopwatch()..start();
       try {
         final html = await _getHtmlOnce(attemptUrl);

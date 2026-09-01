@@ -40,9 +40,9 @@ class MirrorRanker {
   Timer? _persistTimer;
   Future<void> _persistTail = Future.value();
 
-  /// Session-scoped manual base override per site (long-press on a card).
-  /// In-memory only, never persisted: once the OS kills the app the next
-  /// launch falls back to the fastest auto-ranked mirror.
+  /// Manual base override per site (long-press on a card). Persisted per
+  /// platform under [manualStorageKeyFor] so a pinned domain survives app
+  /// restarts; the session map is the source of truth while running.
   final Map<String, String> _manualBase = {};
 
   /// Pin [base] for [siteId] for the rest of this app session. Ignored later
@@ -57,6 +57,59 @@ class MirrorRanker {
   /// The session override for [siteId], if any (no trailing slash).
   String? manualBase(String siteId) => _manualBase[siteId];
 
+  /// True when every mirror of [site] (含手动新增域名) has stats and ALL are
+  /// in a failure streak — i.e. nothing answered. 没有任何数据的站点不算
+  /// down（unknown ≠ dead），避免误伤。
+  bool isSiteDown(SiteDef site) {
+    final stats = _bySite[site.id];
+    if (stats == null || stats.isEmpty) return false;
+    final mirrors = <String>[
+      ...site.mirrors,
+      // 手动覆盖域名健康时不算 down，即使目录镜像全挂。
+      if (manualBase(site.id) != null &&
+          !site.mirrors.any((m) =>
+              m.replaceAll(RegExp(r'/$'), '') == manualBase(site.id)))
+        manualBase(site.id)!,
+    ];
+    if (mirrors.isEmpty) return false;
+    for (final raw in mirrors) {
+      final st = stats[raw.replaceAll(RegExp(r'/$'), '')];
+      if (st == null) return false;
+      if (st.failStreak == 0) return false;
+    }
+    return true;
+  }
+
+  /// Pin [base] for [siteId] AND persist it so it survives an app restart.
+  /// Best-effort: storage failures are swallowed, the session pin still holds.
+  Future<void> setManualBasePersisted(String siteId, String base) async {
+    setManualBase(siteId, base);
+    await _persistManualBases();
+  }
+
+  /// Drop the override for [siteId] AND persist the removal.
+  Future<void> clearManualBasePersisted(String siteId) async {
+    clearManualBase(siteId);
+    await _persistManualBases();
+  }
+
+  /// Write the whole current override map as JSON under
+  /// [manualStorageKeyFor] (empty map → key removed). Best-effort, same
+  /// swallow-failures style as [_flushPersist].
+  Future<void> _persistManualBases() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final key = manualStorageKeyFor(_platform);
+      if (_manualBase.isEmpty) {
+        await p.remove(key);
+      } else {
+        await p.setString(key, jsonEncode(_manualBase));
+      }
+    } catch (_) {
+      // Unreadable/full prefs — keep the session override, skip persistence.
+    }
+  }
+
   /// UI indicator: true while a warmup probe run is actually probing domains,
   /// false once it finishes (or nothing needed probing). The home screen shows
   /// a small top-left badge on this so the user can see the check conclude.
@@ -64,6 +117,13 @@ class MirrorRanker {
 
   @visibleForTesting
   static String storageKeyFor(String platform) => 'mirror_rank_v1_$platform';
+
+  /// Prefs key for persisted manual base overrides (siteId → base). The
+  /// `mirror_rank_v1_` prefix MUST be kept: the Android privacy wipe only
+  /// preserves keys carrying it.
+  @visibleForTesting
+  static String manualStorageKeyFor(String platform) =>
+      'mirror_rank_v1_manual_$platform';
 
   String get _platform =>
       defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
@@ -81,6 +141,23 @@ class MirrorRanker {
   Future<void> _load() async {
     try {
       final p = await SharedPreferences.getInstance();
+      // Seed persisted manual base overrides BEFORE the rankings early-return
+      // so a pin survives even when no ranking data exists yet. Entries
+      // already set in-session (a re-pin while this read was in flight) win.
+      final manualRaw = p.getString(manualStorageKeyFor(_platform));
+      if (manualRaw != null && manualRaw.isNotEmpty) {
+        final decodedManual = jsonDecode(manualRaw);
+        if (decodedManual is Map) {
+          decodedManual.forEach((siteId, base) {
+            if (siteId is! String || base is! String) return;
+            if (base.trim().isEmpty) return;
+            _manualBase.putIfAbsent(
+              siteId,
+              () => base.replaceAll(RegExp(r'/$'), ''),
+            );
+          });
+        }
+      }
       final raw = p.getString(storageKeyFor(_platform));
       if (raw == null || raw.isEmpty) return;
       final decoded = jsonDecode(raw);
@@ -129,9 +206,9 @@ class MirrorRanker {
         break;
       }
     }
-    // The base no longer exists for this site (mirror list changed since the
-    // pick): silently fall back to auto-ranking instead of pinning a dead host.
-    if (override == null) return ranked;
+    // 用户手动新增的域名可能不在目录镜像里 —— 照样放到最前面参与抓取，
+    // 而不是忽略（换域名的意义就是指向目录外的新主机）。
+    if (override == null) return [normalized, ...ranked];
     return [
       override,
       ...ranked.where((b) => b != override),
@@ -238,16 +315,31 @@ class MirrorRanker {
     if (targets.isEmpty || probing.value) return;
     probing.value = true;
     try {
+      // Interleave ROUND-ROBIN ACROSS SITES: wave 0 probes the first mirror
+      // of every target, wave 1 the second mirror of every site that has
+      // one, and so on. A site-first traversal would burst all ~6 mirrors of
+      // one host family at once (rate-limit bait); round-robin spreads each
+      // wave across different host families. The total concurrency gate
+      // stays exactly [probeConcurrency].
+      final queues = <List<String>>[
+        for (final site in targets)
+          [for (final raw in site.mirrors) if (raw.trim().isNotEmpty) raw],
+      ];
       final gate = <Future<void>>[];
-      for (final site in targets) {
-        for (final raw in site.mirrors) {
-          if (raw.trim().isEmpty) continue;
+      var wave = 0;
+      var more = true;
+      while (more) {
+        more = false;
+        for (var i = 0; i < queues.length; i++) {
+          if (wave >= queues[i].length) continue;
+          more = true;
           if (gate.length >= probeConcurrency) {
             await Future.wait(gate);
             gate.clear();
           }
-          gate.add(_probeOne(site.id, raw));
+          gate.add(_probeOne(targets[i].id, queues[i][wave]));
         }
+        wave++;
       }
       await Future.wait(gate);
     } finally {

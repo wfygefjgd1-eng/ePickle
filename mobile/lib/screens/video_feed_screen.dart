@@ -97,6 +97,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _lifecycleEpoch = 0;
   String? _error;
   String _titleText = '';
+
+  /// Set while [MirrorRanker.instance.probing] is true; when the probe run
+  /// concludes and the feed is still stuck on a load error, one retry of the
+  /// feed load is fired (see [_onMirrorProbeChanged]).
+  bool _probeRetryArmed = false;
   final ValueNotifier<String> _speedLabel = ValueNotifier<String>('');
 
   Timer? _progressTimer;
@@ -297,6 +302,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _autoRotate!.enabled = _settings!.autoRotate;
     _autoRotate!.listening = false;
     _settings!.addListener(_onSettingsChanged);
+    // The background mirror probe can discover a reachable mirror after the
+    // first feed load already failed — retry once when it concludes.
+    MirrorRanker.instance.probing.addListener(_onMirrorProbeChanged);
     if (widget.autoStart) {
       // Fire-and-forget prefetch for the first item so _playIndex hits a warm
       // detail cache and the player initialize is the only serial cost on
@@ -318,6 +326,29 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final s = _settings;
     if (!mounted || s == null) return;
     _autoRotate?.enabled = s.autoRotate;
+  }
+
+  /// Mirror-probe follow-up: while the probe run is in flight we only arm a
+  /// flag; when it flips false (probe concluded) and the feed is still sitting
+  /// on a failed first load, retry the load once through the same [_loadMore]
+  /// path the UI's retry button uses. A probe that finds a reachable mirror
+  /// makes exactly this one retry succeed without user interaction.
+  void _onMirrorProbeChanged() {
+    if (MirrorRanker.instance.probing.value) {
+      _probeRetryArmed = true;
+      return;
+    }
+    if (!_probeRetryArmed) return;
+    _probeRetryArmed = false;
+    if (mounted &&
+        _canRun &&
+        _appInForeground &&
+        _items.isEmpty &&
+        _error != null &&
+        !_loading &&
+        !_loadingMore) {
+      unawaited(_loadMore());
+    }
   }
 
   @override
@@ -423,6 +454,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _detailCache.clear();
     }
     _settings?.removeListener(_onSettingsChanged);
+    MirrorRanker.instance.probing.removeListener(_onMirrorProbeChanged);
     _settings = null;
     _autoRotate?.dispose();
     _autoRotate = null;

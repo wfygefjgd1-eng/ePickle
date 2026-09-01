@@ -26,6 +26,7 @@ class AppSettings extends ChangeNotifier {
   static const _kAutoRotate = 'auto_rotate_landscape';
   static const _kAutoLowerOnStall = 'auto_lower_on_stall';
   static const _kHuangguoDomain = 'huangguo_domain_v1';
+  static const _kManualMirror = 'manual_mirror_override_enabled';
 
   bool _skipIntro = true;
   bool _muted = false;
@@ -38,6 +39,7 @@ class AppSettings extends ChangeNotifier {
   bool _autoRotate = true;
   bool _autoLowerOnStall = true;
   bool _showFastForwardButton = true;
+  bool _manualMirrorEnabled = false;
 
   /// 跳过片头按档位规则（可配置，折叠在“跳过片头”里）：
   /// 视频时长 ≥ 对应档位阈值（秒）时跳过该档秒数，取满足的最大档；
@@ -68,6 +70,9 @@ class AppSettings extends ChangeNotifier {
   bool get autoLowerOnStall => _autoLowerOnStall;
   bool get showFastForwardButton => _showFastForwardButton;
   String get huangguoDomain => _huangguoDomain;
+
+  /// 长按首页卡片手动更换站点域名的功能开关（默认关）。
+  bool get manualMirrorEnabled => _manualMirrorEnabled;
 
   int get skipIntroMinSec => _skipIntroMinSec;
 
@@ -102,6 +107,7 @@ class AppSettings extends ChangeNotifier {
       _autoRotate = p.getBool(_kAutoRotate) ?? true;
       _autoLowerOnStall = p.getBool(_kAutoLowerOnStall) ?? true;
       _showFastForwardButton = p.getBool(_kShowFastForwardButton) ?? true;
+      _manualMirrorEnabled = p.getBool(_kManualMirror) ?? false;
       _skipIntroMinSec =
           (p.getInt(_kSkipIntroMinSec) ?? 45).clamp(5, 7200);
       _skipTier1At = (p.getInt(_kSkipTier1At) ?? 100).clamp(1, 7200);
@@ -147,6 +153,10 @@ class AppSettings extends ChangeNotifier {
   Future<void> setAutoLowerOnStall(bool v) =>
       _setBool(_kAutoLowerOnStall, v,
           current: _autoLowerOnStall, apply: (n) => _autoLowerOnStall = n);
+
+  Future<void> setManualMirrorEnabled(bool v) =>
+      _setBool(_kManualMirror, v,
+          current: _manualMirrorEnabled, apply: (n) => _manualMirrorEnabled = n);
 
   /// 设置黄果规则主域名（自动补全 https:// 并去掉结尾斜杠）。
   Future<void> setHuangguoDomain(String v) async {

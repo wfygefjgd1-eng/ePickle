@@ -1072,7 +1072,8 @@ class SourceCatalog {
   static const all = <SiteDef>[
     pornhub,
     xvideos,
-    mitao,
+    // mitao 已按用户要求从卡片列表移除（2026-09）：SiteDef 保留供
+    // customFromUrl 的 'mitao' 解析器复用，但不再出现在任何卡片里。
     huangguo,
     xnxx,
     xhamster,

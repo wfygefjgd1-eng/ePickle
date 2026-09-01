@@ -107,8 +107,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final deltaX = details.globalPosition.dx - _dragStartX!;
     final screenWidth = MediaQuery.of(context).size.width;
 
-    // 拖动映射：拖动 1/6 屏幕宽度 = 60 秒。
-    final secondsPerScreenWidth = 360.0; // 全屏宽度 = 6 分钟
+    // 拖动映射：拖动 1/6 屏幕宽度 = 40 秒（整屏 = 4 分钟）。比旧的
+    // 整屏 6 分钟小 1/3，短滑不会跳得太远。
+    final secondsPerScreenWidth = 240.0;
     final deltaSec = (deltaX / screenWidth * secondsPerScreenWidth).round();
 
     final newPos = _dragStartPosition! + Duration(seconds: deltaSec);
@@ -384,16 +385,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         GestureDetector(
           onTap: _onTapScreen,
           onDoubleTap: _onDoubleTapScreen,
-          // 横屏手势进度预览仅在全屏/横屏启用：竖屏横向滑动不应触发
-          // “±Ns →” 预览覆盖在视频上。
-          onHorizontalDragStart: widget.immersive ? _onHorizontalDragStart : null,
-          onHorizontalDragUpdate: widget.immersive
-              ? _onHorizontalDragUpdate
-              : null,
-          onHorizontalDragEnd: widget.immersive ? _onHorizontalDragEnd : null,
-          onHorizontalDragCancel: widget.immersive
-              ? _onHorizontalDragCancel
-              : null,
+          // 左右滑动快进/快退（全屏 + 竖屏都启用）：竖屏翻页是纵向
+          // PageView，横向手势与其无冲突。幅度已调小（整屏 = 4 分钟）。
+          onHorizontalDragStart: _onHorizontalDragStart,
+          onHorizontalDragUpdate: _onHorizontalDragUpdate,
+          onHorizontalDragEnd: _onHorizontalDragEnd,
+          onHorizontalDragCancel: _onHorizontalDragCancel,
           child: _buildVideoSurface(),
         ),
         // 横屏手势进度预览

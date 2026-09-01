@@ -424,8 +424,17 @@ class GenericSiteApi {
   }
 
   List<String> _mirrorsFor(SiteDef site) {
-    if (site.mirrors.isNotEmpty) return List<String>.from(site.mirrors);
-    return [site.primaryHost];
+    final mirrors = site.mirrors.isNotEmpty
+        ? List<String>.from(site.mirrors)
+        : <String>[site.primaryHost];
+    // 用户长按卡片手动新增的域名：不在目录镜像里也要参与抓取（放最前，
+    // 用户明确指定的优先）。已存在时不动，顺序交给排名。
+    final manual = MirrorRanker.instance.manualBase(site.id);
+    if (manual != null &&
+        !mirrors.any((m) => m.replaceAll(RegExp(r'/$'), '') == manual)) {
+      mirrors.insert(0, manual);
+    }
+    return mirrors;
   }
 
   /// Best-effort index of [baseRaw] within the site's mirror list, normalizing
@@ -2421,7 +2430,10 @@ class GenericSiteApi {
           if (tagId == 'mature') (b) => '$b/categories/mature/$p',
           if (tagId == 'cartoon') (b) => '$b/categories/cartoon/$p',
           if (tagId == 'best') (b) => '$b/best/$p',
-          if (tagId == 'hot') (b) => '$b/hottest/$p',
+          // /hottest 已下线（404 → 整条链路原生重试耗尽预算 → "列表解析
+          // 超时"）。首页即当前的热门列表且支持 ?page= 翻页（实测 200 且
+          // 含视频卡片），直接用它当 hot。
+          if (tagId == 'hot') (b) => '$b/?page=$p',
           (b) => '$b/categories/$tagId/$p',
           (b) => '$b/?page=$p',
         ];

@@ -39,6 +39,27 @@ class XvideosApi {
   /// Fastest mirror base for xvideos (persistent cross-session ranking).
   String get _base => MirrorRanker.instance.preferredBase(SourceCatalog.xvideos);
 
+  /// 手动换域名（长按卡片）时，所有发往 XV 家域名的请求改写到该域名。
+  static const Set<String> _xvFamilyHosts = {
+    'www.xvideos.com', 'xvideos.com', 'www.xvideos.es', 'xvideos.es',
+    'www.xvideos.net', 'xvideos.net',
+  };
+
+  /// [url] 指向 XV 家域名且用户手动钉住了新域名时，返回改写到该域名后的
+  /// URL（保留 path 与 query）；其余情况（未钉域名 / 解析失败 / 非家域名）
+  /// 原样返回。
+  String _rewriteBase(String url) {
+    final override = MirrorRanker.instance.manualBase('xvideos');
+    if (override == null || override.isEmpty) return url;
+    final uri = Uri.tryParse(url);
+    if (uri == null || !_xvFamilyHosts.contains(uri.host.toLowerCase())) {
+      return url;
+    }
+    final base = override.replaceAll(RegExp(r'/$'), '');
+    final query = uri.hasQuery && uri.query.isNotEmpty ? '?${uri.query}' : '';
+    return '$base${uri.path}$query';
+  }
+
   final Dio _dio;
   CancelToken _cancelToken;
 
@@ -49,6 +70,9 @@ class XvideosApi {
   }
 
   Future<String> _getHtml(String url) async {
+    // 手动换域名：发往 XV 家域名的请求先改写到用户钉住的域名（未钉时原样
+    // 返回），统计/计费按改写后的真实目标域名记录。
+    url = _rewriteBase(url);
     // Record live outcomes into the ranker so a dead top mirror sinks instead
     // of being re-chosen on every request; cancellations (another mirror won a
     // race elsewhere) never count as failures.

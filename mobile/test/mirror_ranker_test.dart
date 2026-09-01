@@ -146,8 +146,8 @@ void main() {
     await ranker.persistNow();
   });
 
-  test('session manual base override jumps to the front and survives reset '
-      'only until cleared', () async {
+  test('session manual base override jumps to the front — even a brand-new '
+      'domain outside the catalog — until cleared', () async {
     final ranker = MirrorRanker.instance;
     await ranker.load();
 
@@ -168,10 +168,16 @@ void main() {
     expect(ranker.manualBase('pornhub'), rt);
     expect(ranker.rankedMirrors(SourceCatalog.pornhub).first, rt);
 
-    // Unknown base (mirror list changed) is ignored -> auto ranking restored.
+    // Unknown base (user pinned a brand-new domain outside the catalog) is
+    // KEPT now: it is prepended ahead of the catalog mirrors — the whole
+    // point of pinning is to point at a new host the catalog doesn't know.
     ranker.setManualBase('pornhub', 'https://gone.example.com');
     expect(
-      ranker.rankedMirrors(SourceCatalog.pornhub),
+      ranker.rankedMirrors(SourceCatalog.pornhub).first,
+      'https://gone.example.com',
+    );
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub).skip(1),
       SourceCatalog.pornhub.mirrors,
     );
 
@@ -192,6 +198,40 @@ void main() {
     ranker.reset();
     await ranker.load();
 
+    expect(ranker.manualBase('pornhub'), isNull);
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub),
+      SourceCatalog.pornhub.mirrors,
+    );
+  });
+
+  test('setManualBasePersisted pins the new domain (also across a restart) '
+      'and clearManualBasePersisted restores catalog order', () async {
+    final ranker = MirrorRanker.instance;
+    await ranker.load();
+
+    await ranker.setManualBasePersisted('pornhub', 'https://new.example.com');
+    expect(ranker.manualBase('pornhub'), 'https://new.example.com');
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub).first,
+      'https://new.example.com',
+    );
+    // Catalog mirrors keep their (unranked) order behind the pinned domain.
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub).skip(1),
+      SourceCatalog.pornhub.mirrors,
+    );
+
+    // Persisted: a fresh reset + load (app restart) re-seeds the pin.
+    ranker.reset();
+    await ranker.load();
+    expect(ranker.manualBase('pornhub'), 'https://new.example.com');
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub).first,
+      'https://new.example.com',
+    );
+
+    await ranker.clearManualBasePersisted('pornhub');
     expect(ranker.manualBase('pornhub'), isNull);
     expect(
       ranker.rankedMirrors(SourceCatalog.pornhub),

@@ -355,7 +355,7 @@ class MirrorRanker {
     //   re-probed (real fetch outcomes keep their stats fresh) — re-probing
     //   the whole catalog each cycle was the "测速啰嗦" that delayed the
     //   badge and stole bandwidth from real content;
-    // - unknown / failing mirrors follow, capped at [_maxProbesPerSite] per
+    // - unknown / failing mirrors follow, capped at [maxProbesPerSite] per
     //   site so a cold start cannot sprawl.
     final queues = <List<String>>[];
     for (final site in targets) {
@@ -416,8 +416,8 @@ class MirrorRanker {
   ///
   /// A HEAD 4xx/5xx is followed by ONE confirming GET: a CF-fronted real
   /// site serves the GET fine, while a parked/expired domain keeps answering
-  /// 4xx — the loser keeps its "alive" status but takes a ranking penalty
-  /// ([_blockedStatusPenaltyMs]) so it can no longer win the first round on
+  /// 4xx — the loser stays "alive" but drops to the blocked tier
+  /// ([_blockedTier]) so it can no longer win the first round on
   /// raw HEAD latency and send the player to a domain that cannot play.
   Future<void> _probeOne(String siteId, String raw) async {
     final base = raw.replaceAll(RegExp(r'/$'), '');

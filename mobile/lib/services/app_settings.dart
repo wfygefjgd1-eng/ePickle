@@ -27,6 +27,7 @@ class AppSettings extends ChangeNotifier {
   static const _kAutoLowerOnStall = 'auto_lower_on_stall';
   static const _kHuangguoDomain = 'huangguo_domain_v1';
   static const _kManualMirror = 'manual_mirror_override_enabled';
+  static const _kAggressivePrewarm = 'aggressive_prewarm_enabled';
 
   bool _skipIntro = true;
   bool _muted = false;
@@ -40,6 +41,7 @@ class AppSettings extends ChangeNotifier {
   bool _autoLowerOnStall = true;
   bool _showFastForwardButton = true;
   bool _manualMirrorEnabled = false;
+  bool _aggressivePrewarm = false;
 
   /// 跳过片头按档位规则（可配置，折叠在“跳过片头”里）：
   /// 视频时长 ≥ 对应档位阈值（秒）时跳过该档秒数，取满足的最大档；
@@ -73,6 +75,11 @@ class AppSettings extends ChangeNotifier {
 
   /// 长按首页卡片手动更换站点域名的功能开关（默认关）。
   bool get manualMirrorEnabled => _manualMirrorEnabled;
+
+  /// 激进预加载（默认关）：首页空闲时并行预热全部站点卡片的首个视频
+  /// （列表 + 详情 + 前 2 个站点再预初始化解码器）。耗流量耗电，换取
+  /// 点开卡片近乎秒播。
+  bool get aggressivePrewarm => _aggressivePrewarm;
 
   int get skipIntroMinSec => _skipIntroMinSec;
 
@@ -108,6 +115,7 @@ class AppSettings extends ChangeNotifier {
       _autoLowerOnStall = p.getBool(_kAutoLowerOnStall) ?? true;
       _showFastForwardButton = p.getBool(_kShowFastForwardButton) ?? true;
       _manualMirrorEnabled = p.getBool(_kManualMirror) ?? false;
+      _aggressivePrewarm = p.getBool(_kAggressivePrewarm) ?? false;
       _skipIntroMinSec =
           (p.getInt(_kSkipIntroMinSec) ?? 45).clamp(5, 7200);
       _skipTier1At = (p.getInt(_kSkipTier1At) ?? 100).clamp(1, 7200);
@@ -157,6 +165,10 @@ class AppSettings extends ChangeNotifier {
   Future<void> setManualMirrorEnabled(bool v) =>
       _setBool(_kManualMirror, v,
           current: _manualMirrorEnabled, apply: (n) => _manualMirrorEnabled = n);
+
+  Future<void> setAggressivePrewarm(bool v) =>
+      _setBool(_kAggressivePrewarm, v,
+          current: _aggressivePrewarm, apply: (n) => _aggressivePrewarm = n);
 
   /// 设置黄果规则主域名（自动补全 https:// 并去掉结尾斜杠）。
   Future<void> setHuangguoDomain(String v) async {

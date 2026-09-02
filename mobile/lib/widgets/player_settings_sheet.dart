@@ -398,6 +398,23 @@ Future<void> showPlayerSettingsSheet(
                             value: settings.manualMirrorEnabled,
                             onChanged: settings.setManualMirrorEnabled,
                           ),
+                          SwitchListTile(
+                            title: const Text(
+                              '激进预加载（实验）',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            subtitle: const Text(
+                              '默认关。开启后首页并行预热全部站点卡片的首个视频（含解码器预缓冲），点开卡片近乎秒播。耗流量耗电、发热明显；仅排最前的 2 个站点做解码器预缓冲。',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
+                            ),
+                            isThreeLine: true,
+                            activeThumbColor: const Color(0xFFFF6B35),
+                            value: settings.aggressivePrewarm,
+                            onChanged: settings.setAggressivePrewarm,
+                          ),
                           ListTile(
                             title: const Text(
                               '一键恢复频道',

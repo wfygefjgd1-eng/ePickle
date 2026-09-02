@@ -23,6 +23,7 @@ import '../services/cache_manager.dart';
 import '../services/feed_detail_cache.dart';
 import '../services/feed_list_cache.dart';
 import '../services/mirror_ranker.dart';
+import '../services/media_prewarm.dart';
 import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
 import '../services/watch_history.dart';
@@ -271,14 +272,24 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _muted = context.read<AppSettings>().muted;
     final genericVideoSite = widget.site != null &&
         SourceCatalog.usesRandomizedGenericFeed(widget.site!);
-    if (genericVideoSite) {
+    final hasInitialItems = widget.initialItems.isNotEmpty;
+    // 激进预加载会为随机页站点暂存一个"计划页"快照（页码由预热随机选好，
+    // 每次运行都不同）：消费它既保住随机性，又让首条视频是热的。没有计划
+    // 页快照时维持原状 —— 清缓存随机起页；普通快照（无页码）不能吃，否则
+    // 随机页会退化成固定第一页。
+    final stagedSnap = hasInitialItems || !genericVideoSite
+        ? null
+        : FeedListCache.take(_cacheKey);
+    final stagedUsable = stagedSnap != null &&
+        stagedSnap.items.isNotEmpty &&
+        stagedSnap.sourcePage != null;
+    if (genericVideoSite && !stagedUsable) {
       // Native sources already randomize pages internally. Generic sites used
       // to always start at page 1 and restore the same cached list, making
       // every visit look identical.
       _genericPage = 1 + Random().nextInt(10);
       FeedListCache.clear(_cacheKey);
     }
-    final hasInitialItems = widget.initialItems.isNotEmpty;
     if (hasInitialItems) {
       _items.addAll(widget.initialItems);
       _seen.addAll(widget.initialItems.map((item) => item.viewkey));
@@ -286,15 +297,25 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _loading = false;
       _genericPage = 2;
     }
-    final snap = hasInitialItems || genericVideoSite
+    final snap = hasInitialItems
         ? null
-        : FeedListCache.take(_cacheKey);
+        : (stagedUsable
+            ? stagedSnap
+            : (genericVideoSite ? null : FeedListCache.take(_cacheKey)));
     if (!hasInitialItems && snap != null && snap.items.isNotEmpty) {
       _items.addAll(snap.items);
       _seen.addAll(snap.seen);
       _currentIndex = snap.index.clamp(0, _items.length - 1);
       _loading = false;
-      _genericPage = ((_items.length + 29) ~/ 30) + 1;
+      // 计划页快照：续抓从暂存页的下一页开始；普通快照沿用按条数推页。
+      _genericPage = (genericVideoSite && snap.sourcePage != null)
+          ? snap.sourcePage! + 1
+          : ((_items.length + 29) ~/ 30) + 1;
+      if (stagedUsable) {
+        // 消费即清：计划页只服务本次进入；退出后本页会以普通快照（无页码）
+        // 写回，下次进入随机页站点照旧重新随机，会话内不重放同一列表。
+        FeedListCache.clear(_cacheKey);
+      }
     }
     _pageCtrl = PageController(initialPage: _currentIndex);
     _autoRotate = AutoRotateController(onAction: _onAutoRotate);
@@ -1575,6 +1596,20 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     VideoPlayerController? player;
     StreamQuality? stream;
+    // 激进预加载接洽：该条目首候选流若已有预热好的解码器（整条"详情→选流
+    // →解码器初始化"链已在首页空闲时完成），直接收编跳过 initialize；条目
+    // 或流不匹配则 take() 返回 null，走原有冷启动路径，互不影响。
+    if (candidates.isNotEmpty) {
+      final adopted = MediaPrewarm.instance.take(item.url, candidates.first.url);
+      if (adopted != null) {
+        if (adopted.value.isInitialized) {
+          player = adopted;
+          stream = candidates.first;
+        } else {
+          await adopted.dispose().catchError((_) {});
+        }
+      }
+    }
     final playerDeadline = DateTime.now().add(const Duration(seconds: 14));
     // Try at most the top-2 candidates. The first is preferred (sorted by
     // quality); the second is a safety net for either (a) the first stream

@@ -28,11 +28,18 @@ class FeedListSnapshot {
     required this.items,
     required this.seen,
     required this.index,
+    this.sourcePage,
   });
 
   final List<VideoItem> items;
   final Set<String> seen;
   final int index;
+
+  /// 随机页信息流（激进预加载暂存的"计划页"快照）：[items] 实际来自第
+  /// [sourcePage] 页，信息流续抓从 sourcePage+1 开始。普通快照为 null
+  /// （沿用按条数推页的规则），随机页信息流遇到 null 依旧清缓存走随机页，
+  /// 保持原有的随机性。
+  final int? sourcePage;
 
   /// Keep a window around [index]; rebuild [seen] for retained items.
   FeedListSnapshot capped(int max) {
@@ -42,6 +49,7 @@ class FeedListSnapshot {
         items: List<VideoItem>.from(items),
         seen: Set<String>.from(seen),
         index: i,
+        sourcePage: sourcePage,
       );
     }
     final i = index.clamp(0, items.length - 1);
@@ -58,6 +66,7 @@ class FeedListSnapshot {
       items: slice,
       seen: newSeen,
       index: newIndex,
+      sourcePage: sourcePage,
     );
   }
 }

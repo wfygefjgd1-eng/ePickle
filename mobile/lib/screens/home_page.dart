@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -10,6 +11,7 @@ import '../services/feed_detail_cache.dart';
 import '../services/feed_list_cache.dart';
 import '../services/generic_site_api.dart';
 import '../services/layout_settings.dart';
+import '../services/media_prewarm.dart';
 import '../services/mirror_ranker.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
@@ -35,23 +37,48 @@ class _HomePageState extends State<HomePage> {
   final _focusNode = FocusNode();
   String _versionLabel = '';
   bool _prewarmStarted = false;
+  bool _lastAggressive = false;
+  AppSettings? _settings;
   Timer? _prewarmTimer;
 
   @override
   void initState() {
     super.initState();
     _prewarmStarted = false;
-    _loadVersion();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _settings = context.read<AppSettings>();
+    _lastAggressive = _settings!.aggressivePrewarm;
+    _settings!.addListener(_onAppSettingsChanged);
+    _loadVersion();    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       // Starts DURING the background domain probe (which fires at ~800ms),
       // not after it: the prewarm is light (2 site cards → list + first two
       // details each) and the probe now measures far fewer domains, so the
-      // two waves share the pipe instead of queueing behind it.
+      // two waves share the pipe instead of queueing behind it. With 激进
+      // 预加载 enabled the scope widens (all site cards, first video each).
       _prewarmTimer = Timer(const Duration(milliseconds: 600), () {
         if (mounted) unawaited(_prewarmHomeFeeds());
       });
     });
+  }
+
+  /// 激进预加载开关在设置里被切换：开 → 清掉普通预热暂存的快照，立即按
+  /// 激进范围重跑（随机页站点才能拿到计划页）；关 → 释放全部预热解码器。
+  void _onAppSettingsChanged() {
+    final s = _settings;
+    if (!mounted || s == null) return;
+    if (s.aggressivePrewarm == _lastAggressive) return;
+    _lastAggressive = s.aggressivePrewarm;
+    if (s.aggressivePrewarm) {
+      final layout = context.read<LayoutSettings>();
+      for (final site in layout.enabledVideoSites) {
+        if (site.tags.isEmpty) continue;
+        FeedListCache.clear('${site.id}_${site.tags.first.id}');
+      }
+      _prewarmStarted = false;
+      unawaited(_prewarmHomeFeeds());
+    } else {
+      MediaPrewarm.instance.setEnabled(false);
+    }
   }
 
   Future<void> _loadVersion() async {
@@ -68,6 +95,8 @@ class _HomePageState extends State<HomePage> {
     _prewarmTimer?.cancel();
     _prewarmTimer = null;
     _prewarmStarted = false;
+    _settings?.removeListener(_onAppSettingsChanged);
+    _settings = null;
     _searchCtrl.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -140,21 +169,36 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     _prewarmStarted = true;
-    final sites = context
+    final settings = _settings ?? context.read<AppSettings>();
+    final aggressive = settings.aggressivePrewarm;
+    MediaPrewarm.instance.setEnabled(aggressive);
+    final allVideoSites = context
         .read<LayoutSettings>()
         .enabledVideoSites
         .where((s) => s.ready && s.tags.isNotEmpty)
-        .take(2)
         .toList(growable: false);
+    // 普通：前 2 个站点卡片（列表 + 前两条详情）。
+    // 激进：全部站点卡片并行，只预热每个卡片的首个视频；解码器预缓冲
+    // 只给排最前的 [MediaPrewarm.maxWarmPlayers] 个站点（硬件解码器有限）。
+    final sites = aggressive
+        ? allVideoSites
+        : allVideoSites.take(2).toList(growable: false);
     // Independent site fetches run in parallel: one wave instead of a chain.
     await Future.wait(
-      sites.map((site) async {
+      sites.asMap().entries.map((entry) async {
+        final siteIndex = entry.key;
+        final site = entry.value;
         if (!mounted) return;
         final tag = site.tags.first;
         final cacheKey = '${site.id}_${tag.id}';
         if (FeedListCache.take(cacheKey) != null) return;
+        final randomized = SourceCatalog.usesRandomizedGenericFeed(site);
         try {
-          final list = await _fetchPrewarmList(site, tag);
+          // 随机页站点在激进模式下由这里"计划"随机页（信息流 initState 会
+          // 消费同一页并从下一页续抓），预热结果才不会被随机化丢弃。
+          final page =
+              aggressive && randomized ? 1 + Random().nextInt(10) : 1;
+          final list = await _fetchPrewarmList(site, tag, page: page);
           if (!mounted || list.isEmpty) return;
           FeedListCache.put(
             cacheKey,
@@ -162,32 +206,46 @@ class _HomePageState extends State<HomePage> {
               items: list,
               seen: <String>{for (final item in list) item.viewkey},
               index: 0,
+              sourcePage: aggressive && randomized ? page : null,
             ),
           );
-          // Complete the chain: warm the first two details too, so tapping
+          // Complete the chain: warm the first details too, so tapping
           // the card skips the detail round-trip and goes straight to player
-          // initialization. Small bounded cost (2 HTML fetches per prewarmed
-          // site), exactly what the user plays first.
-          for (final item in list.take(2)) {
-            unawaited(_prewarmDetail(site, item));
+          // initialization. 激进模式只预热首个视频（但追加解码器预缓冲）。
+          final detailCount = aggressive ? 1 : 2;
+          for (final item in list.take(detailCount)) {
+            final detail = await _prewarmDetail(site, item);
+            if (aggressive &&
+                detail != null &&
+                siteIndex < MediaPrewarm.maxWarmPlayers) {
+              // Fire-and-forget：预热失败静默放弃，播放页自动走冷启动。
+              unawaited(MediaPrewarm.instance.warm(
+                site: site,
+                item: item,
+                detail: detail,
+                qualityCap: settings.qualityCap,
+              ));
+            }
           }
         } catch (_) {}
       }),
     );
   }
 
-  /// Prefetch one item's detail into [FeedDetailCache].
+  /// Prefetch one item's detail into [FeedDetailCache]; returns the fetched
+  /// detail (null on skip/failure) so the aggressive path can chain the
+  /// decoder prewarm onto it.
   ///
   /// Routing MUST mirror the player screens' `_fetchDetail` (URL-based
   /// overrides first, then the site's own parser): caching a detail parsed
   /// with the wrong site's rules would poison the feed's playback.
-  Future<void> _prewarmDetail(SiteDef site, VideoItem item) async {
+  Future<VideoDetail?> _prewarmDetail(SiteDef site, VideoItem item) async {
     final low = item.url.toLowerCase();
     try {
       final Future<VideoDetail> fetch;
       if (low.contains('huangguoai')) {
         // HuangGuo detail/episode flow lives in HuangGuoWebPage — skip.
-        return;
+        return null;
       } else if (low.contains('xvideos.com') || low.contains('xvideos.es')) {
         fetch = context.read<XvideosApi>().getVideoDetail(item.url);
       } else if (low.contains('mitaohk.com')) {
@@ -219,17 +277,24 @@ class _HomePageState extends State<HomePage> {
             break;
           }
         }
-        if (hostSite != null && hostSite.id != site.id) return;
+        if (hostSite != null && hostSite.id != site.id) return null;
         fetch = context.read<GenericSiteApi>().getVideoDetail(site, item.url);
       }
       final detail = await fetch;
       if (!detail.countryBlocked && !detail.unavailable) {
         FeedDetailCache.put(item.url, detail);
       }
-    } catch (_) {}
+      return detail;
+    } catch (_) {
+      return null;
+    }
   }
 
-  Future<List<VideoItem>> _fetchPrewarmList(SiteDef site, SiteTag tag) {
+  Future<List<VideoItem>> _fetchPrewarmList(
+    SiteDef site,
+    SiteTag tag, {
+    int page = 1,
+  }) {
     switch (site.id) {
       case 'pornhub':
         if (tag.id == 'asian') {
@@ -249,7 +314,7 @@ class _HomePageState extends State<HomePage> {
         return context.read<GenericSiteApi>().fetchFeed(
           site,
           tagId: tag.id,
-          page: 1,
+          page: page,
           limit: 12,
         );
     }

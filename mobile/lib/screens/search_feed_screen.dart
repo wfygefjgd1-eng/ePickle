@@ -19,6 +19,7 @@ import '../services/xvideos_api.dart';
 import '../services/app_settings.dart';
 import '../services/app_route_observer.dart';
 import '../services/auto_rotate_controller.dart';
+import '../services/media_prewarm.dart';
 import '../services/feed_detail_cache.dart';
 import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
@@ -997,12 +998,24 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     VideoPlayerController? player;
     StreamQuality? stream;
+    // 激进预加载接洽：该条目首候选流若已有预热好的解码器（整条"详情→选流
+    // →解码器初始化"链已在首页空闲时完成），直接收编跳过 initialize；条目
+    // 或流不匹配则 take() 返回 null，走原有冷启动路径，互不影响。
+    final adopted = MediaPrewarm.instance.take(item.url, candidates.first.url);
+    if (adopted != null) {
+      if (adopted.value.isInitialized) {
+        player = adopted;
+        stream = candidates.first;
+      } else {
+        await adopted.dispose().catchError((_) {});
+      }
+    }
     final playerDeadline = DateTime.now().add(const Duration(seconds: 14));
     // Try at most the top-2 candidates. The first is preferred (sorted by
     // quality); the second is a safety net for either (a) the first stream
     // returned a preview/teaser clip, or (b) init transiently failed. Going
     // beyond 2 wastes up to 8s per attempt before the user gives up.
-    for (var i = 0; i < candidates.length && i < 2; i++) {
+    for (var i = 0; player == null && i < candidates.length && i < 2; i++) {
       final c = candidates[i];
       if (seq != _seq || !_canRun) {
         await player?.dispose();

@@ -104,7 +104,7 @@ class AppHttpClient {
     // 1) Manual proxy wins.
     if (proxyEnabled && proxyHost.isNotEmpty && proxyPort > 0) {
       if (proxyType == 'socks5') return 'DIRECT';
-      return 'PROXY ${proxyHost}:${proxyPort}; DIRECT';
+      return 'PROXY $proxyHost:$proxyPort; DIRECT';
     }
     // 2) Android/iOS system proxy (browser works; Dio must be told explicitly).
     final sh = _systemHost;

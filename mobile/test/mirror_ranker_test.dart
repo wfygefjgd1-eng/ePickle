@@ -146,6 +146,46 @@ void main() {
     await ranker.persistNow();
   });
 
+  test('a mirror stuck on 4xx (parked domain) ranks behind a healthy slower '
+      'one, and a real success clears the verdict', () async {
+    final ranker = MirrorRanker.instance;
+    // cn: fast HEAD but 4xx to both HEAD and GET (challenge/parked).
+    ranker.onFetchOutcome('pornhub', cn, ok: true, ms: 40);
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub).first,
+      cn,
+    ); // no verdict yet — probe status unknown, raw latency rules
+
+    // Simulate the probe recording a 4xx verdict (as _probeOne does after
+    // its confirming GET also answered 4xx).
+    ranker.debugSetLastStatus('pornhub', cn, 403);
+    // www: slower but genuinely serving.
+    ranker.onFetchOutcome('pornhub', www, ok: true, ms: 300);
+
+    expect(ranker.rankedMirrors(SourceCatalog.pornhub).first, www);
+
+    // A real fetch success proves cn serves content — verdict drops.
+    ranker.onFetchOutcome('pornhub', cn, ok: true, ms: 60);
+    expect(ranker.rankedMirrors(SourceCatalog.pornhub).first, cn);
+    await ranker.persistNow();
+  });
+
+  test('4xx status survives the persist/load round-trip', () async {
+    final ranker = MirrorRanker.instance;
+    ranker.onFetchOutcome('pornhub', cn, ok: true, ms: 40);
+    ranker.debugSetLastStatus('pornhub', cn, 403);
+    await ranker.persistNow();
+
+    ranker.reset();
+    await ranker.load();
+
+    // cn (403-penalized 40ms) must rank behind org (unknown → catalog tier).
+    expect(
+      ranker.rankedMirrors(SourceCatalog.pornhub).indexOf(cn),
+      greaterThan(ranker.rankedMirrors(SourceCatalog.pornhub).indexOf(org)),
+    );
+  });
+
   test('session manual base override jumps to the front — even a brand-new '
       'domain outside the catalog — until cleared', () async {
     final ranker = MirrorRanker.instance;

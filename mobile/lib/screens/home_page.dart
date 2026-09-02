@@ -44,7 +44,11 @@ class _HomePageState extends State<HomePage> {
     _loadVersion();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _prewarmTimer = Timer(const Duration(milliseconds: 1500), () {
+      // Starts DURING the background domain probe (which fires at ~800ms),
+      // not after it: the prewarm is light (2 site cards → list + first two
+      // details each) and the probe now measures far fewer domains, so the
+      // two waves share the pipe instead of queueing behind it.
+      _prewarmTimer = Timer(const Duration(milliseconds: 600), () {
         if (mounted) unawaited(_prewarmHomeFeeds());
       });
     });
@@ -130,7 +134,7 @@ class _HomePageState extends State<HomePage> {
       // Not resumed yet — re-arm the timer once instead of silently dropping
       // the prewarm forever (a one-shot timer that fires during the brief
       // transition to resumed must not skip the warm cache permanently).
-      _prewarmTimer = Timer(const Duration(milliseconds: 1500), () {
+      _prewarmTimer = Timer(const Duration(milliseconds: 600), () {
         if (mounted) unawaited(_prewarmHomeFeeds());
       });
       return;

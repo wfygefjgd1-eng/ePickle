@@ -17,6 +17,10 @@ import 'source_catalog.dart' show SiteDef;
 /// - Latency is smoothed with an EWMA: one slow blip cannot dethrone a
 ///   reliably fast mirror. Two consecutive failures demote a mirror below
 ///   unknown (unprobed) ones until it recovers.
+/// - A HEAD 4xx/5xx gets one confirming GET; a domain that answers 4xx to
+///   both (parked / challenge-only) stays "alive" but drops below every
+///   unmeasured mirror, so the first round cannot crown a domain that serves
+///   no pages (the Jable first-round playback bug).
 /// - Rankings persist per platform (iOS/Android proxy setups differ a lot)
 ///   and are refreshed at most once per [ttl] unless a site has a failure.
 /// - Real fetch outcomes (feed/search/keywords) feed the same stats for free,
@@ -31,6 +35,14 @@ class MirrorRanker {
 
   /// Health cap so a recovering-but-flaky mirror still sorts behind stable ones.
   static const _unknownTier = 1e8;
+
+  /// Tier for mirrors that are alive but answer 4xx/5xx to BOTH the probe
+  /// HEAD and its confirming GET (parked / challenge-only). They rank below
+  /// every unmeasured mirror — a known-bad domain must never win the first
+  /// round on raw HEAD latency (the Jable first-round playback bug) — but
+  /// above outright failing ones.
+  static const _blockedTier = 1.5e8;
+
   static const _failingTier = 1e9;
 
   Dio? _probeDio;
@@ -230,6 +242,8 @@ class MirrorRanker {
       final double score;
       if (st != null && st.isFailing) {
         score = _failingTier + i;
+      } else if (st != null && st.successes > 0 && st.lastStatus >= 400) {
+        score = _blockedTier + i;
       } else if (st != null && st.successes > 0) {
         score = st.ewaMs.clamp(0.0, 60000.0);
       } else {
@@ -287,11 +301,21 @@ class MirrorRanker {
       st.successes++;
       st.recordLatency(ms.toDouble());
       st.failStreak = 0;
+      // A real success proves the domain serves content — any 4xx penalty
+      // observed by a HEAD-only probe no longer applies.
+      st.lastStatus = 0;
     } else {
       st.failStreak = st.failStreak + 1;
     }
     st.lastProbe = t;
     _schedulePersist();
+  }
+
+  /// Test hook: record a probe's 4xx verdict for [base] the way [_probeOne]
+  /// does when both its HEAD and confirming GET answered 4xx.
+  @visibleForTesting
+  void debugSetLastStatus(String siteId, String base, int status) {
+    _bySite[siteId]?[base]?.lastStatus = status;
   }
 
   /// Background warm-up: probe every mirror whose site ranking is stale or
@@ -300,6 +324,11 @@ class MirrorRanker {
   /// load. HEADs are tiny — 8-wide keeps a 35-mirror catalog to ~5 quick
   /// batches instead of 9 slow ones.
   static const int probeConcurrency = 8;
+
+  /// Probe budget per site per warmup run (best first, then unknown/failing
+  /// backups). Healthy backups keep their persisted score instead of being
+  /// re-measured every cycle.
+  static const int maxProbesPerSite = 3;
 
   /// Connect budget for a probe. 5s: proxied TLS handshakes (Clash/V2Ray
   /// chains to far origins) routinely take 2-4s, and a connect timeout here
@@ -319,18 +348,40 @@ class MirrorRanker {
         .where((site) => needsProbe(site.id))
         .toList();
     if (targets.isEmpty || probing.value) return;
+    // Per-site queues, BEST MIRROR FIRST (ranked order), trimmed to what the
+    // run actually needs:
+    // - the current best is re-measured so the primary's latency stays fresh;
+    // - alive-and-healthy backups keep their persisted EWMA and are NOT
+    //   re-probed (real fetch outcomes keep their stats fresh) — re-probing
+    //   the whole catalog each cycle was the "测速啰嗦" that delayed the
+    //   badge and stole bandwidth from real content;
+    // - unknown / failing mirrors follow, capped at [_maxProbesPerSite] per
+    //   site so a cold start cannot sprawl.
+    final queues = <List<String>>[];
+    for (final site in targets) {
+      final ranked = rankedMirrors(site);
+      final stats = _bySite[site.id] ?? const {};
+      final queue = <String>[];
+      for (var i = 0; i < ranked.length; i++) {
+        if (queue.length >= maxProbesPerSite) break;
+        final base = ranked[i].replaceAll(RegExp(r'/$'), '');
+        if (base.isEmpty) continue;
+        final st = stats[base];
+        final healthy = st != null && st.successes > 0 && st.failStreak == 0;
+        if (healthy && i != 0) continue;
+        queue.add(base);
+      }
+      if (queue.isNotEmpty) queues.add(queue);
+    }
+    if (queues.isEmpty) return;
     probing.value = true;
     try {
-      // Interleave ROUND-ROBIN ACROSS SITES: wave 0 probes the first mirror
-      // of every target, wave 1 the second mirror of every site that has
-      // one, and so on. A site-first traversal would burst all ~6 mirrors of
-      // one host family at once (rate-limit bait); round-robin spreads each
-      // wave across different host families. The total concurrency gate
-      // stays exactly [probeConcurrency].
-      final queues = <List<String>>[
-        for (final site in targets)
-          [for (final raw in site.mirrors) if (raw.trim().isNotEmpty) raw],
-      ];
+      // Interleave ROUND-ROBIN ACROSS SITES: wave 0 probes the best mirror
+      // of every target, wave 1 the second entry of every queue, and so on.
+      // A site-first traversal would burst all mirrors of one host family at
+      // once (rate-limit bait); round-robin spreads each wave across
+      // different host families. The total concurrency gate stays exactly
+      // [probeConcurrency].
       final gate = <Future<void>>[];
       var wave = 0;
       var more = true;
@@ -362,6 +413,12 @@ class MirrorRanker {
   /// HEAD probes with 403 while the site itself works fine through the
   /// proxy + WebView render path, so a 4xx must NOT brand the domain down.
   /// Whether content is actually usable is judged by real fetch outcomes.
+  ///
+  /// A HEAD 4xx/5xx is followed by ONE confirming GET: a CF-fronted real
+  /// site serves the GET fine, while a parked/expired domain keeps answering
+  /// 4xx — the loser keeps its "alive" status but takes a ranking penalty
+  /// ([_blockedStatusPenaltyMs]) so it can no longer win the first round on
+  /// raw HEAD latency and send the player to a domain that cannot play.
   Future<void> _probeOne(String siteId, String raw) async {
     final base = raw.replaceAll(RegExp(r'/$'), '');
     final sw = Stopwatch()..start();
@@ -370,7 +427,7 @@ class MirrorRanker {
         connectTimeout: _probeConnectTimeout,
         receiveTimeout: _probeReceiveTimeout,
       );
-      await dio.head(
+      final res = await dio.head(
         base,
         options: Options(
           // Any HTTP status means the host is reachable fast.
@@ -379,12 +436,33 @@ class MirrorRanker {
           receiveTimeout: _probeReceiveTimeout,
         ),
       );
+      var status = res.statusCode ?? 0;
+      if (status >= 400) {
+        try {
+          final page = await dio.get(
+            base,
+            options: Options(
+              validateStatus: (_) => true,
+              sendTimeout: _probeConnectTimeout,
+              receiveTimeout: _probeReceiveTimeout,
+            ),
+          );
+          final pageStatus = page.statusCode ?? 0;
+          if (pageStatus < 400) status = pageStatus;
+        } catch (_) {
+          // GET failed to even connect — the HEAD answer stands.
+        }
+      }
       onFetchOutcome(
         siteId,
         base,
         ok: true,
         ms: sw.elapsedMilliseconds,
       );
+      // After onFetchOutcome (which resets the status on success) so the
+      // probe's verdict survives.
+      _bySite[siteId]?[base]?.lastStatus = status;
+      _schedulePersist();
     } catch (_) {
       // A dead connection often means the cached proxy went stale (proxy app
       // restarted / switched port). Clear the throttle so the next refresh
@@ -447,6 +525,7 @@ class _MirrorStats {
         ..ewaMs = (m['e'] as num?)?.toDouble() ?? 0
         ..failStreak = (m['f'] as num?)?.toInt() ?? 0
         ..successes = (m['ok'] as num?)?.toInt() ?? 0
+        ..lastStatus = (m['s'] as num?)?.toInt() ?? 0
         ..lastProbe =
             DateTime.fromMillisecondsSinceEpoch((m['t'] as num?)?.toInt() ?? 0);
     } catch (_) {
@@ -459,6 +538,11 @@ class _MirrorStats {
   double ewaMs = 0;
   int failStreak = 0;
   int successes = 0;
+
+  /// Latest probe HTTP status (0 = unknown/2xx-3xx). >= 400 after both the
+  /// HEAD and the confirming GET answered 4xx/5xx → ranks below unknowns.
+  int lastStatus = 0;
+
   DateTime lastProbe = DateTime.fromMillisecondsSinceEpoch(0);
 
   bool get isFailing => failStreak >= MirrorRanker.maxFailureStreak;
@@ -472,6 +556,7 @@ class _MirrorStats {
         'e': ewaMs.round(),
         'f': failStreak,
         'ok': successes,
+        's': lastStatus,
         't': lastProbe.millisecondsSinceEpoch,
       };
 }

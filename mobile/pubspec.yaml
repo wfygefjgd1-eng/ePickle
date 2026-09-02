@@ -1,7 +1,7 @@
 name: epickle
 description: ePickle 鈥?multi-source video player for Android/iOS sideload
 publish_to: "none"
-version: 2.8.26+308
+version: 2.8.27+309
 
 environment:
   sdk: ">=3.12.0 <4.0.0"

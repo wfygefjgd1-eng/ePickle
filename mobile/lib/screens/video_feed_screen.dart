@@ -303,7 +303,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _autoRotate!.listening = false;
     _settings!.addListener(_onSettingsChanged);
     // The background mirror probe can discover a reachable mirror after the
-    // first feed load already failed — retry once when it concludes.
+    // first feed load already failed — retry once when it concludes. Seed the
+    // flag from the CURRENT value: a ValueNotifier does not replay its value
+    // on addListener, and this screen is usually created while a probe run is
+    // already in flight (probes start ~800ms after launch), which previously
+    // left the retry dead for exactly the case it was built for.
+    _probeRetryArmed = MirrorRanker.instance.probing.value;
     MirrorRanker.instance.probing.addListener(_onMirrorProbeChanged);
     if (widget.autoStart) {
       // Fire-and-forget prefetch for the first item so _playIndex hits a warm

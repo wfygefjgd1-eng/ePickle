@@ -105,8 +105,13 @@ class XvideosApi {
   /// failure moves to the next mirror (each failure already demotes that
   /// mirror via [_getHtml]'s outcome feedback, so the NEXT request starts
   /// with the healthier survivor). Cancellations propagate immediately.
-  /// Returns the winning html together with the base that served it (parsers
-  /// need it to relativize URLs).
+  /// Returns the winning html together with the origin that actually served
+  /// it (parsers relativize URLs against it). With a manual pin active every
+  /// candidate rewrites to the same pinned URL, so candidates are deduped by
+  /// rewritten URL: previously the identical address was refetched once per
+  /// candidate and each failure was recorded against the pinned host again —
+  /// one logical request alone maxed out the failStreak and wrongly branded
+  /// the pinned mirror failing.
   Future<({String html, String base})> _getHtmlWithFailover(
     String Function(String base) buildUrl, {
     List<String>? mirrors,
@@ -115,16 +120,28 @@ class XvideosApi {
         MirrorRanker.instance.rankedMirrors(SourceCatalog.xvideos);
     if (bases.isEmpty) bases.addAll(SourceCatalog.xvideos.mirrors);
     Object? lastError;
+    final seen = <String>{};
     for (final base in bases) {
+      final url = _rewriteBase(buildUrl(base));
+      if (!seen.add(url)) continue;
       try {
-        final html = await _getHtml(buildUrl(base));
-        return (html: html, base: base.replaceAll(RegExp(r'/$'), ''));
+        final html = await _getHtml(url);
+        return (html: html, base: _originOf(url));
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
         lastError = e;
       }
     }
     throw lastError ?? PhubException('请求失败');
+  }
+
+  /// Never-throws origin of [url] ('scheme://host[:port]'); falls back to the
+  /// preferred catalog base when [url] cannot be parsed.
+  String _originOf(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.host.isEmpty) return _base;
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    return '${uri.scheme}://${uri.host}$port';
   }
 
   Future<String> _getHtmlOnce(String url) async {
@@ -218,14 +235,20 @@ class XvideosApi {
         ]);
       }
     }
+    // 手动钉域名时，不同 base 的同形状 URL 会改写成同一个地址——按改写后
+    // 的 URL 去重（保持原顺序），避免同一地址被反复请求、同一次失败按候选
+    // 数重复计入域名排名。(_getHtml 内部还会再改写一次，幂等无害。)
+    final uniqueUrls = <String>{
+      for (final u in urls) _rewriteBase(u),
+    }.toList();
     Object? lastErr;
-    for (final url in urls) {
+    for (final url in uniqueUrls) {
       try {
         final html = await _getHtml(url);
         final list = _parseList(
           html,
           <String>{},
-          base: Uri.parse(url).origin,
+          base: _originOf(url),
         );
         if (list.isNotEmpty) return list;
         // Empty parse on a valid search page → try next shape/mirror.
@@ -311,7 +334,8 @@ class XvideosApi {
             _parseList(
               fetched.html,
               seen,
-              base: Uri.parse(fetched.base).origin,
+              // _getHtmlWithFailover already returns an origin.
+              base: fetched.base,
             ),
           );
           if (results.length >= limit) break;

@@ -188,6 +188,12 @@ class HuangGuoApi {
       final html = await _getHtml(_listUrlFor(tagId, page));
       final topics = _parseTopicCards(html);
       if (topics.isNotEmpty) return topics;
+      // 卡片解析为空时用同一段 HTML 走通用列表解析 —— 此前会原样把
+      // 同一个 URL 再请求一遍，纯浪费一次网络往返。
+      final seen = <String>{...?exclude};
+      List<VideoItem> capped(List<VideoItem> items) =>
+          items.length > limit ? items.sublist(0, limit) : items;
+      return capped(_parseList(html, seen));
     }
     final seen = <String>{...?exclude};
     final url = _listUrlFor(tagId, page);

@@ -197,22 +197,28 @@ class PhubApi {
     if (bases.isEmpty) bases.add(_primaryHost);
     final ladderStarted = DateTime.now();
     Object? lastError;
-    for (final base in bases) {
+    // 主域名 URL 仍按候选 base 逐个改写（手动钉住的域名由 rankedMirrors
+    // 排在首位，天然先试）；其余 PH 家域名（cn/rt/de/…）改写后已经是唯一
+    // 的目标 URL，没有可换的 base —— 只发一次请求，成败也只记在实际访问
+    // 的那个域名上。此前会把同一次失败记到 3 个候选域名头上，污染排名，
+    // 还把同一个 URL 白白重试 3 遍。
+    final isPrimaryUrl = url.startsWith(_primaryHost);
+    final attempts = isPrimaryUrl
+        ? [
+            for (final base in bases)
+              (base, '$base${url.substring(_primaryHost.length)}'),
+          ]
+        : [(_baseOfUrl(rewritten), rewritten)];
+    for (final (outcomeBase, attemptUrl) in attempts) {
       final budget = DateTime.now().difference(ladderStarted) +
           _singleRequestTimeout;
       if (budget > const Duration(seconds: 24)) break;
-      // 主域名 URL 仍按候选 base 逐个改写（手动钉住的域名由 rankedMirrors
-      // 排在首位，天然先试）；其余 PH 家域名（cn/rt/de/…）用改写后的
-      // rewritten 原样尝试，保证钉住的域名一定被命中。
-      final attemptUrl = url.startsWith(_primaryHost)
-          ? '$base${url.substring(_primaryHost.length)}'
-          : rewritten;
       final watch = Stopwatch()..start();
       try {
         final html = await _getHtmlOnce(attemptUrl);
         MirrorRanker.instance.onFetchOutcome(
           SourceCatalog.pornhub.id,
-          base,
+          outcomeBase,
           ok: true,
           ms: watch.elapsedMilliseconds,
         );
@@ -224,13 +230,21 @@ class PhubApi {
         lastError = e;
         MirrorRanker.instance.onFetchOutcome(
           SourceCatalog.pornhub.id,
-          base,
+          outcomeBase,
           ok: false,
           ms: watch.elapsedMilliseconds,
         );
       }
     }
     throw lastError ?? PhubException('所有镜像均不可用');
+  }
+
+  /// The mirror base (scheme://host[:port]) of [url] for ranker stats.
+  String _baseOfUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.host.isEmpty) return _primaryHost;
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    return '${uri.scheme}://${uri.host}$port';
   }
 
   /// Single-mirror fetch with a 10s budget; on timeout it cancels the

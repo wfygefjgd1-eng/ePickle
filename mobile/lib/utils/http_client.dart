@@ -94,22 +94,22 @@ class AppHttpClient {
     _lastSystemProxyRefresh = null;
   }
 
+  // Dart's HttpClient understands only PROXY (HTTP CONNECT) and DIRECT
+  // entries; a "SOCKS5 host:port" entry makes it throw FormatException on
+  // EVERY request (dart:io has no SOCKS support). So a detected/manual SOCKS
+  // proxy must degrade to DIRECT — in VPN/TUN mode the traffic still rides
+  // the proxy tool transparently, and a format exception would otherwise
+  // look exactly like "the proxy tool is not connected at all".
   static String _findProxy(Uri uri) {
     // 1) Manual proxy wins.
     if (proxyEnabled && proxyHost.isNotEmpty && proxyPort > 0) {
-      final h = proxyHost;
-      final p = proxyPort;
-      if (proxyType == 'socks5') {
-        return 'SOCKS5 $h:$p; SOCKS $h:$p; DIRECT';
-      }
-      return 'PROXY $h:$p; DIRECT';
+      if (proxyType == 'socks5') return 'DIRECT';
+      return 'PROXY ${proxyHost}:${proxyPort}; DIRECT';
     }
-    // 2) Android system proxy (browser works; Dio must be told explicitly).
+    // 2) Android/iOS system proxy (browser works; Dio must be told explicitly).
     final sh = _systemHost;
     if (sh != null && sh.isNotEmpty && _systemPort > 0) {
-      if (_systemType == 'socks5') {
-        return 'SOCKS5 $sh:$_systemPort; SOCKS $sh:$_systemPort; DIRECT';
-      }
+      if (_systemType == 'socks5') return 'DIRECT';
       return 'PROXY $sh:$_systemPort; DIRECT';
     }
     // 3) TUN / clean device.

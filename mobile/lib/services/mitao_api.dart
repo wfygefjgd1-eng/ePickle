@@ -84,7 +84,10 @@ class MitaoApi {
   /// non-cancel failure demotes that mirror (via [_getHtml]'s outcome
   /// feedback) and the next mirror gets a shot — a dead top mirror can no
   /// longer take the whole site down until the next probe.
-  Future<String> _getHtmlWithFailover(
+  /// Returns the html together with the mirror that actually served it:
+  /// relative URLs in the document must be anchored to THAT mirror, not to
+  /// the (possibly dead) preferred base.
+  Future<({String html, String base})> _getHtmlWithFailover(
     String Function(String base) buildUrl, {
     List<String>? mirrors,
   }) async {
@@ -94,13 +97,24 @@ class MitaoApi {
     Object? lastError;
     for (final base in bases) {
       try {
-        return await _getHtml(buildUrl(base));
+        final html = await _getHtml(buildUrl(base));
+        return (html: html, base: base.replaceAll(RegExp(r'/$'), ''));
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
         lastError = e;
       }
     }
     throw lastError ?? PhubException('请求失败');
+  }
+
+  /// Path (+query) of [url], for rebuilding the same document on another
+  /// mirror base during failover.
+  String _pathOf(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.path.startsWith('/')) return '/';
+    return uri.hasQuery && uri.query.isNotEmpty
+        ? '${uri.path}?${uri.query}'
+        : uri.path;
   }
 
   Future<String> _getHtmlOnce(String url) async {
@@ -148,11 +162,12 @@ class MitaoApi {
     return res.data!;
   }
 
-  String _abs(String path) {
+  String _abs(String path, {String? base}) {
     if (path.startsWith('http')) return path;
     if (path.startsWith('//')) return 'https:$path';
     if (!path.startsWith('/')) path = '/$path';
-    return '$base$path';
+    final b = (base == null || base.isEmpty) ? this.base : base;
+    return '$b$path';
   }
 
   /// Site search (keyword as-is; Chinese OK for this site).
@@ -161,19 +176,19 @@ class MitaoApi {
     if (q.isEmpty) return [];
     // MacCMS search URL
     try {
-      final html = await _getHtmlWithFailover(
+      final fetched = await _getHtmlWithFailover(
         (b) => page <= 1
             ? '$b/index.php/vod/search/wd/$q.html'
             : '$b/index.php/vod/search/wd/$q/page/$page.html',
       );
-      return _parseList(html, <String>{});
+      return _parseList(fetched.html, <String>{}, base: fetched.base);
     } catch (e) {
       if (e is DioException && CancelToken.isCancel(e)) rethrow;
       // alternate pattern
-      final html = await _getHtmlWithFailover(
+      final fetched = await _getHtmlWithFailover(
         (b) => '$b/index.php/vod/search.html?wd=$q&page=$page',
       );
-      return _parseList(html, <String>{});
+      return _parseList(fetched.html, <String>{}, base: fetched.base);
     }
   }
 
@@ -201,20 +216,20 @@ class MitaoApi {
 
     Future<List<VideoItem>> fetchPage(int p) async {
       try {
-        final html = await _getHtmlWithFailover(
+        final fetched = await _getHtmlWithFailover(
           (b) => p <= 1
               ? '$b/index.php/vod/type/id/$zhongTypeId.html'
               : '$b/index.php/vod/type/id/$zhongTypeId/page/$p.html',
         );
-        return _parseList(html, seen);
+        return _parseList(fetched.html, seen, base: fetched.base);
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
         if (p > 1) {
           try {
-            final html = await _getHtmlWithFailover(
+            final fetched = await _getHtmlWithFailover(
               (b) => '$b/index.php/vod/type/id/$zhongTypeId.html?page=$p',
             );
-            return _parseList(html, seen);
+            return _parseList(fetched.html, seen, base: fetched.base);
           } catch (e) {
             if (e is DioException && CancelToken.isCancel(e)) rethrow;
           }
@@ -269,7 +284,9 @@ class MitaoApi {
     return results;
   }
 
-  List<VideoItem> _parseList(String html, Set<String> seen) {
+  List<VideoItem> _parseList(String html, Set<String> seen, {String? base}) {
+    // Anchor relative URLs to the mirror that actually served [html] — after
+    // a failover the preferred base can be the mirror that just failed.
     final out = <VideoItem>[];
     final detailRe = RegExp(r'/index\.php/vod/detail/id/(\d+)\.html');
     final playRe = RegExp(
@@ -394,10 +411,10 @@ class MitaoApi {
 
       final th = thumbs[id];
       out.add(VideoItem(
-        url: _abs(path.startsWith('/') ? path : '/$path'),
+        url: _abs(path.startsWith('/') ? path : '/$path', base: base),
         title: title,
         duration: '-',
-        thumb: (th != null && th.isNotEmpty) ? _abs(th) : null,
+        thumb: (th != null && th.isNotEmpty) ? _abs(th, base: base) : null,
       ));
     }
     return out;
@@ -464,22 +481,34 @@ class MitaoApi {
 
   Future<VideoDetail> getVideoDetail(String url) async {
     // Prefer play page; detail-only pages sometimes lack player_aaaa.
-    var pageUrl = url;
-    if (pageUrl.contains('/vod/detail/id/')) {
-      final idm = RegExp(r'/vod/detail/id/(\d+)').firstMatch(pageUrl);
-      if (idm != null) {
-        pageUrl =
-            '$base/index.php/vod/play/id/${idm.group(1)}/sid/1/nid/1.html';
-      }
-    }
+    // Both fetches run through the failover ladder (a bare _getHtml on the
+    // preferred base made playback fail even when another mirror had just
+    // served the list) and remember WHICH mirror served the html, so the
+    // relative play URL below anchors to that mirror.
+    final detailIdm = RegExp(r'/vod/detail/id/(\d+)').firstMatch(url);
+    final playPath = detailIdm != null
+        ? '/index.php/vod/play/id/${detailIdm.group(1)}/sid/1/nid/1.html'
+        : null;
 
     String html;
+    String pageUrl;
+    String servingBase;
     try {
-      html = await _getHtml(pageUrl);
+      final fetched = playPath != null
+          ? await _getHtmlWithFailover((b) => '$b$playPath')
+          : await _getHtmlWithFailover((b) => '$b${_pathOf(url)}');
+      html = fetched.html;
+      servingBase = fetched.base;
+      pageUrl = playPath != null ? '$servingBase$playPath' : url;
     } catch (e) {
       if (e is DioException && CancelToken.isCancel(e)) rethrow;
+      // Last resort: the original URL itself, on whatever host it names.
       html = await _getHtml(url);
       pageUrl = url;
+      final fallbackUri = Uri.tryParse(url);
+      servingBase = (fallbackUri != null && fallbackUri.host.isNotEmpty)
+          ? '${fallbackUri.scheme}://${fallbackUri.host}'
+          : base;
     }
 
     var m = RegExp(
@@ -552,7 +581,7 @@ class MitaoApi {
       }
     }
     if (!playUrl.startsWith('http')) {
-      playUrl = _abs(playUrl);
+      playUrl = _abs(playUrl, base: servingBase);
     }
     playUrl = await _resolvePlayableUrl(playUrl);
 

@@ -301,14 +301,20 @@ class MirrorRanker {
   /// batches instead of 9 slow ones.
   static const int probeConcurrency = 8;
 
-  /// Connect budget for a probe. A mirror that cannot even answer a HEAD
-  /// within this window will never rank as the "fastest" domain, so spending
-  /// 6s+ waiting on it only stretches the whole warm-up (and the badge).
-  static const _probeConnectTimeout = Duration(milliseconds: 3500);
+  /// Connect budget for a probe. 5s: proxied TLS handshakes (Clash/V2Ray
+  /// chains to far origins) routinely take 2-4s, and a connect timeout here
+  /// is a FAILURE that feeds the "域名异常" badge — too tight a budget turns
+  /// every slow-but-working proxy path into a false "site down".
+  static const _probeConnectTimeout = Duration(milliseconds: 5000);
   static const _probeReceiveTimeout = Duration(milliseconds: 5000);
 
   Future<void> warmup({List<SiteDef>? sites}) async {
     await load();
+    // Re-sync the system proxy before probing: the proxy tool may have
+    // restarted or switched ports since the last detection, and probing
+    // DIRECT while the user's proxy is up produces false "域名异常" verdicts
+    // (the browser through the proxy works, the app's probe does not).
+    await AppHttpClient.refreshSystemProxy();
     final targets = (sites ?? const <SiteDef>[])
         .where((site) => needsProbe(site.id))
         .toList();
@@ -349,8 +355,13 @@ class MirrorRanker {
   }
 
   /// HEAD-probe one site's mirrors through the shared proxy wiring.
-  /// 2xx/3xx = host answers (ok); 4xx = answers but blocked for us → counted
-  /// as a failure so it sinks in ranking; 5xx/timeouts also failures.
+  /// ANY HTTP answer (2xx-5xx, incl. Cloudflare 403 challenges) means the
+  /// domain resolves, connects and serves — the domain is alive and gets its
+  /// latency recorded. Only transport-level failures (DNS, connect/receive
+  /// timeout, TLS) count as failure: Jable and other CF-fronted sites answer
+  /// HEAD probes with 403 while the site itself works fine through the
+  /// proxy + WebView render path, so a 4xx must NOT brand the domain down.
+  /// Whether content is actually usable is judged by real fetch outcomes.
   Future<void> _probeOne(String siteId, String raw) async {
     final base = raw.replaceAll(RegExp(r'/$'), '');
     final sw = Stopwatch()..start();
@@ -359,7 +370,7 @@ class MirrorRanker {
         connectTimeout: _probeConnectTimeout,
         receiveTimeout: _probeReceiveTimeout,
       );
-      final res = await dio.head(
+      await dio.head(
         base,
         options: Options(
           // Any HTTP status means the host is reachable fast.
@@ -368,14 +379,18 @@ class MirrorRanker {
           receiveTimeout: _probeReceiveTimeout,
         ),
       );
-      final code = res.statusCode ?? 0;
       onFetchOutcome(
         siteId,
         base,
-        ok: code >= 200 && code < 400,
+        ok: true,
         ms: sw.elapsedMilliseconds,
       );
     } catch (_) {
+      // A dead connection often means the cached proxy went stale (proxy app
+      // restarted / switched port). Clear the throttle so the next refresh
+      // re-detects, then refresh immediately for the remaining probes.
+      AppHttpClient.markProxySuspect();
+      await AppHttpClient.refreshSystemProxy();
       onFetchOutcome(siteId, base, ok: false, ms: sw.elapsedMilliseconds);
     }
   }

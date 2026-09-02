@@ -354,7 +354,6 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
@@ -365,39 +364,25 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
           Expanded(child: Text('\u6807\u7b7e \u00b7 ${widget.site.name}')),
         ]),
       ),
-      body: compact
-          ? Column(children: [
-              SizedBox(
-                key: const ValueKey('compact_tag_selector'),
-                height: 64,
-                child: _buildTagRail(horizontal: true),
-              ),
-              const Divider(height: 1, color: Colors.white10),
-              Expanded(child: _buildResults()),
-            ])
-          : Row(children: [
-              SizedBox(width: 92, child: _buildTagRail()),
-              const VerticalDivider(width: 1, color: Colors.white10),
-              Expanded(child: _buildResults()),
-            ]),
+      // 标签竖排靠左、可上下滑动，右侧显示所选标签的内容。
+      // （v2.8.26 恢复：v2.8.20 曾把窄屏改成顶部横排，用户要求改回。）
+      body: Row(children: [
+        SizedBox(width: 92, child: _buildTagRail()),
+        const VerticalDivider(width: 1, color: Colors.white10),
+        Expanded(child: _buildResults()),
+      ]),
     );
   }
 
-  Widget _buildTagRail({bool horizontal = false}) => ListView.separated(
-        scrollDirection: horizontal ? Axis.horizontal : Axis.vertical,
-        padding: horizontal
-            ? const EdgeInsets.symmetric(horizontal: 8, vertical: 7)
-            : EdgeInsets.fromLTRB(
-                8,
-                10,
-                8,
-                180 + MediaQuery.viewPaddingOf(context).bottom,
-              ),
-        itemCount: _tags.length,
-        separatorBuilder: (_, __) => SizedBox(
-          width: horizontal ? 7 : 0,
-          height: horizontal ? 0 : 7,
+  Widget _buildTagRail() => ListView.separated(
+        padding: EdgeInsets.fromLTRB(
+          8,
+          10,
+          8,
+          180 + MediaQuery.viewPaddingOf(context).bottom,
         ),
+        itemCount: _tags.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 7),
         itemBuilder: (_, i) {
           final tag = _tags[i];
           final selected = tag.id == _selected?.id;
@@ -406,8 +391,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
             onTap: () => _select(tag),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 160),
-              width: horizontal ? 92 : null,
-              height: horizontal ? 50 : 62,
+              height: 62,
               decoration: BoxDecoration(
                 color: selected
                     ? const Color(0x33FF6B35)
@@ -416,35 +400,18 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
                 border: Border.all(
                     color: selected ? const Color(0xFFFF6B35) : Colors.white10),
               ),
-              child: horizontal
-                  ? Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          selected ? tag.iconSelected : tag.icon,
-                          size: 19,
-                          color: selected
-                              ? const Color(0xFFFF6B35)
-                              : Colors.white70,
-                        ),
-                        const SizedBox(width: 5),
-                        Flexible(child: _buildTagLabel(tag)),
-                      ],
-                    )
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          selected ? tag.iconSelected : tag.icon,
-                          size: 21,
-                          color: selected
-                              ? const Color(0xFFFF6B35)
-                              : Colors.white70,
-                        ),
-                        const SizedBox(height: 3),
-                        _buildTagLabel(tag),
-                      ],
-                    ),
+              child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                        selected ? tag.iconSelected : tag.icon,
+                        size: 21,
+                        color: selected
+                            ? const Color(0xFFFF6B35)
+                            : Colors.white70),
+                    const SizedBox(height: 3),
+                    _buildTagLabel(tag),
+                  ]),
             ),
           );
         },

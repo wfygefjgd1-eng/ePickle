@@ -273,10 +273,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final genericVideoSite = widget.site != null &&
         SourceCatalog.usesRandomizedGenericFeed(widget.site!);
     final hasInitialItems = widget.initialItems.isNotEmpty;
-    // 激进预加载会为随机页站点暂存一个"计划页"快照（页码由预热随机选好，
-    // 每次运行都不同）：消费它既保住随机性，又让首条视频是热的。没有计划
-    // 页快照时维持原状 —— 清缓存随机起页；普通快照（无页码）不能吃，否则
-    // 随机页会退化成固定第一页。
+    // 首页预热会为随机页站点暂存一个"计划页"快照（页码由预热随机选好，
+    // 每次预热运行都不同）：消费它既保住随机性，又让首条视频是热的。没有
+    // 计划页快照时维持原状 —— 清缓存随机起页；普通快照（无页码）不能吃，
+    // 否则随机页会退化成固定第一页。
     final stagedSnap = hasInitialItems || !genericVideoSite
         ? null
         : FeedListCache.take(_cacheKey);

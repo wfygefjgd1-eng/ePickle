@@ -41,7 +41,7 @@ class AppSettings extends ChangeNotifier {
   bool _autoLowerOnStall = true;
   bool _showFastForwardButton = true;
   bool _manualMirrorEnabled = false;
-  bool _aggressivePrewarm = false;
+  bool _aggressivePrewarm = true;
 
   /// 跳过片头按档位规则（可配置，折叠在“跳过片头”里）：
   /// 视频时长 ≥ 对应档位阈值（秒）时跳过该档秒数，取满足的最大档；
@@ -76,9 +76,8 @@ class AppSettings extends ChangeNotifier {
   /// 长按首页卡片手动更换站点域名的功能开关（默认关）。
   bool get manualMirrorEnabled => _manualMirrorEnabled;
 
-  /// 激进预加载（默认关）：首页空闲时并行预热全部站点卡片的首个视频
-  /// （列表 + 详情 + 前 2 个站点再预初始化解码器）。耗流量耗电，换取
-  /// 点开卡片近乎秒播。
+  /// 激进预加载（默认开）：详情页已全量预热的基础上，追加排最前 2 个
+  /// 站点卡片首条视频的解码器预缓冲，点开卡片近乎秒播。耗流量耗电。
   bool get aggressivePrewarm => _aggressivePrewarm;
 
   int get skipIntroMinSec => _skipIntroMinSec;
@@ -115,7 +114,7 @@ class AppSettings extends ChangeNotifier {
       _autoLowerOnStall = p.getBool(_kAutoLowerOnStall) ?? true;
       _showFastForwardButton = p.getBool(_kShowFastForwardButton) ?? true;
       _manualMirrorEnabled = p.getBool(_kManualMirror) ?? false;
-      _aggressivePrewarm = p.getBool(_kAggressivePrewarm) ?? false;
+      _aggressivePrewarm = p.getBool(_kAggressivePrewarm) ?? true;
       _skipIntroMinSec =
           (p.getInt(_kSkipIntroMinSec) ?? 45).clamp(5, 7200);
       _skipTier1At = (p.getInt(_kSkipTier1At) ?? 100).clamp(1, 7200);

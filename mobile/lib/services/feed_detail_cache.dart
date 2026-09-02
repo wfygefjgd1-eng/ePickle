@@ -13,8 +13,11 @@ class FeedDetailCache {
 
   static final _map = <String, VideoDetail>{};
 
-  /// Small cap: only the next-opened cards benefit; older entries are stale.
-  static const maxEntries = 12;
+  /// Cap: every enabled site's default-tab list (12 items) is detail-warmed
+  /// during the launch probe window, so the cache must hold all sites' lists
+  /// at once (≈10 sites × 12 items). Entries are tiny (URLs + numbers);
+  /// LRU-style re-insert keeps freshly staged sites hot.
+  static const maxEntries = 256;
 
   /// Removes and returns the detail for [url] — the consuming screen's own
   /// index-keyed cache takes ownership from here.

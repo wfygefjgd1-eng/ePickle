@@ -9,28 +9,35 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('AppSettings.aggressivePrewarm', () {
-    test('defaults to off', () async {
+    test('defaults to ON (unset key); an explicit OFF stays off', () async {
       SharedPreferences.setMockInitialValues({});
       final s = AppSettings();
       await s.load();
-      expect(s.aggressivePrewarm, isFalse);
+      expect(s.aggressivePrewarm, isTrue);
+
+      // User explicitly turned it off once — that choice must win forever.
+      final off = AppSettings();
+      SharedPreferences.setMockInitialValues(
+          {'aggressive_prewarm_enabled': false});
+      await off.load();
+      expect(off.aggressivePrewarm, isFalse);
     });
 
     test('persists across a reload', () async {
       SharedPreferences.setMockInitialValues({});
       final s = AppSettings();
       await s.load();
-      await s.setAggressivePrewarm(true);
-      expect(s.aggressivePrewarm, isTrue);
+      await s.setAggressivePrewarm(false);
+      expect(s.aggressivePrewarm, isFalse);
 
       final fresh = AppSettings();
       await fresh.load();
-      expect(fresh.aggressivePrewarm, isTrue);
+      expect(fresh.aggressivePrewarm, isFalse);
 
-      await fresh.setAggressivePrewarm(false);
+      await fresh.setAggressivePrewarm(true);
       final again = AppSettings();
       await again.load();
-      expect(again.aggressivePrewarm, isFalse);
+      expect(again.aggressivePrewarm, isTrue);
     });
   });
 

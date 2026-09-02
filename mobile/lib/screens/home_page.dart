@@ -172,17 +172,17 @@ class _HomePageState extends State<HomePage> {
     final settings = _settings ?? context.read<AppSettings>();
     final aggressive = settings.aggressivePrewarm;
     MediaPrewarm.instance.setEnabled(aggressive);
-    final allVideoSites = context
+    // 标准预热（与后台域名测速并行跑，600ms 即启动）：全部视频站点卡片
+    // 并行，抓默认标签页列表并预热列表内全部卡片的详情页 —— 点进任何一张
+    // 卡片都跳过详情网络请求。随机页站点（Jable 等）由预热"计划"随机页，
+    // 信息流消费同一页再从下一页续抓，预热结果不再被随机化丢弃。
+    // 激进预加载（开关，默认关）在此之上只追加一层：排最前的
+    // [MediaPrewarm.maxWarmPlayers] 个站点，首条视频的解码器预缓冲。
+    final sites = context
         .read<LayoutSettings>()
         .enabledVideoSites
         .where((s) => s.ready && s.tags.isNotEmpty)
         .toList(growable: false);
-    // 普通：前 2 个站点卡片（列表 + 前两条详情）。
-    // 激进：全部站点卡片并行，只预热每个卡片的首个视频；解码器预缓冲
-    // 只给排最前的 [MediaPrewarm.maxWarmPlayers] 个站点（硬件解码器有限）。
-    final sites = aggressive
-        ? allVideoSites
-        : allVideoSites.take(2).toList(growable: false);
     // Independent site fetches run in parallel: one wave instead of a chain.
     await Future.wait(
       sites.asMap().entries.map((entry) async {
@@ -194,10 +194,9 @@ class _HomePageState extends State<HomePage> {
         if (FeedListCache.take(cacheKey) != null) return;
         final randomized = SourceCatalog.usesRandomizedGenericFeed(site);
         try {
-          // 随机页站点在激进模式下由这里"计划"随机页（信息流 initState 会
-          // 消费同一页并从下一页续抓），预热结果才不会被随机化丢弃。
-          final page =
-              aggressive && randomized ? 1 + Random().nextInt(10) : 1;
+          // 随机页站点的计划页由这里随机选好（每次预热运行都不同），
+          // 信息流 initState 消费同一页并从下一页续抓。
+          final page = randomized ? 1 + Random().nextInt(10) : 1;
           final list = await _fetchPrewarmList(site, tag, page: page);
           if (!mounted || list.isEmpty) return;
           FeedListCache.put(
@@ -206,22 +205,27 @@ class _HomePageState extends State<HomePage> {
               items: list,
               seen: <String>{for (final item in list) item.viewkey},
               index: 0,
-              sourcePage: aggressive && randomized ? page : null,
+              sourcePage: randomized ? page : null,
             ),
           );
-          // Complete the chain: warm the first details too, so tapping
-          // the card skips the detail round-trip and goes straight to player
-          // initialization. 激进模式只预热首个视频（但追加解码器预缓冲）。
-          final detailCount = aggressive ? 1 : 2;
-          for (final item in list.take(detailCount)) {
-            final detail = await _prewarmDetail(site, item);
+          // Warm EVERY card's detail in the staged list, sequentially per
+          // site (one request per host at a time; the sites themselves run
+          // in parallel). Backgrounding the app stops the walk early.
+          for (var i = 0; i < list.length; i++) {
+            if (!mounted ||
+                WidgetsBinding.instance.lifecycleState !=
+                    AppLifecycleState.resumed) {
+              return;
+            }
+            final detail = await _prewarmDetail(site, list[i]);
             if (aggressive &&
+                i == 0 &&
                 detail != null &&
                 siteIndex < MediaPrewarm.maxWarmPlayers) {
               // Fire-and-forget：预热失败静默放弃，播放页自动走冷启动。
               unawaited(MediaPrewarm.instance.warm(
                 site: site,
-                item: item,
+                item: list[i],
                 detail: detail,
                 qualityCap: settings.qualityCap,
               ));

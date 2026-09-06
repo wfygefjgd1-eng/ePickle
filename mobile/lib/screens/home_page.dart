@@ -477,6 +477,9 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
+    // 对话框已关闭，取完输入值立即释放控制器（该对话框可反复打开）。
+    final entered = ctrl.text.trim();
+    ctrl.dispose();
     if (saved == null) return;
     if (!saved) {
       await ranker.clearManualBasePersisted(site.id);
@@ -484,7 +487,7 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     // 规范化：补 scheme、去结尾斜杠，必须能解析出 host。
-    var value = ctrl.text.trim();
+    var value = entered;
     if (value.isEmpty) return;
     if (!value.startsWith('http://') && !value.startsWith('https://')) {
       value = 'https://$value';
@@ -665,6 +668,16 @@ class _SwipeSiteTile extends StatelessWidget {
         child: const Icon(Icons.delete_outline, color: Colors.white),
       ),
       confirmDismiss: (_) async {
+        // 移除会让可见视频站清零时（无剩余启用内置站也无自定义站），会被
+        // LayoutSettings 拒绝（状态不变）。必须在 confirmDismiss 阶段就拦下：
+        // 否则 onDismissed 已触发、滑出动画已收尾而卡片仍在树中，
+        // Dismissible 会断言崩溃。口径与 toggleVideoSite 保持一致。
+        final lay = context.read<LayoutSettings>();
+        if (!site.custom &&
+            !lay.enabledVideoSites.any((s) => s.id != site.id)) {
+          PlaybackHelpers.toast(context, '至少保留一个视频站点');
+          return false;
+        }
         return await showDialog<bool>(
               context: context,
               builder: (ctx) => AlertDialog(

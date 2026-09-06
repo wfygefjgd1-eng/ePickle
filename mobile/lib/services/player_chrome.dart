@@ -110,32 +110,32 @@ class PlayerChrome extends ChangeNotifier {
     final EdgeInsets pad;
     final EdgeInsets viewPad;
     if (turns == 1) {
-      // 90° CW: physical top → visual left
+      // 90° CW: 子树左缘贴物理顶、上缘贴物理右、下缘贴物理左
       pad = EdgeInsets.only(
         left: mq.padding.top,
-        top: mq.padding.left,
-        right: mq.padding.bottom,
-        bottom: mq.padding.right,
-      );
-      viewPad = EdgeInsets.only(
-        left: mq.viewPadding.top,
-        top: mq.viewPadding.left,
-        right: mq.viewPadding.bottom,
-        bottom: mq.viewPadding.right,
-      );
-    } else {
-      // 90° CCW: physical top → visual right
-      pad = EdgeInsets.only(
-        left: mq.padding.bottom,
         top: mq.padding.right,
-        right: mq.padding.top,
+        right: mq.padding.bottom,
         bottom: mq.padding.left,
       );
       viewPad = EdgeInsets.only(
-        left: mq.viewPadding.bottom,
+        left: mq.viewPadding.top,
         top: mq.viewPadding.right,
-        right: mq.viewPadding.top,
+        right: mq.viewPadding.bottom,
         bottom: mq.viewPadding.left,
+      );
+    } else {
+      // 90° CCW: 子树左缘贴物理底、上缘贴物理左、下缘贴物理右
+      pad = EdgeInsets.only(
+        left: mq.padding.bottom,
+        top: mq.padding.left,
+        right: mq.padding.top,
+        bottom: mq.padding.right,
+      );
+      viewPad = EdgeInsets.only(
+        left: mq.viewPadding.bottom,
+        top: mq.viewPadding.left,
+        right: mq.viewPadding.top,
+        bottom: mq.viewPadding.right,
       );
     }
     // OverflowBox lets RotatedBox paint a landscape-sized child inside a

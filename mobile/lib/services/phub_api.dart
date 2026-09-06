@@ -625,7 +625,7 @@ class PhubApi {
     // missed. Both are exceptional; the fast path covers the vast majority.
     final needsDom = results.isEmpty || results.any((e) => e.thumb == null);
     if (!needsDom) return results;
-    final domItems = _parseViaDom(html, seen);
+    final domItems = _parseViaDom(html, <String>{});
     final byVk = <String, VideoItem>{for (final d in domItems) d.viewkey: d};
     for (var i = 0; i < results.length; i++) {
       final item = results[i];
@@ -638,8 +638,10 @@ class PhubApi {
         results[i] = item.copyWith(thumb: d.thumb);
       }
     }
+    // DOM 独有的条目（chunk 正则切漏的）补进结果，并登记进 seen 保持
+    // 与调用方共享的去重口径一致。
     for (final item in domItems) {
-      if (!seen.contains(item.viewkey)) {
+      if (seen.add(item.viewkey)) {
         results.add(item);
       }
     }

@@ -47,6 +47,12 @@ class MediaPrewarm with WidgetsBindingObserver {
   static const _initTimeout = Duration(seconds: 8);
 
   final List<_WarmEntry> _entries = [];
+
+  /// 正在预热中的流 URL：从 warm() 入口一直持有到 _entries 入库（或失败
+  /// 释放）。查重只看 _entries 的话，8 秒 initialize 的 await 窗口里同一条
+  /// 流可以被并发 warm 两次；pending 集合在入口就把身份占住。
+  final Set<String> _warmingUrls = <String>{};
+
   bool _enabled = false;
   bool _observing = false;
   bool _appInForeground = true;
@@ -87,57 +93,68 @@ class MediaPrewarm with WidgetsBindingObserver {
         PlaybackHelpers.pickStream(detail, qualityCap) ?? detail.bestStream;
     if (stream == null || stream.url.isEmpty) return;
     if (_entries.any((e) => e.streamUrl == stream.url)) return;
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(stream.url),
-      // Must mirror the screens' _createNetworkPlayer header stack exactly:
-      // the adopted controller replays with these headers.
-      httpHeaders: {
-        ...AppHttpHeaders.forMediaUrl(
-          null,
-          pageUrl: site.primaryHost.replaceAll(RegExp(r'/$'), ''),
-        ),
-        ...AppHttpHeaders.forMediaUrl(
-          stream.url,
-          pageUrl: stream.referer ?? detail.url,
-        ),
-        ...stream.headers,
-      },
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-    );
+    if (!_warmingUrls.add(stream.url)) return;
+    var parked = false;
     try {
-      await player.initialize().timeout(_initTimeout);
-    } catch (_) {
-      await _dispose(player);
-      return;
+      final player = VideoPlayerController.networkUrl(
+        Uri.parse(stream.url),
+        // Must mirror the screens' _createNetworkPlayer header stack exactly:
+        // the adopted controller replays with these headers.
+        httpHeaders: {
+          ...AppHttpHeaders.forMediaUrl(
+            null,
+            pageUrl: site.primaryHost.replaceAll(RegExp(r'/$'), ''),
+          ),
+          ...AppHttpHeaders.forMediaUrl(
+            stream.url,
+            pageUrl: stream.referer ?? detail.url,
+          ),
+          ...stream.headers,
+        },
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+      );
+      try {
+        await player.initialize().timeout(_initTimeout);
+      } catch (_) {
+        await _dispose(player);
+        return;
+      }
+      if (PlaybackHelpers.isLikelyPreview(
+        player,
+        detail,
+        siteId: site.id,
+        isLive: site.kind == SiteKind.live,
+      )) {
+        // A teaser clip would poison the first play — drop it.
+        await _dispose(player);
+        return;
+      }
+      if (!_enabled ||
+          !_appInForeground ||
+          _entries.any((e) => e.streamUrl == stream.url)) {
+        await _dispose(player);
+        return;
+      }
+      try {
+        await player.pause();
+        await player.setVolume(0);
+      } catch (_) {}
+      // LRU: make room before parking the new decoder.
+      while (_entries.length >= maxWarmPlayers) {
+        final oldest = _entries.removeAt(0);
+        await _dispose(oldest.controller);
+      }
+      _entries.add(_WarmEntry(
+        itemUrl: item.url,
+        streamUrl: stream.url,
+        controller: player,
+      ));
+      // 入库后身份由 _entries 接管；上面最后一段没有 await，
+      // 与 add 之间不可能再插入同流 warm。
+      parked = true;
+    } finally {
+      if (!parked) _warmingUrls.remove(stream.url);
     }
-    if (PlaybackHelpers.isLikelyPreview(
-      player,
-      detail,
-      siteId: site.id,
-      isLive: site.kind == SiteKind.live,
-    )) {
-      // A teaser clip would poison the first play — drop it.
-      await _dispose(player);
-      return;
-    }
-    if (!_enabled || !_appInForeground) {
-      await _dispose(player);
-      return;
-    }
-    try {
-      await player.pause();
-      await player.setVolume(0);
-    } catch (_) {}
-    // LRU: make room before parking the new decoder.
-    while (_entries.length >= maxWarmPlayers) {
-      final oldest = _entries.removeAt(0);
-      await _dispose(oldest.controller);
-    }
-    _entries.add(_WarmEntry(
-      itemUrl: item.url,
-      streamUrl: stream.url,
-      controller: player,
-    ));
   }
 
   /// Feed screens: adopt the warm controller for [itemUrl] playing

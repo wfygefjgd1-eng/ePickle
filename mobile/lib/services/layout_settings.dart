@@ -64,34 +64,15 @@ class LayoutSettings extends ChangeNotifier {
     return null;
   }
 
+  /// 自定义视频站是否可作为"至少保留一个视频站"的兜底。
+  bool get _hasCustomVideoFallback =>
+      _customSites.any((c) => c.kind == SiteKind.video);
+
   Future<void> load() async {
     try {
       final p = await SharedPreferences.getInstance();
-      final catVer = p.getInt(_kCatalogVer) ?? 0;
-      if (catVer < _catalogVer) {
-        _enabledVideoIds =
-            List<String>.from(SourceCatalog.defaultEnabledVideoIds);
-        await p.setStringList(_kEnabled, _enabledVideoIds);
-        await p.setInt(_kCatalogVer, _catalogVer);
-      } else {
-        final raw = p.getStringList(_kEnabled);
-        if (raw != null && raw.isNotEmpty) {
-          _enabledVideoIds = raw
-              .where((id) => SourceCatalog.byId(id)?.kind == SiteKind.video)
-              .toList();
-        }
-        if (_enabledVideoIds.isEmpty) {
-          _enabledVideoIds =
-              List<String>.from(SourceCatalog.defaultEnabledVideoIds);
-        }
-      }
-      final live = p.getString(_kLiveId);
-      if (live != null &&
-          SourceCatalog.byId(live)?.kind == SiteKind.live &&
-          SourceCatalog.byId(live)?.ready == true) {
-        _liveId = live;
-      }
-      _globalSearch = p.getBool(_kGlobalSearch) ?? false;
+      // 自定义站/隐藏站必须先于启用列表加载：空启用列表是否合法（由自定义
+      // 视频站兜底）取决于它们。
       _customUrls = p.getStringList(_kCustomUrls) ?? [];
       _customSites = (p.getStringList(_kCustomSites) ?? [])
           .map(CustomSiteConfig.tryDecode)
@@ -104,6 +85,35 @@ class LayoutSettings extends ChangeNotifier {
             .toList();
         await _persistCustomSites(p);
       }
+      final catVer = p.getInt(_kCatalogVer) ?? 0;
+      if (catVer < _catalogVer) {
+        _enabledVideoIds =
+            List<String>.from(SourceCatalog.defaultEnabledVideoIds);
+        await p.setStringList(_kEnabled, _enabledVideoIds);
+        await p.setInt(_kCatalogVer, _catalogVer);
+      } else {
+        final raw = p.getStringList(_kEnabled);
+        if (raw != null && raw.isNotEmpty) {
+          _enabledVideoIds = raw
+              .where((id) => SourceCatalog.byId(id)?.kind == SiteKind.video)
+              .toList();
+        } else if (raw != null && raw.isEmpty && _hasCustomVideoFallback) {
+          // 持久化的空列表 + 自定义视频站兜底 = 用户有意只留自定义站，
+          // 不能回默认（否则删掉的内置站会在重启后复活）。
+          _enabledVideoIds = <String>[];
+        }
+        if (_enabledVideoIds.isEmpty && !_hasCustomVideoFallback) {
+          _enabledVideoIds =
+              List<String>.from(SourceCatalog.defaultEnabledVideoIds);
+        }
+      }
+      final live = p.getString(_kLiveId);
+      if (live != null &&
+          SourceCatalog.byId(live)?.kind == SiteKind.live &&
+          SourceCatalog.byId(live)?.ready == true) {
+        _liveId = live;
+      }
+      _globalSearch = p.getBool(_kGlobalSearch) ?? false;
     } catch (_) {
       // SharedPreferences unavailable — the field initializers already hold
       // exactly these defaults (defaultEnabledVideoIds, defaultLiveId, ...).
@@ -174,7 +184,11 @@ class LayoutSettings extends ChangeNotifier {
     final clean = ids
         .where((id) => SourceCatalog.byId(id)?.kind == SiteKind.video)
         .toList();
-    if (clean.isEmpty) clean.addAll(SourceCatalog.defaultEnabledVideoIds);
+    // 自定义视频站可兜底时允许空列表（用户有意只留自定义站）；否则回默认，
+    // 保证首页至少有一个视频站。
+    if (clean.isEmpty && !_hasCustomVideoFallback) {
+      clean.addAll(SourceCatalog.defaultEnabledVideoIds);
+    }
     _enabledVideoIds = clean;
     notifyListeners();
     try {
@@ -183,17 +197,19 @@ class LayoutSettings extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Returns false (and leaves the list untouched) when the last video site
-  /// would be removed — callers show "at least one site" feedback instead of
-  /// silently no-oping. The empty-list policy is therefore the same in both
-  /// entry points: an empty enabled list is never persisted.
+  /// Returns false (and leaves the list untouched) when this removal would
+  /// leave no visible video site — enabled built-ins plus custom sites, hidden
+  /// ones excluded — the same "at least one visible site" policy as
+  /// [setSiteHidden]. Callers show "at least one site" feedback instead of
+  /// silently no-oping. An empty built-in list is legal here: custom video
+  /// sites keep the home page populated, and [load] preserves that choice.
   Future<bool> toggleVideoSite(String id, bool enabled) async {
     final next = List<String>.from(_enabledVideoIds);
     if (enabled) {
       if (!next.contains(id)) next.add(id);
     } else {
       next.remove(id);
-      if (next.isEmpty) return false;
+      if (enabledVideoSites.where((s) => s.id != id).isEmpty) return false;
     }
     await setEnabledVideoIds(next);
     return true;
@@ -243,11 +259,10 @@ class LayoutSettings extends ChangeNotifier {
   Future<bool> setSiteHidden(SiteDef site, bool hidden) async {
     if (hidden) {
       if (site.kind != SiteKind.live) {
-        final otherVisible = _enabledVideoIds
-            .map(SourceCatalog.byId)
-            .whereType<SiteDef>()
-            .where((s) => s.id != site.id && !isSiteHidden(s))
-            .length;
+        // 可见站 = 内置已启用 + 自定义站（再减去已隐藏），与
+        // [enabledVideoSites] 同一口径；只数内置站会误拒自定义站兜底的情况。
+        final otherVisible =
+            enabledVideoSites.where((s) => s.id != site.id).length;
         if (otherVisible == 0) return false;
       }
       _hiddenSiteKeys = {..._hiddenSiteKeys, site.id};

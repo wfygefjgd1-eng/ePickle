@@ -2,7 +2,8 @@ part of 'player_settings_sheet.dart';
 
 /// 「跳过片头」折叠配置：外层开关 + 展开后的分档规则输入。
 /// 规则：视频时长超过对应档位阈值即跳过该档秒数，取满足的最大档；
-/// 不足 45 秒不跳。第 1 档阈值按秒输入，第 2~4 档阈值按分钟输入。
+/// 不足 45 秒不跳。第 1 档阈值按秒输入，第 2~4 档阈值按分钟输入
+/// （支持小数，如 1.5 = 90 秒）。
 class _SkipIntroGroup extends StatefulWidget {
   const _SkipIntroGroup({required this.settings});
 
@@ -25,10 +26,22 @@ class _SkipIntroGroupState extends State<_SkipIntroGroup> {
     _atCtrls = [
       for (var i = 0; i < tiers.length; i++)
         TextEditingController(
-          text: i == 0 ? '${tiers[i].$1}' : '${tiers[i].$1 ~/ 60}',
+          text: i == 0 ? '${tiers[i].$1}' : _minutesLabel(tiers[i].$1),
         ),
     ];
     _secCtrls = [for (final t in tiers) TextEditingController(text: '${t.$2}')];
+  }
+
+  /// 分钟档显示：整分钟显示整数；非整分钟显示两位小数（去尾零），
+  /// 保证按秒存储的历史值（如 90 → "1.5"）原样可见、编辑后按秒精确还原，
+  /// 不再被 ~/60 截断成另一个值。
+  static String _minutesLabel(int sec) {
+    if (sec % 60 == 0) return '${sec ~/ 60}';
+    var s = (sec / 60).toStringAsFixed(2);
+    if (s.contains('.')) {
+      s = s.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+    }
+    return s;
   }
 
   @override
@@ -49,10 +62,21 @@ class _SkipIntroGroupState extends State<_SkipIntroGroup> {
     setter(v);
   }
 
-  void _onAtChanged(int index, TextEditingController c) => _apply(
-    c,
-    (v) => widget.settings.setSkipTierAtSec(index, index == 0 ? v : v * 60),
-  );
+  /// 分钟档输入：允许小数（"1.5" → 90 秒），按秒四舍五入后写回。
+  void _applyMinutes(TextEditingController c, Future<void> Function(int) setter) {
+    final v = double.tryParse(c.text.trim());
+    if (v == null || v <= 0) return;
+    // ignore: unawaited_futures
+    setter((v * 60).round());
+  }
+
+  void _onAtChanged(int index, TextEditingController c) {
+    if (index == 0) {
+      _apply(c, (v) => widget.settings.setSkipTierAtSec(index, v));
+    } else {
+      _applyMinutes(c, (v) => widget.settings.setSkipTierAtSec(index, v));
+    }
+  }
 
   void _onSecChanged(int index, TextEditingController c) =>
       _apply(c, (v) => widget.settings.setSkipTierSec(index, v));

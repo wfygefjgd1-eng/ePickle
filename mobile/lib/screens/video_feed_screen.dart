@@ -317,6 +317,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         FeedListCache.clear(_cacheKey);
       }
     }
+    // autoStart 且无任何首屏数据时，首帧必然处于加载中：先把加载态立起来，
+    // 否则首帧（postFrame 的 startPlaying 之前）会闪现「内容不存在(404)」。
+    if (widget.autoStart && _items.isEmpty) {
+      _loading = true;
+    }
     _pageCtrl = PageController(initialPage: _currentIndex);
     _autoRotate = AutoRotateController(onAction: _onAutoRotate);
     _settings = context.read<AppSettings>();

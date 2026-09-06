@@ -639,7 +639,9 @@ class MitaoApi {
   int _durationFromHtml(String html, int current) {
     if (current > 0) return current;
     final patterns = <RegExp>[
-      RegExp(r'vod_duration["\s:]+["' "'" r']?(\d+)'),
+      // 捕获连冒号一起拿（"12:34"），交给 _parseDurationText 归一化；
+      // 只抓 \d+ 会把 "12:34" 截成 12 秒。
+      RegExp(r'vod_duration["\s:]+["' "'" r']?([\d:]+)'),
       RegExp(r'时长[：:\s]*(\d{1,2}):(\d{2}):(\d{2})'),
       RegExp(r'(?:播放时长|片长)[：:\s]*(\d{1,2}:\d{2}(?::\d{2})?)'),
       RegExp(r'''data-duration=["'](\d+)["']'''),

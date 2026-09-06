@@ -83,6 +83,10 @@ class WatchHistory extends ChangeNotifier {
                     : '-',
                 thumb:
                     m['thumb'] is String ? (m['thumb'] as String).trim() : null,
+                // 剧集信息缺省为 null：旧历史文件没有这两个键，向后兼容。
+                episode: m['episode'] is int ? m['episode'] as int : null,
+                episodeTotal:
+                    m['episodeTotal'] is int ? m['episodeTotal'] as int : null,
               ));
             } catch (_) {
               continue;
@@ -110,6 +114,10 @@ class WatchHistory extends ChangeNotifier {
         title: item.title,
         duration: item.duration,
         thumb: item.thumb,
+        // 剧集标识必须透传：viewkey 对剧集是 '$url#ep$episode'，丢掉后
+        // 同一部剧的不同集在历史里坍缩成同一条。
+        episode: item.episode,
+        episodeTotal: item.episodeTotal,
       ),
     );
     if (_items.length > maxItems) {
@@ -127,14 +135,17 @@ class WatchHistory extends ChangeNotifier {
   }
 
   Future<void> _persist() {
-    final data = _items
-        .map((e) => {
-              'url': e.url,
-              'title': e.title,
-              'duration': e.duration,
-              'thumb': e.thumb,
-            })
-        .toList();
+    final data = _items.map((e) {
+      final m = <String, dynamic>{
+        'url': e.url,
+        'title': e.title,
+        'duration': e.duration,
+        'thumb': e.thumb,
+      };
+      if (e.episode != null) m['episode'] = e.episode;
+      if (e.episodeTotal != null) m['episodeTotal'] = e.episodeTotal;
+      return m;
+    }).toList();
     _writeTail = _writeTail.then((_) async {
       try {
         final f = await _historyFile();

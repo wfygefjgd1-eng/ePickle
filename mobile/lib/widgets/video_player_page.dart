@@ -730,20 +730,23 @@ class _MinimalButtonState extends State<_MinimalButton> {
     final maxLeft = size.width - pad.right - btn;
     final minTop = pad.top;
     final maxTop = size.height - pad.bottom - btn;
+    // 右/底锚定时 defaultOffset 是距右/底边的距离，先换算成左/上边缘的
+    // 绝对坐标（差一个按钮宽度），否则 o=0 不满足 clamp 恒等式，
+    // 首次拖动会把按钮瞬移 30px 并持久化。
     final absLeft = widget.anchorRight
-        ? size.width - widget.defaultOffset.dx + o.dx
+        ? size.width - widget.defaultOffset.dx - btn + o.dx
         : widget.defaultOffset.dx + o.dx;
     final absTop = widget.anchorBottom
-        ? size.height - widget.defaultOffset.dy + o.dy
+        ? size.height - widget.defaultOffset.dy - btn + o.dy
         : widget.defaultOffset.dy + o.dy;
     final clampedLeft = absLeft.clamp(minLeft, maxLeft);
     final clampedTop = absTop.clamp(minTop, maxTop);
     return Offset(
       widget.anchorRight
-          ? clampedLeft - (size.width - widget.defaultOffset.dx)
+          ? clampedLeft - (size.width - widget.defaultOffset.dx - btn)
           : clampedLeft - widget.defaultOffset.dx,
       widget.anchorBottom
-          ? clampedTop - (size.height - widget.defaultOffset.dy)
+          ? clampedTop - (size.height - widget.defaultOffset.dy - btn)
           : clampedTop - widget.defaultOffset.dy,
     );
   }

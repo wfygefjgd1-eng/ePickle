@@ -159,6 +159,11 @@ class CacheManager {
       }
 
       await deleteOlderThan(7);
+      // 7 天档删完必须先作废 15 分钟测量缓存再复测：_cleanCache 只会在
+      // 缓存值 >500MB 时进入，不作废的话这里拿到的还是清理前的旧值，
+      // "7 天档不够再上 3 天档"的分层判断就退化为无条件执行。
+      _cachedSizeMB = null;
+      _cachedAt = null;
       final currentSize = await _getCacheSizeInMB();
       if (currentSize > _targetCacheSizeMB) {
         await deleteOlderThan(3);

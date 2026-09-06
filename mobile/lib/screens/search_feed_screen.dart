@@ -722,15 +722,25 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           _detailCache.clear();
           _inflightDetails.clear();
           _retried.clear();
+          final staleFrozen = _frozenController;
           _frozenController = null;
           _frozenIndex = null;
           _frozenStreamHeight = 0;
           _disposePreloadSync();
+          // 冻结槽指向的旧索引条目已随重基移除，控制器必须同步释放，
+          // 否则每重基一次泄漏一个已初始化的解码器。
+          if (staleFrozen != null) unawaited(_mutePauseDispose(staleFrozen));
           // Reset the wave marker too, or _restartPreloading() would
           // short-circuit on the stale (seq, index) and leave the next videos
           // unbuffered until the following swipe.
           _preloadWaveSeq = -1;
           _preloadWaveIndex = -1;
+          // 索引已重基，旧的自动连播去重标记指向的是旧索引。
+          _autoAdvancedPage = null;
+          // 索引刚重基：作废捕获了旧索引的在途 _playIndex/预载填充，
+          // 否则它们会把旧条目的详情/控制器提交到重基后的新条目上。
+          // （与 video_feed_screen._trimItemsWindow 末尾的 _loadSeq++ 同理。）
+          _seq++;
           if (_pageCtrl.hasClients) {
             try {
               _pageCtrl.jumpToPage(_index);

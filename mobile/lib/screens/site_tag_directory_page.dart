@@ -87,6 +87,12 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
           _error = '\u6682\u65e0\u53ef\u64ad\u653e\u7684\u5185\u5bb9';
         }
       });
+      // 切标签后新列表下一帧才挂载；keepScrollOffset 会把上一个标签的
+      // 偏移恢复给它 —— 帧后强制回顶。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scroll.hasClients) return;
+        _scroll.jumpTo(0);
+      });
       if (raw.isNotEmpty && widget.site.kind != SiteKind.live) {
         unawaited(_translateRange(0, generation));
       }

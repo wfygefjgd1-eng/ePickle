@@ -50,7 +50,13 @@ class GenericSiteApi {
   /// feed screen stop every mirror/API probe as soon as iOS backgrounds it.
   final Set<CancelToken> _activeRequests = <CancelToken>{};
 
+  /// Bumped by [cancelRequests]. Multi-stage fetches capture it at entry and
+  /// abort their remaining stages when it moved: tokens created after the
+  /// cancel would otherwise never be cancelled.
+  int _cancelEpoch = 0;
+
   void cancelRequests([String reason = 'cancelled']) {
+    _cancelEpoch++;
     final tokens = List<CancelToken>.from(_activeRequests);
     _activeRequests.clear();
     for (final token in tokens) {
@@ -490,6 +496,7 @@ class GenericSiteApi {
     bool Function(String html, String base)? accept,
     DateTime? deadline,
   }) async {
+    final cancelEpoch = _cancelEpoch;
     final mirrors = _mirrorsFor(site);
 
     Future<_MirrorProbe> probe(int i, [CancelToken? cancelToken]) async {
@@ -616,19 +623,24 @@ class GenericSiteApi {
         return first.page!;
       }
       if (first.error != null) failures.add(first.error!);
-      // Stage 2 — every other mirror in parallel (winner cancels the rest).
-      // All mirrors participate; ranking only chose which one goes first.
-      final rest = ordered.sublist(1);
-      if (rest.isNotEmpty) {
-        final result = await race(rest);
-        if (result != null && result.page != null) {
-          _mirrorIndex[site.id] = result.index;
-          return result.page!;
-        }
-        if (result != null &&
-            result.error != null &&
-            !failures.contains(result.error)) {
-          failures.add(result.error!);
+      // 取消发生在 stage-1 期间就不再扇出 stage-2：此时 cancelRequests 已
+      // 清空登记表，stage-2 新建的 token 永远不会被取消，只剩全量并发空跑。
+      // stage-1 的失败里已带 cancelled 错误，_bestMirrorError 会把它排最前。
+      if (_cancelEpoch == cancelEpoch) {
+        // Stage 2 — every other mirror in parallel (winner cancels the rest).
+        // All mirrors participate; ranking only chose which one goes first.
+        final rest = ordered.sublist(1);
+        if (rest.isNotEmpty) {
+          final result = await race(rest);
+          if (result != null && result.page != null) {
+            _mirrorIndex[site.id] = result.index;
+            return result.page!;
+          }
+          if (result != null &&
+              result.error != null &&
+              !failures.contains(result.error)) {
+            failures.add(result.error!);
+          }
         }
       }
     }
@@ -1227,7 +1239,8 @@ class GenericSiteApi {
             !_isJunkTitle(title) &&
             _looksLikeVideoPath(href, site)) {
           final abs = _abs(base, href);
-          final key = abs.split('#').first.split('?').first;
+          // 只去 fragment，保留 query：?v=N 型身份全靠 query 区分。
+          final key = abs.split('#').first;
           if (seen.add(key)) {
             final thumb = firstString(map, const [
               'thumbnail',
@@ -1277,6 +1290,10 @@ class GenericSiteApi {
     // Snapshot before the loop so the first page's own items survive the
     // freshness filter while later paths' duplicates drop.
     final startSeen = <String>{...seen};
+    // 只要有过一条成功返回的页面，就维持"空解析 = 该站确无结果"的原行为；
+    // 一条都没抓到（纯传输层失败）时不能把失败伪装成"无结果"。
+    var fetchedAnyPage = false;
+    Object? lastError;
     for (final pathFn in paths) {
       try {
         // Accept 解析必须无副作用：用一次性 set 解析并按 html 本身缓存。
@@ -1288,6 +1305,7 @@ class GenericSiteApi {
           pathFn,
           deadline: deadline,
           accept: (html, base) {
+            fetchedAnyPage = true;
             final items = parsedByHtml.putIfAbsent(
               html,
               () => _parseSearchResponse(html, base, <String>{}, site),
@@ -1307,6 +1325,7 @@ class GenericSiteApi {
         if (DateTime.now().isAfter(deadline)) {
           throw PhubException('搜索超时，请重试或切换网络');
         }
+        lastError = e;
         continue;
       }
     }
@@ -1314,6 +1333,7 @@ class GenericSiteApi {
       // A timed-out search must not masquerade as "no results".
       throw PhubException('搜索超时，请重试或切换网络');
     }
+    if (lastError != null && !fetchedAnyPage) throw lastError;
     return [];
   }
 
@@ -1690,8 +1710,15 @@ class GenericSiteApi {
   }
 
   String? _javCodeFromUrl(String url) {
-    final m = RegExp(r'([a-zA-Z]{2,12}-?\d{2,5}[a-zA-Z]?)').firstMatch(url);
-    return m?.group(1)?.toUpperCase();
+    // 从最后一个路径段向前找：目录/语言/分组前缀（missav 的 /dm514/、/en/）
+    // 同样长得像番号，从整条 URL 从前往后取会让前缀覆盖真实番号 ——
+    // 番号几乎总在靠后的段里。
+    final segs = Uri.tryParse(url)?.pathSegments ?? const <String>[];
+    for (final seg in segs.reversed) {
+      final m = RegExp(r'([a-zA-Z]{2,12}-?\d{2,5}[a-zA-Z]?)').firstMatch(seg);
+      if (m != null) return m.group(1)?.toUpperCase();
+    }
+    return null;
   }
 
   int _extractDurationSec(String html) {
@@ -3092,7 +3119,9 @@ class GenericSiteApi {
       }
       if (href == null) continue;
       final abs = _abs(base, href);
-      final key = abs.split('#').first.split('?').first;
+      // 只去 fragment，保留 query：/video?id=N 型站点的身份全靠 query，
+      // 剥掉会把整页视频塌缩成一条。
+      final key = abs.split('#').first;
       if (!seen.add(key)) continue;
 
       String? title;
@@ -3105,10 +3134,17 @@ class GenericSiteApi {
         if (aText != null) title = _cleanTitle(aText.group(1)!);
       }
       if (title == null || title.length < 2) {
-        final slug = key.split('/').where((e) => e.isNotEmpty).last;
-        title = Uri.decodeComponent(
-          slug,
-        ).replaceAll(RegExp(r'[-_]+'), ' ').trim();
+        final slug =
+            key.split('?').first.split('/').where((e) => e.isNotEmpty).last;
+        // 裸 % / 截断转义会让 decodeComponent 抛 ArgumentError，一条坏链接
+        // 不能拖垮整个列表解析 —— 解不开就原样兜底。
+        String decoded;
+        try {
+          decoded = Uri.decodeComponent(slug);
+        } catch (_) {
+          decoded = slug;
+        }
+        title = decoded.replaceAll(RegExp(r'[-_]+'), ' ').trim();
       }
       if (title.length < 2) continue;
       if (_isJunkTitle(title)) continue;

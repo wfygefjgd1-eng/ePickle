@@ -189,7 +189,13 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
         _loading = false;
         if (list.isEmpty) _error = '\u6682\u65e0\u53ef\u64ad\u653e\u7684\u5185\u5bb9';
       });
-      if (_scroll.hasClients) _scroll.jumpTo(0);
+      // 此刻列表还没重建（加载期是 spinner，hasClients 必为 false），
+      // 同步 jumpTo 是死分支；而 keepScrollOffset 会把上一个频道/搜索的
+      // 偏移恢复给新列表 —— 必须等下一帧新列表挂载后强制回顶。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scroll.hasClients) return;
+        _scroll.jumpTo(0);
+      });
     } catch (e) {
       if (!mounted || generation != _generation) return;
       setState(() {
@@ -677,6 +683,10 @@ class _HgCoverState extends State<_HgCover> {
         HgCoverLog.add('cover native FAILED: ${widget.url}');
         setState(() {});
       }
+    } catch (e) {
+      // 超时/网络异常不能逃逸成未处理异步错误（调用方是 unawaited）；
+      // 保持无图状态，等下一次 retrySignal 再试。
+      HgCoverLog.add('cover native error: $e ${widget.url}');
     } finally {
       _loading = false;
     }

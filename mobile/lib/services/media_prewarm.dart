@@ -53,6 +53,11 @@ class MediaPrewarm with WidgetsBindingObserver {
   /// 流可以被并发 warm 两次；pending 集合在入口就把身份占住。
   final Set<String> _warmingUrls = <String>{};
 
+  /// 每次 take() 都自增：take 发生时（无论命中）所有在途 warm 都视为过期，
+  /// 防止"用户点开预热中的卡片 → take 未命中走冷启动 → warm 完成后照常
+  /// 入库"产生同一条流的第二个僵尸解码器。
+  int _generation = 0;
+
   bool _enabled = false;
   bool _observing = false;
   bool _appInForeground = true;
@@ -94,7 +99,7 @@ class MediaPrewarm with WidgetsBindingObserver {
     if (stream == null || stream.url.isEmpty) return;
     if (_entries.any((e) => e.streamUrl == stream.url)) return;
     if (!_warmingUrls.add(stream.url)) return;
-    var parked = false;
+    final generation = _generation;
     try {
       final player = VideoPlayerController.networkUrl(
         Uri.parse(stream.url),
@@ -131,6 +136,7 @@ class MediaPrewarm with WidgetsBindingObserver {
       }
       if (!_enabled ||
           !_appInForeground ||
+          generation != _generation ||
           _entries.any((e) => e.streamUrl == stream.url)) {
         await _dispose(player);
         return;
@@ -149,11 +155,10 @@ class MediaPrewarm with WidgetsBindingObserver {
         streamUrl: stream.url,
         controller: player,
       ));
-      // 入库后身份由 _entries 接管；上面最后一段没有 await，
-      // 与 add 之间不可能再插入同流 warm。
-      parked = true;
     } finally {
-      if (!parked) _warmingUrls.remove(stream.url);
+      // 入库与否都交还身份占位：入库后的查重由 _entries 负责；被收编/
+      // 淘汰/清空后，同一条流还要能再次预热。
+      _warmingUrls.remove(stream.url);
     }
   }
 
@@ -164,6 +169,9 @@ class MediaPrewarm with WidgetsBindingObserver {
   /// (quality cap changed between warm and tap) and are released too.
   /// Returns null whenever nothing matches — the caller keeps its cold path.
   VideoPlayerController? take(String itemUrl, String? streamUrl) {
+    // 命中与否都作废在途 warm：未命中时冷启动已经/s即将开始，命中时解码器
+    // 已被收编——两种情况下 warm 完成后照常入库都是僵尸解码器。
+    _generation++;
     if (_entries.isEmpty) return null;
     final idx = streamUrl == null
         ? -1

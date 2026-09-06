@@ -272,13 +272,24 @@ class MirrorRanker {
 
   /// True when a site should be re-probed: never measured, has any recent
   /// failure (probes are cheap HEADs, so even a single failure justifies a
-  /// fresh look), or the freshest probe is older than [ttl].
-  bool needsProbe(String siteId) {
-    final stats = _bySite[siteId];
+  /// fresh look), or the freshest probe is older than [ttl]. [validBases]
+  /// (站点现行镜像集合) 用来剔除遗留 base——换过域名/已解钉的手动域名不会再
+  /// 被探测更新,其 failStreak 若照常计入会把 needsProbe 永久钉在 true。
+  bool needsProbe(String siteId, {Set<String>? validBases}) {
+    var stats = _bySite[siteId];
     if (stats == null || stats.isEmpty) return true;
+    Iterable<_MirrorStats> entries = stats.values;
+    if (validBases != null) {
+      final filtered = stats.entries
+          .where((e) => validBases.contains(e.key))
+          .map((e) => e.value)
+          .toList();
+      if (filtered.isEmpty) return true;
+      entries = filtered;
+    }
     final now = DateTime.now();
     var newest = DateTime.fromMillisecondsSinceEpoch(0);
-    for (final st in stats.values) {
+    for (final st in entries) {
       if (st.lastProbe.isAfter(newest)) newest = st.lastProbe;
       if (st.failStreak > 0) return true;
     }
@@ -337,17 +348,31 @@ class MirrorRanker {
   static const _probeConnectTimeout = Duration(milliseconds: 5000);
   static const _probeReceiveTimeout = Duration(milliseconds: 5000);
 
+  /// Set while a warmup is between entry and its first probe batch: covers
+  /// the load()/refreshSystemProxy() await gap where a second concurrent
+  /// warmup would otherwise slip past the probing check and double-probe.
+  bool _warmupEntered = false;
+
   Future<void> warmup({List<SiteDef>? sites}) async {
-    await load();
-    // Re-sync the system proxy before probing: the proxy tool may have
-    // restarted or switched ports since the last detection, and probing
-    // DIRECT while the user's proxy is up produces false "域名异常" verdicts
-    // (the browser through the proxy works, the app's probe does not).
-    await AppHttpClient.refreshSystemProxy();
-    final targets = (sites ?? const <SiteDef>[])
-        .where((site) => needsProbe(site.id))
-        .toList();
-    if (targets.isEmpty || probing.value) return;
+    if (probing.value || _warmupEntered) return;
+    _warmupEntered = true;
+    try {
+      await load();
+      // Re-sync the system proxy before probing: the proxy tool may have
+      // restarted or switched ports since the last detection, and probing
+      // DIRECT while the user's proxy is up produces false "域名异常" verdicts
+      // (the browser through the proxy works, the app's probe does not).
+      await AppHttpClient.refreshSystemProxy();
+      final targets = (sites ?? const <SiteDef>[]).where((site) {
+        final valid = <String>{
+          site.primaryHost.replaceAll(RegExp(r'/$'), ''),
+          for (final m in site.mirrors) m.replaceAll(RegExp(r'/$'), ''),
+        };
+        final manual = manualBase(site.id);
+        if (manual != null) valid.add(manual.replaceAll(RegExp(r'/$'), ''));
+        return needsProbe(site.id, validBases: valid);
+      }).toList();
+      if (targets.isEmpty) return;
     // Per-site queues, BEST MIRROR FIRST (ranked order), trimmed to what the
     // run actually needs:
     // - the current best is re-measured so the primary's latency stays fresh;
@@ -402,6 +427,9 @@ class MirrorRanker {
     } finally {
       probing.value = false;
       await _flushPersist();
+    }
+    } finally {
+      _warmupEntered = false;
     }
   }
 

@@ -193,6 +193,39 @@ class MainActivity : FlutterActivity() {
                         mainHandler.post { safe.success(null) }
                     }
                 }
+                "clearLaunchCache" -> {
+                    // 与 iOS 的 clearLaunchCache 对齐:只清 WebView/缓存类
+                    // 目录,保留 Cookies、Local Storage 与 shared_prefs。
+                    // Dart 侧启动清理此前在 Android 一直收到
+                    // notImplemented,WebView 缓存的启动清理静默失效。
+                    val safe = ReplyOnce(result)
+                    executor.execute {
+                        try {
+                            val webview = File(dataDir, "app_webview")
+                            webview.listFiles()?.forEach { f ->
+                                val name = f.name.lowercase()
+                                if (name == "cache" ||
+                                    name == "http cache" ||
+                                    name == "code cache" ||
+                                    name == "service worker" ||
+                                    name == "grshadercache" ||
+                                    name == "shadercache" ||
+                                    name == "crashpad"
+                                ) {
+                                    try {
+                                        f.deleteRecursively()
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                            cacheDir.listFiles()?.forEach { f ->
+                                try {
+                                    f.deleteRecursively()
+                                } catch (_: Exception) {}
+                            }
+                        } catch (_: Exception) {}
+                        mainHandler.post { safe.success(null) }
+                    }
+                }
                 "exitApp" -> {
                     result.success(null)
                     mainHandler.postDelayed({ finishAffinity() }, 200)
@@ -921,8 +954,9 @@ class StripchatLiveView(
                     v: WebView?, request: WebResourceRequest?
                 ): Boolean {
                     if (!isStripchat || request == null) return false
-                    // Block popups / external ads that often crash WebView.
-                    if (!request.isForMainFrame) return true
+                    // 主框架与 iframe 同一 host 白名单(与 iOS 一致):挡广告/
+                    // 弹窗域,放过站方自己的播放 iframe。此前 iframe 一律
+                    // 取消,会把直播画面所在的播放 iframe 一并杀掉。
                     val host = request.url.host?.lowercase() ?: return true
                     val allowed = host == "stripchat.com" ||
                         host.endsWith(".stripchat.com") ||

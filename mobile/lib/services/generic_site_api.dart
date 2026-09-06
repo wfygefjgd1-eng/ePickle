@@ -144,7 +144,9 @@ class GenericSiteApi {
         AppHttpClient.markProxySuspect();
         await AppHttpClient.refreshSystemProxy();
       }
-      if (!CancelToken.isCancel(error) && _shouldUseNativeFallback(error)) {
+      if (!CancelToken.isCancel(error) &&
+          !token.isCancelled &&
+          _shouldUseNativeFallback(error)) {
         final native = await _nativeGetHtml(
           url,
           origin: origin,
@@ -156,6 +158,11 @@ class GenericSiteApi {
       rethrow;
     } finally {
       _activeRequests.remove(token);
+    }
+    // 取消发生后不再走原生回退:调用方已经放弃,原生调用又不可取消,
+    // 只会白白占用 WebView 渲染槽位。
+    if (token.isCancelled) {
+      throw PhubException('抓取已取消');
     }
     _storeCookies(_originOf(res.realUri.toString()), res.headers);
     final status = res.statusCode ?? 0;
@@ -225,10 +232,14 @@ class GenericSiteApi {
     required Map<String, String> headers,
     required Duration timeout,
   }) async {
+    // timeout 是调用方的总预算:GET 用掉的部分必须从 render 的预算里扣掉,
+    // 否则被拦截页会让原生链路超用 2 倍预算。
+    final started = DateTime.now();
+    var remaining = timeout;
     var response = await NativeBrowserHttp.get(
       url,
       headers: headers,
-      timeout: timeout,
+      timeout: remaining,
     );
     // Soft 404/403 bodies may still be useful; challenge pages need WK render.
     final first = response;
@@ -238,10 +249,13 @@ class GenericSiteApi {
         first.statusCode >= 500 ||
         _isBlockedHtml(first.body);
     if (needRender) {
+      final left = timeout - DateTime.now().difference(started);
+      remaining =
+          left > const Duration(milliseconds: 250) ? left : const Duration(milliseconds: 250);
       response = await NativeBrowserHttp.render(
         url,
         headers: headers,
-        timeout: timeout,
+        timeout: remaining,
       );
     }
     if (response == null || response.body.isEmpty) {
@@ -710,7 +724,7 @@ class GenericSiteApi {
       // base: different paths (and the native-render retry) serve DIFFERENT
       // html for the same base, and keying by base reused a stale parse
       // across them (killing every fallback path after the first success).
-      final parsedByHtml = <String, List<VideoItem>>{};
+      final parsedByHtml = <(String, String), List<VideoItem>>{};
       // [seen] snapshot before this loop: the first page's own items are new
       // relative to it (so they survive), while items re-offered by later
       // paths/sources (already consumed upstream) fall out.
@@ -724,7 +738,7 @@ class GenericSiteApi {
             deadline: deadline,
             accept: (html, base) {
               final items = parsedByHtml.putIfAbsent(
-                html,
+                (base, html),
                 () => _parseFeedResponse(
                   html,
                   base,
@@ -737,7 +751,8 @@ class GenericSiteApi {
               return true;
             },
           );
-          final items = parsedByHtml[fetched.html] ?? const <VideoItem>[];
+          final items =
+              parsedByHtml[(fetched.base, fetched.html)] ?? const <VideoItem>[];
           if (items.isNotEmpty) parsedAnyPage = true;
           final fresh = <VideoItem>[];
           for (final it in items) {
@@ -1299,7 +1314,7 @@ class GenericSiteApi {
         // Accept 解析必须无副作用：用一次性 set 解析并按 html 本身缓存。
         // 按 base 缓存会在原生渲染重试时复用被拦截页的空解析 —— 渲染出的
         // 新 html 永远不会被解析，搜索在 Cloudflare 站上必挂。
-        final parsedByHtml = <String, List<VideoItem>>{};
+        final parsedByHtml = <(String, String), List<VideoItem>>{};
         final fetched = await _fetchPageWithMirrors(
           site,
           pathFn,
@@ -1307,14 +1322,15 @@ class GenericSiteApi {
           accept: (html, base) {
             fetchedAnyPage = true;
             final items = parsedByHtml.putIfAbsent(
-              html,
+              (base, html),
               () => _parseSearchResponse(html, base, <String>{}, site),
             );
             if (items.isEmpty) return false;
             return true;
           },
         );
-        final list = parsedByHtml[fetched.html] ?? const <VideoItem>[];
+        final list =
+            parsedByHtml[(fetched.base, fetched.html)] ?? const <VideoItem>[];
         final fresh = <VideoItem>[];
         for (final it in list) {
           if (startSeen.add(it.viewkey)) fresh.add(it);
@@ -2330,7 +2346,9 @@ class GenericSiteApi {
       r'''["'](https?://[^"']+\.(?:m3u8|mp4)[^"']*)["']''',
       caseSensitive: false,
     ).allMatches(html)) {
-      final u = m.group(1)!;
+      // 其他抽取器都会解码 \/,这里漏了解码会得到一条死流,与
+      // _extractStreams 解码后的同一条 URL 去重不上、双双入库。
+      final u = m.group(1)!.replaceAll(r'\/', '/');
       if (_isPreviewUrl(u)) continue;
       out.add(
         StreamQuality(
@@ -3106,17 +3124,47 @@ class GenericSiteApi {
       chunks = html.split(RegExp(r'''(?=href=["'][^"']+["'])'''));
     }
 
+    // 包裹式布局（<a href=…><div class=thumb>…）里，当前卡片的 href 在上
+    // 一块末尾、本块尾部又挂着下一张卡的开头锚点：紧贴块尾的 <a> 属于下
+    // 一卡（交给下一块），尾部其余 href 仍属本卡。旧逻辑整块扫 href，会把
+    // 下一卡的 href 配到本卡标题上、丢掉一半卡片。
+    List<String> pendingHrefs = const <String>[];
     for (var chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
       final chunk = chunks[chunkIndex];
       if (chunk.length < 40 || chunk.length > 12000) continue;
+      final lastClose = chunk.lastIndexOf('</div>');
+      final ownPart = lastClose < 0 ? chunk : chunk.substring(0, lastClose + 6);
+      final tail = lastClose < 0 ? '' : chunk.substring(lastClose + 6);
       String? href;
-      for (final m in hrefRe.allMatches(chunk)) {
+      for (final m in hrefRe.allMatches(ownPart)) {
         final h = m.group(1)!;
         if (_looksLikeVideoPath(h, site)) {
           href = h;
           break;
         }
       }
+      String? tailOwnHref;
+      var nextPending = const <String>[];
+      if (tail.isNotEmpty) {
+        final tailMatches = hrefRe
+            .allMatches(tail)
+            .where((m) => _looksLikeVideoPath(m.group(1)!, site))
+            .toList();
+        if (tailMatches.isNotEmpty) {
+          final openerAtEnd =
+              RegExp(r'<a\s[^>]*>\s*$', caseSensitive: false).hasMatch(tail);
+          if (openerAtEnd && tailMatches.length == 1) {
+            nextPending = <String>[tailMatches.first.group(1)!];
+          } else {
+            tailOwnHref = tailMatches.first.group(1)!;
+          }
+        }
+      }
+      href ??= tailOwnHref;
+      if (href == null && pendingHrefs.isNotEmpty) {
+        href = pendingHrefs.first;
+      }
+      pendingHrefs = nextPending;
       if (href == null) continue;
       final abs = _abs(base, href);
       // 只去 fragment，保留 query：/video?id=N 型站点的身份全靠 query，
@@ -3528,8 +3576,10 @@ class GenericSiteApi {
       return minutes * 60 + seconds;
     }
 
+    // (?!\s*(?:ago|前)):卡片里常见的发布时间"10 hours ago / 3 小时前"
+    // 不是时长,必须拒收。
     final hMin = RegExp(
-      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b(?:\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b)?',
+      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b(?:\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b)?(?!\s*(?:ago|前))',
     ).firstMatch(text);
     if (hMin != null) {
       final hours = double.tryParse(hMin.group(1) ?? '') ?? 0;
@@ -3538,7 +3588,7 @@ class GenericSiteApi {
     }
 
     final minOnly = RegExp(
-      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b',
+      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b(?!\s*(?:ago|前))',
     ).firstMatch(text);
     if (minOnly != null) {
       final minutes = double.tryParse(minOnly.group(1) ?? '') ?? 0;
@@ -3546,7 +3596,7 @@ class GenericSiteApi {
     }
 
     final secOnly = RegExp(
-      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b',
+      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b(?!\s*(?:ago|前))',
     ).firstMatch(text);
     if (secOnly != null) {
       final seconds = double.tryParse(secOnly.group(1) ?? '') ?? 0;
@@ -3630,11 +3680,11 @@ class GenericSiteApi {
       final u = m.group(1);
       if (u != null && !u.startsWith('data:')) add(u, h: 720);
     }
-    // m3u8 without quotes nearby (packed)
+    // m3u8 without quotes nearby (packed). Single raw string: the previous
+    // multi-part literal mixed raw and non-raw segments (the non-raw `\\.`
+    // collapsed to a regex `\.`), which read like a double-escape bug.
     for (final m in RegExp(
-      r'(https?:\\?/\\?/[^\s"'
-      '<>]+\\.m3u8[^\\s"'
-      '<>]*)',
+      r'(https?:\\?/\\?/[^\s"<>]+\.m3u8[^\s"<>]*)',
       caseSensitive: false,
     ).allMatches(html)) {
       add(m.group(1)?.replaceAll(r'\/', '/'), h: 720);
@@ -3775,14 +3825,13 @@ class GenericSiteApi {
       }
 
       if (room.isNotEmpty) {
-        final apis = [
+        // Set 保序去重:base 与 preferredBase 相同时第一条与第三条是同一个
+        // URL,不去重会在失败路径上把 chatvideocontext 重抓一遍。
+        final apis = <String>{
           '$base/api/chatvideocontext/$room/',
           '$base/$room/',
-          // Last resort also goes through the fastest mirror instead of a
-          // hardcoded primary host, so a slow/changed chaturbate.com never
-          // wins over a fast mirror.
           '${_ranker.preferredBase(site)}/api/chatvideocontext/$room/',
-        ];
+        }.toList();
         for (final api in apis) {
           try {
             final raw = await _getHtml(

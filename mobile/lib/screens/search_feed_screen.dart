@@ -746,6 +746,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
               _pageCtrl.jumpToPage(_index);
             } catch (_) {}
           }
+          // 重基作废了在途播放(seq++)后,当前页可能停在"无控制器"状态:
+          // 帧后重新发起播放(与 video_feed_screen._loadMore 末尾的重播同理),
+          // 否则该页菊花转完就没有下文。
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || !_canRun) return;
+            if (_controller == null && _items.isNotEmpty) {
+              _playIndex(_index.clamp(0, _items.length - 1));
+            }
+          });
         }
       });
     } catch (_) {
@@ -980,7 +989,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       return;
     }
-    if (seq != _seq || !_canRun || !mounted) return;
+    if (seq != _seq || !_canRun || !mounted) {
+      // 播放被作废(重基/生命周期)时清掉本条播放挂起的加载态,否则该页
+      // 的菊花永久旋转。
+      if (mounted && _pageLoading) {
+        setState(() => _pageLoading = false);
+      }
+      return;
+    }
 
     if (detail.countryBlocked) {
       setState(() => _pageLoading = false);
@@ -1163,6 +1179,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   Future<void> _translateTitleOnly(String title) async {
     if (title.isEmpty) return;
+    // 直播站标题是主播名,不翻译(与 video_feed 的守卫一致)。
+    if (widget.site?.kind == SiteKind.live) return;
     if (RegExp(r'[\u4e00-\u9fff]').hasMatch(title)) {
       if (mounted) setState(() => _titleText = title);
       return;
@@ -2374,6 +2392,12 @@ class _MinimalButtonState extends State<_MinimalButton> {
             _isDragging = false;
           });
           _saveOffset(_currentDragOffset);
+        },
+        onLongPressCancel: () {
+          // 手势被抢断(来电横幅等)时不会触发 onLongPressEnd:不复位
+          // _isDragging 会让按钮永久点不动、缩放卡在 1.2 倍。
+          if (!_isDragging) return;
+          setState(() => _isDragging = false);
         },
         child: AnimatedScale(
           scale: _isDragging ? 1.2 : 1.0,

@@ -584,8 +584,11 @@ class HuangGuoApi {
     var data = _videoData(html);
     if (data == null) {
       final idm = RegExp(r'/(?:detail|video)/(\d+)').firstMatch(pageUrl);
-      if (idm != null) {
-        pageUrl = '$base/video/${idm.group(1)}/';
+      final next = idm == null ? null : '$base/video/${idm.group(1)}/';
+      // pageUrl 已经是 /video/ID/ 时不再重抓同一个 URL(catch 分支已换过
+      // 一次地址),避免失败路径上多一次纯冗余请求。
+      if (next != null && next != pageUrl) {
+        pageUrl = next;
         html = await _getHtml(pageUrl);
         data = _videoData(html);
       }

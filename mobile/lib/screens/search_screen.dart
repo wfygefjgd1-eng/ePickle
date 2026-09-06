@@ -175,7 +175,9 @@ class _SearchScreenState extends State<SearchScreen> {
         _results[id] = merged;
         _page[id] = page;
         _loading[id] = false;
-        _hasMore[id] = list.isNotEmpty && fresh.isNotEmpty && !capped;
+        // fresh 为空只说明本页全是已见过的重复项(站点翻页常有漂移),
+        // 页码已推进,不能据此关死翻页;末页自然以空列表收尾。
+        _hasMore[id] = list.isNotEmpty && !capped;
       });
     } catch (e) {
       if (!mounted || gen != _searchGen) return;

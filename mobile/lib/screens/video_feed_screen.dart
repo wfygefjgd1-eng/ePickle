@@ -1014,6 +1014,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       for (final item in list) {
         if (_seen.add(item.viewkey)) _items.add(item);
       }
+      final addedCount = _items.length - addedStart;
       _trimItemsWindow();
       if (!mounted) return;
       setState(() {
@@ -1024,7 +1025,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         }
       });
       // PH / X titles are English — batch translate after list load.
-      final translateStart = addedStart.clamp(0, _items.length);
+      // 裁剪会把索引整体左移:按"新增条数从尾部反推"才能对准本批新条目,
+      // 用裁剪前的旧长度会空跑甚至翻不出本批标题。
+      final translateStart = (_items.length - addedCount).clamp(0, _items.length);
       if (widget.kind != VideoFeedKind.zhong &&
           widget.site?.kind != SiteKind.live &&
           _items.length > translateStart) {
@@ -1547,7 +1550,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _scheduleSkipToNext(index);
       return;
     }
-    if (seq != _loadSeq || !_canRun || !mounted) return;
+    if (seq != _loadSeq || !_canRun || !mounted) {
+      // 播放被作废(裁剪重基/生命周期)时必须清掉本条播放挂起的加载态,
+      // 否则该页的菊花永久旋转,没有任何自愈路径。
+      if (mounted && _pageLoading) {
+        setState(() => _pageLoading = false);
+      }
+      return;
+    }
 
     if (detail.countryBlocked) {
       setState(() => _pageLoading = false);

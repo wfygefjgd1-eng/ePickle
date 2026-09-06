@@ -22,8 +22,7 @@ class SiteFeedPage extends StatefulWidget {
   State<SiteFeedPage> createState() => _SiteFeedPageState();
 }
 
-class _SiteFeedPageState extends State<SiteFeedPage>
-    with WidgetsBindingObserver {
+class _SiteFeedPageState extends State<SiteFeedPage> {
   int _index = 0;
   final List<GlobalKey<VideoFeedScreenState>> _keys = [];
 
@@ -41,13 +40,11 @@ class _SiteFeedPageState extends State<SiteFeedPage>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _ensureKeys();
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _stopAllFeedsImmediately();
     super.dispose();
   }
@@ -68,17 +65,9 @@ class _SiteFeedPageState extends State<SiteFeedPage>
     Navigator.of(context).maybePop();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed || _index >= _keys.length) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted &&
-          ModalRoute.of(context)?.isCurrent == true &&
-          _index < _keys.length) {
-        _keys[_index].currentState?.startPlaying();
-      }
-    });
-  }
+  // 前台恢复的续播完全交给每个 VideoFeedScreenState 自己的生命周期处理:
+  // 它只在"暂停时正在播/加载中"(_resumePlaybackOnForeground)才恢复。
+  // 这里曾无条件调用 startPlaying(),会把用户手动暂停的视频强行续播。
 
   void _ensureKeys() {
     final n = _contentTabs.length;

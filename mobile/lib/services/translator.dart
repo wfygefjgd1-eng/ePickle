@@ -117,7 +117,13 @@ class Translator {
     await _ensureDisk();
     final key = '${from}_$to:$raw';
     final hit = _cache[key];
-    if (hit != null) return hit;
+    if (hit != null) {
+      // LinkedHashMap 重复赋值不改变顺序:命中也要摘下重插才是真 LRU,
+      // 否则长会话里高频命中但早期插入的译文会先被挤出、反复重翻。
+      _cache.remove(key);
+      _cache[key] = hit;
+      return hit;
+    }
     try {
       final encoded = Uri.encodeQueryComponent(
         raw.length > 4500 ? raw.substring(0, 4500) : raw,
@@ -149,6 +155,7 @@ class Translator {
       if (_looksLikeGarbageTitle(result) && !_looksLikeGarbageTitle(raw)) {
         return text;
       }
+      _cache.remove(key);
       _cache[key] = result;
       // Bound RAM the same way disk is bounded: evict the oldest entry once
       // the in-memory cache exceeds the disk cap on a long scrolling session.

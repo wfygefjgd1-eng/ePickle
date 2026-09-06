@@ -173,12 +173,18 @@ class AppSettings extends ChangeNotifier {
   Future<void> setHuangguoDomain(String v) async {
     final normalized = _normalizeHuangguoDomain(v);
     if (normalized == _huangguoDomain) return;
+    final prev = _huangguoDomain;
     _huangguoDomain = normalized;
     notifyListeners();
     try {
       final p = await SharedPreferences.getInstance();
       await p.setString(_kHuangguoDomain, normalized);
-    } catch (_) {}
+    } catch (_) {
+      // 与 _setBool/_setInt 同款回滚:写盘失败时不能让 UI 显示一个下次
+      // 启动会悄悄变回去的值。
+      _huangguoDomain = prev;
+      notifyListeners();
+    }
   }
 
   Future<void> resetHuangguoDomain() => setHuangguoDomain(huangguoDefaultDomain);

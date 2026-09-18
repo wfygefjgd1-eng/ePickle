@@ -73,7 +73,14 @@ class SiteDef {
           : SiteKind.video,
       color: 0xFF607D8B,
       letter: letter,
-      mirrors: [u.startsWith('http') ? u : 'https://$u'],
+      // 不能用 startsWith('http') 判 scheme：httpbin.org / httpx.cc 这类域名
+      // 会被误判成"已有 scheme"而原样入库，请求时变成无 scheme 的相对路径
+      // 直接失败；全大写 HTTP:// 也会漏判。按协议头正则判（忽略大小写）。
+      mirrors: [
+        RegExp(r'^https?://', caseSensitive: false).hasMatch(u)
+            ? u
+            : 'https://$u',
+      ],
       tags: switch (parserId) {
         'stripchat' => SourceCatalog.stripchatTags,
         'chaturbate' => SourceCatalog.chaturbateTags,

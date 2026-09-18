@@ -132,9 +132,11 @@ Future<void> _showAddSiteDialog(
           FilledButton(
             onPressed: () {
               final raw = urlController.text.trim();
-              final uri = Uri.tryParse(
-                raw.startsWith('http') ? raw : 'https://$raw',
-              );
+              // 不能用 startsWith('http') 判 scheme：httpbin.org 这类域名会被
+              // 误当已带协议头解析（host 为空）而提示"无效地址"。
+              final hasScheme =
+                  RegExp(r'^https?://', caseSensitive: false).hasMatch(raw);
+              final uri = Uri.tryParse(hasScheme ? raw : 'https://$raw');
               if (uri == null || uri.host.isEmpty || uri.scheme != 'https') {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('请输入有效的 HTTPS 网站地址')),

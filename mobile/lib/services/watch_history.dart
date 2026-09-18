@@ -42,10 +42,13 @@ class WatchHistory extends ChangeNotifier {
     _backupExcludeOn = completer;
     try {
       await FileUtils.excludeFromBackup(path);
+      completer.complete();
     } catch (_) {
-      // 失败也保持已完成，避免无限重试；下次写入会重建 completer。
+      // 失败时 completer 照常完成放行本次调用，但清空占位：下一次写入会
+      // 重新执行一次排除（重试由写入节奏驱动，不会自旋）。
+      _backupExcludeOn = null;
+      completer.complete();
     }
-    completer.complete();
   }
 
   bool get ready => _ready;

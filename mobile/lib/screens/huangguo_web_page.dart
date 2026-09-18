@@ -110,6 +110,10 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     // error body) — treat the offset as 0 there.
     final offset = _scroll.hasClients ? _scroll.offset : 0.0;
     _cache[_cacheKey] = _ChannelCache(_items, _page, _hasMore, offset);
+    // 搜索词/专题页会让 _cache 无限累积（每条快照都是完整列表），FIFO 限容。
+    while (_cache.length > 24) {
+      _cache.remove(_cache.keys.first);
+    }
   }
 
   void _selectChannel(String id) {

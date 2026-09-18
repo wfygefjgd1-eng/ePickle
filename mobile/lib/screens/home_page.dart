@@ -32,7 +32,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final _searchCtrl = TextEditingController();
   final _focusNode = FocusNode();
   String _versionLabel = '';
@@ -41,9 +41,15 @@ class _HomePageState extends State<HomePage> {
   AppSettings? _settings;
   Timer? _prewarmTimer;
 
+  /// 预热运行代号：开关切换重跑时自增，旧一轮在每个 await 检查点发现代号
+  /// 过期即退出——避免"切换开关 → 新旧两轮 _prewarmHomeFeeds 并发"重复
+  /// 抓取同一批列表/详情。
+  int _prewarmRun = 0;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _prewarmStarted = false;
     _settings = context.read<AppSettings>();
     _lastAggressive = _settings!.aggressivePrewarm;
@@ -92,6 +98,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _prewarmTimer?.cancel();
     _prewarmTimer = null;
     _prewarmStarted = false;
@@ -156,19 +163,26 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _prewarmHomeFeeds() async {
-    if (_prewarmStarted || !mounted) return;
-    // Don't spend network if the app was backgrounded within the delay.
-    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
-      // Not resumed yet — re-arm the timer once instead of silently dropping
-      // the prewarm forever (a one-shot timer that fires during the brief
-      // transition to resumed must not skip the warm cache permanently).
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 后台期间不再用 600ms 定时器自旋（每次触发只重排一次，退到后台会无限
+    // 唤醒）：恢复前台时补跑一次预热，确保"启动即退后台"不会永久跳过预热。
+    if (state == AppLifecycleState.resumed && mounted && !_prewarmStarted) {
+      _prewarmTimer?.cancel();
       _prewarmTimer = Timer(const Duration(milliseconds: 600), () {
         if (mounted) unawaited(_prewarmHomeFeeds());
       });
-      return;
     }
+  }
+
+  Future<void> _prewarmHomeFeeds() async {
+    if (_prewarmStarted || !mounted) return;
+    // Don't spend network if the app was backgrounded within the delay: skip
+    // silently and let didChangeAppLifecycleState re-trigger on resume.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return;
     _prewarmStarted = true;
+    final runId = ++_prewarmRun;
     final settings = _settings ?? context.read<AppSettings>();
     final aggressive = settings.aggressivePrewarm;
     MediaPrewarm.instance.setEnabled(aggressive);
@@ -188,7 +202,7 @@ class _HomePageState extends State<HomePage> {
       sites.asMap().entries.map((entry) async {
         final siteIndex = entry.key;
         final site = entry.value;
-        if (!mounted) return;
+        if (!mounted || runId != _prewarmRun) return;
         final tag = site.tags.first;
         final cacheKey = '${site.id}_${tag.id}';
         if (FeedListCache.take(cacheKey) != null) return;
@@ -198,7 +212,7 @@ class _HomePageState extends State<HomePage> {
           // 信息流 initState 消费同一页并从下一页续抓。
           final page = randomized ? 1 + Random().nextInt(10) : 1;
           final list = await _fetchPrewarmList(site, tag, page: page);
-          if (!mounted || list.isEmpty) return;
+          if (!mounted || runId != _prewarmRun || list.isEmpty) return;
           FeedListCache.put(
             cacheKey,
             FeedListSnapshot(
@@ -213,6 +227,7 @@ class _HomePageState extends State<HomePage> {
           // in parallel). Backgrounding the app stops the walk early.
           for (var i = 0; i < list.length; i++) {
             if (!mounted ||
+                runId != _prewarmRun ||
                 WidgetsBinding.instance.lifecycleState !=
                     AppLifecycleState.resumed) {
               return;
@@ -285,9 +300,10 @@ class _HomePageState extends State<HomePage> {
         fetch = context.read<GenericSiteApi>().getVideoDetail(site, item.url);
       }
       final detail = await fetch;
-      if (!detail.countryBlocked && !detail.unavailable) {
-        FeedDetailCache.put(item.url, detail);
-      }
+      // 被墙/不可播的详情不进缓存，也不返回——调用方的激进预热链会拿返回值
+      // 去预初始化解码器，喂一个不可播详情只会白占一个解码器槽位。
+      if (detail.countryBlocked || detail.unavailable) return null;
+      FeedDetailCache.put(item.url, detail);
       return detail;
     } catch (_) {
       return null;

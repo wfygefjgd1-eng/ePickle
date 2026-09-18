@@ -67,10 +67,14 @@ class AutoRotateController {
   }
 
   DeviceOrientation _sideFromFiltered() {
-    // x>0 ≈ home-button-right on most phones → landscapeRight in Flutter terms.
+    // 加速度计为支持力约定（屏幕朝上平放 z≈+9.81）：home 键在右持机时设备
+    // 右缘朝上 → x≈+9.81。Flutter/iOS 的 landscapeLeft 定义为"home 键在右"
+    // （相对 portraitUp 逆时针转 90°），所以 x>=0 必须映射 landscapeLeft。
+    // 反着写会让 iOS 全屏请求到相反横屏、Android 视觉横屏下画面颠倒
+    // （player_chrome 的 RotatedBox turns 模型按本方向语义取值）。
     return _fx >= 0
-        ? DeviceOrientation.landscapeRight
-        : DeviceOrientation.landscapeLeft;
+        ? DeviceOrientation.landscapeLeft
+        : DeviceOrientation.landscapeRight;
   }
 
   void syncLandscapeMode(

@@ -157,7 +157,15 @@ class PlayerChrome extends ChangeNotifier {
               padding: pad,
               viewPadding: viewPad,
             ),
-            child: child,
+            // 嵌套 ScaffoldMessenger：让 toast（SnackBar）在旋转坐标系内
+            // 渲染，而不是落在根 overlay 上呈 90° 侧躺。ScaffoldMessenger.of
+            // 取最近的 scope，body 内的 PlaybackHelpers.toast 自动命中这里。
+            child: ScaffoldMessenger(
+              child: Scaffold(
+                backgroundColor: Colors.transparent,
+                body: child,
+              ),
+            ),
           ),
         ),
       ),

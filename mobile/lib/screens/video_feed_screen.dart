@@ -110,6 +110,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   Timer? _skipTimer;
   Timer? _loadMoreTimer;
   Timer? _liveWatchdog;
+  // 冷启动空批次连续重试计数：站点持续返回可解析但为空的列表（如 Cloudflare
+  // 拦截页被当成 200 空页）时，1 秒重试必须有上限，否则每秒 7+ 个上游请求
+  // 打到源站直到离开本页。
+  int _emptyColdRetries = 0;
   final ValueNotifier<double> _sliderValue = ValueNotifier(0);
   final ValueNotifier<String> _currentTime = ValueNotifier('0:00');
   final ValueNotifier<String> _totalTime = ValueNotifier<String>('0:00');
@@ -269,6 +273,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Android 原生失败浮层的"跳过"按钮走 'skip' 方法回 Dart；不监听的话
+    // 按钮点了没有任何效果。
+    StripchatLiveView.setSkipHandler(_onNativeLiveSkip);
     _muted = context.read<AppSettings>().muted;
     final genericVideoSite = widget.site != null &&
         SourceCatalog.usesRandomizedGenericFeed(widget.site!);
@@ -467,6 +474,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   @override
   void dispose() {
     stopPlaybackImmediately();
+    StripchatLiveView.setSkipHandler(null);
     if (_items.isNotEmpty && widget.initialItems.isEmpty) {
       final idx = _currentIndex.clamp(0, _items.length - 1);
       FeedListCache.put(
@@ -781,6 +789,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _livePaused = false;
       }
       WakelockPlus.enable();
+      // 后台/路由往返会取消看门狗（_cancelBackgroundWork / pausePlayback），
+      // 回到前台若不重新布防，WebView 直播卡壳后就没有 12 秒兜底踢恢复了。
+      _startLiveWatchdog();
       return;
     }
     if (_items.isEmpty) {
@@ -1022,6 +1033,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         if (_seen.add(item.viewkey)) _items.add(item);
       }
       final addedCount = _items.length - addedStart;
+      if (addedCount > 0) {
+        _emptyColdRetries = 0;
+      } else if (isCold) {
+        _emptyColdRetries++;
+      }
       _trimItemsWindow();
       if (!mounted) return;
       setState(() {
@@ -1055,7 +1071,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           _browserLiveUrl == null) {
         _playIndex(_currentIndex.clamp(0, _items.length - 1));
       }
-      if (isCold && _items.length < 20 && _canRun) {
+      if (isCold &&
+          _items.length < 20 &&
+          _emptyColdRetries < 3 &&
+          _canRun) {
         _loadMoreTimer?.cancel();
         _loadMoreTimer = Timer(const Duration(seconds: 1), () {
           if (_canRun) _loadMore();
@@ -1865,6 +1884,18 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     });
   }
 
+  /// 原生浮层"跳过"按钮：用户主动放弃当前直播间，直接切下一条。与自动
+  /// 跳过（_scheduleSkipToNext）不同——不计失败次数、不设上限。
+  void _onNativeLiveSkip() {
+    if (!mounted || !_canRun || _browserLiveUrl == null) return;
+    if (_items.length < 2) {
+      PlaybackHelpers.toast(context, '没有下一个频道');
+      return;
+    }
+    final next = (_currentIndex + 1) % _items.length;
+    _playIndex(next);
+  }
+
   /// Drop items far from the play head so memory stays bounded.
   void _trimItemsWindow() {
     if (_items.length <= _maxLiveItems) return;
@@ -2066,14 +2097,17 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   Future<void> _translateTitleOnly(String title) async {
     if (title.isEmpty) return;
     if (widget.site?.kind == SiteKind.live) return;
+    // 翻译是一次网络往返，期间用户可能已滑到下一条：记住本次播放的 seq，
+    // 返回时已换片就不再把旧标题的译文盖到新片的标题栏上。
+    final seq = _loadSeq;
     // Already Chinese (e.g. 中 tab) — keep as-is.
     if (RegExp(r'[\u4e00-\u9fff]').hasMatch(title)) {
-      if (mounted) setState(() => _titleText = title);
+      if (mounted && seq == _loadSeq) setState(() => _titleText = title);
       return;
     }
     try {
       final zh = await context.read<Translator>().enToZh(title);
-      if (!mounted || zh.isEmpty) return;
+      if (!mounted || zh.isEmpty || seq != _loadSeq) return;
       setState(() => _titleText = zh);
       // Also update list item so next swipe shows Chinese immediately.
       final i = _currentIndex;

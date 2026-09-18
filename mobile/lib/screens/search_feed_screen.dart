@@ -781,6 +781,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _retryTimer?.cancel();
       _retryTimer = Timer(const Duration(milliseconds: 800), () {
         if (!_canRun) return;
+        // _onPageChanged 不取消本定时器：用户在 800ms 内手动滑走时，
+        // _index 可能还是旧值，必须以 PageView 实际所在页为准，否则重试
+        // 会把播放强行拉回这条坏片、冻结用户正在看的那条。
+        final page = _pageCtrl.hasClients ? _pageCtrl.page?.round() : null;
+        if (page != null && page != fromIndex) return;
         _playIndex(fromIndex);
       });
       return;
@@ -1191,18 +1196,21 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (title.isEmpty) return;
     // 直播站标题是主播名,不翻译(与 video_feed 的守卫一致)。
     if (widget.site?.kind == SiteKind.live) return;
+    // 翻译是一次网络往返，期间用户可能已滑到下一条：seq 已变或标题栏已
+    // 换成别的标题时，不能把旧标题的译文盖上去。
+    final seq = _seq;
     if (RegExp(r'[\u4e00-\u9fff]').hasMatch(title)) {
-      if (mounted) setState(() => _titleText = title);
+      if (mounted && seq == _seq) setState(() => _titleText = title);
       return;
     }
     try {
       final zh = await context.read<Translator>().enToZh(title);
-      if (!mounted || zh.isEmpty) return;
+      if (!mounted || zh.isEmpty || seq != _seq) return;
       final i = _index;
       if (i >= 0 && i < _items.length && _items[i].title == title) {
         _items[i] = _items[i].copyWith(title: zh);
       }
-      if (mounted) setState(() => _titleText = zh);
+      if (mounted && _titleText == title) setState(() => _titleText = zh);
     } catch (_) {}
   }
 
@@ -1837,6 +1845,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   if (mounted) setState(() => _manualPaused = true);
                 } else {
                   PlaybackSolo.enforceSolo(c);
+                  // 路由往返（_pausePlaybackForRouteChange）会把控制器压成
+                  // 静音；手动暂停后返回不走 startPlaying 的音量恢复，点击
+                  // 续播前必须按用户静音偏好重新应用，否则无声播放还显示
+                  // 未静音图标。
+                  unawaited(c.setVolume(_muted ? 0 : 1));
                   c.play();
                   if (mounted) setState(() => _manualPaused = false);
                 }

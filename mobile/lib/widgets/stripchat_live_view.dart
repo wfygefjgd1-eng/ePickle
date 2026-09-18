@@ -30,6 +30,22 @@ class StripchatLiveView extends StatelessWidget {
 
   static void _ignorePlatformError(Object _) {}
 
+  /// Native overlay's "跳过" (skip) button invokes 'skip' on [_control].
+  /// Without a Dart-side handler the button does nothing — Android fires the
+  /// method and the reply silently reports notImplemented. The host screen
+  /// registers a handler while a live view is on screen and clears it on
+  /// dispose; passing null removes the handler.
+  static void setSkipHandler(void Function()? onSkip) {
+    _control.setMethodCallHandler(
+      onSkip == null
+          ? null
+          : (call) async {
+              if (call.method == 'skip') onSkip();
+              return null;
+            },
+    );
+  }
+
   static Future<void> setMuted(bool muted) async {
     try {
       await _control.invokeMethod<void>('setMuted', muted);

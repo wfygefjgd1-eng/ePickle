@@ -162,7 +162,10 @@ class GenericSiteApi {
     // 取消发生后不再走原生回退:调用方已经放弃,原生调用又不可取消,
     // 只会白白占用 WebView 渲染槽位。
     if (token.isCancelled) {
-      throw PhubException('抓取已取消');
+      // 必须抛 cancel 类的 DioException 而不是普通异常：全代码库的约定是
+      // CancelToken.isCancel(e) 识别取消并中止后续阶段，_failureKind 也据
+      // 此豁免镜像排名。抛 PhubException 会被当成 network 失败，误伤排名。
+      throw _cancelError(url);
     }
     _storeCookies(_originOf(res.realUri.toString()), res.headers);
     final status = res.statusCode ?? 0;
@@ -358,8 +361,20 @@ class GenericSiteApi {
     return false;
   }
 
+  /// 统一的"已取消"异常：cancel 类型的 DioException 能被
+  /// [CancelToken.isCancel] 与 [_failureKind] 一致识别，中止调用方的
+  /// 多阶段回退循环而不污染镜像健康统计。
+  DioException _cancelError(String url) => DioException(
+        requestOptions: RequestOptions(path: url),
+        type: DioExceptionType.cancel,
+        message: '抓取已取消',
+      );
+
   MirrorFailureKind _failureKind(Object error) {
     final message = error.toString().toLowerCase();
+    if (error is DioException && error.type == DioExceptionType.cancel) {
+      return MirrorFailureKind.cancelled;
+    }
     if (error is _MirrorHttpException) {
       return error.statusCode == 403
           ? MirrorFailureKind.forbidden
@@ -390,7 +405,9 @@ class GenericSiteApi {
     if (message.contains('结构不匹配') || message.contains('解析不到')) {
       return MirrorFailureKind.structureChanged;
     }
-    if (message.contains('cancel')) return MirrorFailureKind.cancelled;
+    if (message.contains('cancel') || message.contains('取消')) {
+      return MirrorFailureKind.cancelled;
+    }
     return MirrorFailureKind.network;
   }
 
@@ -690,6 +707,10 @@ class GenericSiteApi {
     Set<String>? exclude,
   }) async {
     final deadline = DateTime.now().add(_feedResolveTimeout);
+    // 多阶段循环之间必须复查取消纪元：cancelRequests 只能取消当时已登记的
+    // token，循环后半段新建的请求永远收不到取消信号，不复查就会在后台
+    // 继续扇出几十个网络/渲染请求。
+    final epoch = _cancelEpoch;
     final seen = <String>{...?exclude};
     final results = <VideoItem>[];
     Object? lastError;
@@ -731,6 +752,7 @@ class GenericSiteApi {
       final startSeen = <String>{...seen};
       for (final pathFn in paths) {
         if (results.length >= limit) break;
+        if (_cancelEpoch != epoch) throw _cancelError('');
         try {
           final fetched = await _fetchPageWithMirrors(
             site,
@@ -862,7 +884,9 @@ class GenericSiteApi {
     // Fastest-known mirror first (persistent ranking), remaining mirrors after.
     var ordered = _ranker.rankedMirrors(site);
     if (ordered.isEmpty) ordered = List<String>.from(_mirrorsFor(site));
+    final epoch = _cancelEpoch;
     for (final baseRaw in ordered) {
+      if (_cancelEpoch != epoch) throw _cancelError('');
       final b = baseRaw.replaceAll(RegExp(r'/$'), '');
       final watch = Stopwatch()..start();
       final url = '$b/api/v2/video/search/?query=${Uri.encodeQueryComponent(q)}'
@@ -1012,7 +1036,9 @@ class GenericSiteApi {
         (b) =>
             '$b/affiliates/api/onlinerooms/?format=json&limit=$limit&offset=$offset$query',
     ];
+    final epoch = _cancelEpoch;
     for (final pathFn in endpoints) {
+      if (_cancelEpoch != epoch) throw _cancelError('');
       try {
         final html = await _fetchWithMirrors(
           site,
@@ -1039,6 +1065,7 @@ class GenericSiteApi {
   }) async {
     final out = <VideoItem>[];
     final genderTags = const {'girls', 'male', 'men', 'trans', 'couples'};
+    final epoch = _cancelEpoch;
     if (!genderTags.contains(tagId) && tagId != 'new' && tagId != 'more') {
       // 主题标签走服务端渲染页 /girls/{tag}（页面内嵌 models JSON）。
       final paths = <String Function(String)>[
@@ -1047,6 +1074,7 @@ class GenericSiteApi {
         (b) => '$b/tags/$tagId/${page > 1 ? '$page' : ''}',
       ];
       for (final pathFn in paths) {
+        if (_cancelEpoch != epoch) throw _cancelError('');
         try {
           final html = await _fetchPageWithMirrors(
             site,
@@ -1085,6 +1113,7 @@ class GenericSiteApi {
           '$b/api/front/v2/models?limit=$limit&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy',
     ];
     for (final pathFn in endpoints) {
+      if (_cancelEpoch != epoch) throw _cancelError('');
       try {
         final html = await _fetchWithMirrors(
           site,
@@ -1299,6 +1328,7 @@ class GenericSiteApi {
     final q = query.trim();
     if (q.isEmpty) return [];
     final deadline = DateTime.now().add(_searchResolveTimeout);
+    final epoch = _cancelEpoch;
     final enc = Uri.encodeQueryComponent(q);
     final paths = _searchPaths(site, enc, page);
     final seen = <String>{};
@@ -1310,6 +1340,7 @@ class GenericSiteApi {
     var fetchedAnyPage = false;
     Object? lastError;
     for (final pathFn in paths) {
+      if (_cancelEpoch != epoch) throw _cancelError('');
       try {
         // Accept 解析必须无副作用：用一次性 set 解析并按 html 本身缓存。
         // 按 base 缓存会在原生渲染重试时复用被拦截页的空解析 —— 渲染出的
@@ -1402,7 +1433,9 @@ class GenericSiteApi {
     }
 
     Object? lastError;
+    final detailEpoch = _cancelEpoch;
     for (final candidate in candidates) {
+      if (_cancelEpoch != detailEpoch) throw _cancelError(candidate.url);
       final watch = Stopwatch()..start();
       try {
         final remaining = deadline.difference(DateTime.now());
@@ -3315,12 +3348,15 @@ class GenericSiteApi {
       case 'stripchat':
       case 'chaturbate':
         // room username path
+        if (h.contains('/in/?')) return false;
         final parts = h.split('/').where((e) => e.isNotEmpty).toList();
+        // join/注册页必须在"裸用户名"规则之前排除：'/join' 本身恰好满足
+        // 用户名正则，放在后面就永远轮不到。
+        if (parts.contains('join')) return false;
         if (parts.length == 1 &&
             RegExp(r'^[a-zA-Z0-9_-]{3,60}$').hasMatch(parts.first)) {
           return true;
         }
-        if (h.contains('/in/?') || h.contains('join')) return false;
         return parts.isNotEmpty &&
             ![
               'female-cams',

@@ -661,10 +661,13 @@ class PhubApi {
       final vkM = _viewkeyRe.firstMatch(chunk);
       if (vkM == null) continue;
       final vk = vkM.group(1)!;
-      if (!seen.add(vk)) continue;
 
+      // 必须先验证标题再登记 seen：chunk 解析只认 title=/alt= 属性，而
+      // DOM 回填还能从锚文本取标题。若在此处提前烧掉 viewkey，一条本页
+      // 没解出标题的卡片会被永久判重，DOM 回填和后续分页都救不回来。
       final title = _extractTitle(chunk);
       if (title == null) continue;
+      if (!seen.add(vk)) continue;
 
       final dur = _extractDuration(chunk);
       if (dur != '-') {

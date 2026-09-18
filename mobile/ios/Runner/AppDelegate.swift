@@ -463,7 +463,6 @@ private final class StripchatLivePlatformView: NSObject,
   private let webView: WKWebView
   private let loadingOverlay: UIView
   private let loadingIndicator: UIActivityIndicatorView
-  private let loadingProgress: UIProgressView
   private let statusLabel: UILabel
   private let speedLabel: UILabel
   private let retryButton: UIButton
@@ -496,8 +495,7 @@ private final class StripchatLivePlatformView: NSObject,
     containerView = UIView(frame: frame)
     webView = WKWebView(frame: frame, configuration: configuration)
     loadingOverlay = UIView(frame: frame)
-    loadingIndicator = UIActivityIndicatorView(style: .large)
-    loadingProgress = UIProgressView(progressViewStyle: .default)
+    loadingIndicator = UIActivityIndicatorView(style: .medium)
     statusLabel = UILabel()
     speedLabel = UILabel()
     retryButton = UIButton(type: .system)
@@ -534,13 +532,24 @@ private final class StripchatLivePlatformView: NSObject,
     tapGesture = tap
     webView.addGestureRecognizer(tap)
 
+    // 进度条已移除（药丸内不再显示页面加载百分比）。
+    // 提速：不等 didFinish（页面尾部图片/统计脚本会拖住 1~3 秒），主文档
+    // 加载过半就开始轮询 video 元素。直播画面由 <video> 承载，DOM 早于
+    // 整页完成就能捕获。
     progressObservation = webView.observe(\.estimatedProgress, options: [.new]) {
       [weak self] webView, _ in
       guard let self, self.isStripchat, !self.videoRevealed else { return }
-      let progress = Float(max(0.04, min(0.96, webView.estimatedProgress)))
-      self.loadingProgress.setProgress(progress, animated: true)
       if webView.estimatedProgress >= 0.95 {
         self.statusLabel.text = "网页已加载，正在寻找直播画面…"
+      }
+      if webView.estimatedProgress >= 0.6, self.pageLoadedAt == nil {
+        self.pageLoadedAt = Date()
+        self.installVideoFocus()
+        self.focusTimer?.invalidate()
+        self.focusTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
+          [weak self] _ in
+          self?.installVideoFocus()
+        }
       }
     }
 
@@ -600,23 +609,38 @@ private final class StripchatLivePlatformView: NSObject,
   private func configureLoadingOverlay() {
     loadingOverlay.backgroundColor = .black
 
+    // 药丸式加载指示：紧凑圆角容器（转圈 + 两行状态）居中悬浮，失败态
+    // 切换成药丸下方的"重新连接"按钮。替代旧的转圈+大字+进度条堆叠。
     loadingIndicator.color = .white
-    loadingIndicator.startAnimating()
-
-    loadingProgress.progressTintColor = UIColor(red: 1, green: 0.42, blue: 0.21, alpha: 1)
-    loadingProgress.trackTintColor = UIColor.white.withAlphaComponent(0.18)
-    loadingProgress.setProgress(0.04, animated: false)
 
     statusLabel.text = "正在连接…"
     statusLabel.textColor = .white
     statusLabel.font = .systemFont(ofSize: 14, weight: .medium)
-    statusLabel.textAlignment = .center
-    statusLabel.numberOfLines = 2
+    statusLabel.textAlignment = .left
+    statusLabel.numberOfLines = 1
 
     speedLabel.text = "网速 —"
-    speedLabel.textColor = UIColor.white.withAlphaComponent(0.72)
-    speedLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-    speedLabel.textAlignment = .center
+    speedLabel.textColor = UIColor.white.withAlphaComponent(0.7)
+    speedLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+    speedLabel.textAlignment = .left
+    speedLabel.numberOfLines = 1
+
+    let textStack = UIStackView(arrangedSubviews: [statusLabel, speedLabel])
+    textStack.axis = .vertical
+    textStack.alignment = .leading
+    textStack.spacing = 2
+
+    let pill = UIStackView(arrangedSubviews: [loadingIndicator, textStack])
+    pill.axis = .horizontal
+    pill.alignment = .center
+    pill.spacing = 10
+    pill.isLayoutMarginsRelativeArrangement = true
+    pill.layoutMargins = UIEdgeInsets(top: 10, left: 16, bottom: 10, right: 18)
+    pill.backgroundColor = UIColor(white: 0.08, alpha: 0.8)
+    pill.layer.cornerRadius = 24
+    pill.layer.masksToBounds = true
+    pill.translatesAutoresizingMaskIntoConstraints = false
+    loadingOverlay.addSubview(pill)
 
     retryButton.setTitle("重新连接", for: .normal)
     retryButton.setTitleColor(.white, for: .normal)
@@ -626,27 +650,15 @@ private final class StripchatLivePlatformView: NSObject,
     retryButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 22, bottom: 8, right: 22)
     retryButton.isHidden = true
     retryButton.addTarget(self, action: #selector(handleRetry), for: .touchUpInside)
+    retryButton.translatesAutoresizingMaskIntoConstraints = false
+    loadingOverlay.addSubview(retryButton)
 
-    let stack = UIStackView(arrangedSubviews: [
-      loadingIndicator,
-      statusLabel,
-      speedLabel,
-      loadingProgress,
-      retryButton,
-    ])
-    stack.axis = .vertical
-    stack.alignment = .center
-    stack.spacing = 14
-    stack.translatesAutoresizingMaskIntoConstraints = false
-    loadingOverlay.addSubview(stack)
-
-    loadingProgress.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
-      stack.centerXAnchor.constraint(equalTo: loadingOverlay.centerXAnchor),
-      stack.centerYAnchor.constraint(equalTo: loadingOverlay.centerYAnchor),
-      stack.leadingAnchor.constraint(greaterThanOrEqualTo: loadingOverlay.leadingAnchor, constant: 28),
-      stack.trailingAnchor.constraint(lessThanOrEqualTo: loadingOverlay.trailingAnchor, constant: -28),
-      loadingProgress.widthAnchor.constraint(equalToConstant: 220),
+      pill.centerXAnchor.constraint(equalTo: loadingOverlay.centerXAnchor),
+      pill.centerYAnchor.constraint(equalTo: loadingOverlay.centerYAnchor),
+      pill.leadingAnchor.constraint(greaterThanOrEqualTo: loadingOverlay.leadingAnchor, constant: 28),
+      retryButton.centerXAnchor.constraint(equalTo: loadingOverlay.centerXAnchor),
+      retryButton.centerYAnchor.constraint(equalTo: loadingOverlay.centerYAnchor, constant: 84),
     ])
   }
 
@@ -673,9 +685,8 @@ private final class StripchatLivePlatformView: NSObject,
     loadingOverlay.alpha = 1
     loadingOverlay.isHidden = false
     loadingIndicator.startAnimating()
+    speedLabel.isHidden = false
     retryButton.isHidden = true
-    loadingProgress.progressTintColor = UIColor(red: 1, green: 0.42, blue: 0.21, alpha: 1)
-    loadingProgress.setProgress(0.04, animated: false)
     if resetClock || loadingStartedAt == nil {
       loadingStartedAt = Date()
       pageLoadedAt = nil  // 重置网页加载时间
@@ -771,9 +782,8 @@ private final class StripchatLivePlatformView: NSObject,
     focusTimer?.invalidate()
     focusTimer = nil
     loadingIndicator.stopAnimating()
-    loadingProgress.progressTintColor = .systemRed
-    loadingProgress.setProgress(1, animated: true)
     statusLabel.text = message
+    speedLabel.isHidden = true
     retryButton.isHidden = false
     loadingOverlay.alpha = 1
     loadingOverlay.isHidden = false
@@ -817,7 +827,6 @@ private final class StripchatLivePlatformView: NSObject,
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     guard isStripchat else { return }
     pageLoadedAt = Date()  // 记录网页加载完成时间
-    loadingProgress.setProgress(0.96, animated: true)
     statusLabel.text = "网页已加载，正在寻找直播画面… 0 秒"
     installVideoFocus()
     focusTimer?.invalidate()
@@ -921,7 +930,21 @@ private final class StripchatLivePlatformView: NSObject,
     let flag = muted ? "true" : "false"
     let script = """
       (() => {
-        window.__epickleMuted = \(flag);
+        try {
+          window.__epickleMuted = \(flag);
+          var roomStatus = null;
+          try {
+            var scripts = document.querySelectorAll('script');
+            for (var i = 0; i < scripts.length; i++) {
+              var t = scripts[i].textContent || '';
+              var m = t.match(/"status"\\s*:\\s*"([a-zA-Z]+)"/);
+              if (m) { roomStatus = m[1].toLowerCase(); break; }
+            }
+          } catch (e) {}
+          if (roomStatus && roomStatus !== 'public') {
+            window.__epickleRoomStatus = roomStatus;
+            return 'badroom:' + roomStatus;
+          }
         var viewport = document.querySelector('meta[name="viewport"]');
         if (!viewport) {
           viewport = document.createElement('meta');
@@ -1010,6 +1033,27 @@ private final class StripchatLivePlatformView: NSObject,
       """
     webView.evaluateJavaScript(script) { [weak self] value, _ in
       guard let self, !self.videoRevealed else { return }
+      let raw = (value as? String) ?? ""
+      if raw.hasPrefix("badroom:") {
+        // 收费/非公开房间：直播画面永远出不来，明确报因并立刻停止轮询。
+        focusTimer?.invalidate()
+        focusTimer = nil
+        statusTimer?.invalidate()
+        statusTimer = nil
+        let reason = raw.dropFirst("badroom:".count)
+        let message: String
+        if reason.contains("private") {
+          message = "私密直播，无法观看，请返回切换主播"
+        } else if reason.contains("group") {
+          message = "群组/门票直播，无法免费观看，请返回切换主播"
+        } else if reason.contains("offline") {
+          message = "主播当前离线，请返回切换主播"
+        } else {
+          message = "房间不可观看（\(reason)），请返回切换主播"
+        }
+        showFailure(message)
+        return
+      }
       let focused = (value as? Bool) ?? (value as? NSNumber)?.boolValue ?? false
       guard focused else { return }
       self.videoRevealed = true

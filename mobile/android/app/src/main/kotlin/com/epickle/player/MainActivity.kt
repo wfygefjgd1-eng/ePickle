@@ -755,9 +755,7 @@ class StripchatLiveView(
     private val webView: WebView = WebView(context)
     private val overlay = android.widget.FrameLayout(context)
     private val statusLabel = android.widget.TextView(context)
-    private val progress = android.widget.ProgressBar(
-        context, null, android.R.attr.progressBarStyleHorizontal
-    )
+    private val speedLabel = android.widget.TextView(context)
     private val spinner = android.widget.ProgressBar(context)
     private val retryBtn = android.widget.Button(context)
     private val skipBtn = android.widget.Button(context)
@@ -801,6 +799,7 @@ class StripchatLiveView(
                 elapsed >= 12 -> "连接较慢，请检查网络… $elapsed 秒"
                 else -> "正在连接直播… $elapsed 秒"
             }
+            sampleNetworkSpeed()
             handler.postDelayed(this, 1000)
         }
     }
@@ -851,39 +850,53 @@ class StripchatLiveView(
 
     private fun configureOverlay() {
         overlay.setBackgroundColor(0xFF000000.toInt())
-        val stack = android.widget.LinearLayout(context).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            gravity = android.view.Gravity.CENTER_HORIZONTAL
-            setPadding(48, 0, 48, 0)
+        // 药丸式加载指示：一个紧凑圆角容器装下转圈 + 两行状态，居中悬浮，
+        // 替代旧的"转圈+大字+横进度条"堆叠。失败态由 statusTick/showFailure
+        // 切换成按钮行（retry/skip 停靠在药丸下方）。
+        val pill = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(36, 22, 40, 22)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xCC141414.toInt())
+                cornerRadius = 28f * context.resources.displayMetrics.density
+            }
         }
-        val stackLp = android.widget.FrameLayout.LayoutParams(
+        spinner.isIndeterminate = true
+        spinner.layoutParams = android.widget.LinearLayout.LayoutParams(
+            (28 * context.resources.displayMetrics.density).toInt(),
+            (28 * context.resources.displayMetrics.density).toInt()
+        ).apply { rightMargin = (14 * context.resources.displayMetrics.density).toInt() }
+
+        val textCol = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        statusLabel.setTextColor(0xFFFFFFFF.toInt())
+        statusLabel.textSize = 14f
+        statusLabel.text = "正在连接直播…"
+        statusLabel.setPadding(0, 0, 0, 0)
+        speedLabel.setTextColor(0xB3FFFFFF.toInt())
+        speedLabel.textSize = 11f
+        speedLabel.text = "网速 —"
+        textCol.addView(statusLabel)
+        textCol.addView(speedLabel)
+
+        pill.addView(spinner)
+        pill.addView(textCol)
+
+        val pillWrap = android.widget.FrameLayout(context)
+        val pillLp = android.widget.FrameLayout.LayoutParams(
             android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
             android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.CENTER
         )
-        spinner.isIndeterminate = true
-        progress.max = 100
-        progress.progress = 4
-        progress.layoutParams = android.widget.LinearLayout.LayoutParams(440, 12).apply {
-            topMargin = 28
-            bottomMargin = 20
-        }
-        statusLabel.setTextColor(0xFFFFFFFF.toInt())
-        statusLabel.textSize = 14f
-        statusLabel.gravity = android.view.Gravity.CENTER
-        statusLabel.text = "正在连接直播…"
-        statusLabel.setPadding(0, 24, 0, 0)
+        pillWrap.addView(pill, pillLp)
+
         fun styleAction(btn: android.widget.Button, fill: Int) {
             btn.setTextColor(0xFFFFFFFF.toInt())
             btn.setBackgroundColor(fill)
             btn.textSize = 14f
             btn.visibility = android.view.View.GONE
-            val lp = android.widget.LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            lp.topMargin = 28
-            btn.layoutParams = lp
             btn.setPadding(48, 20, 48, 20)
         }
         retryBtn.text = "重新连接"
@@ -898,12 +911,61 @@ class StripchatLiveView(
                 StripchatSkipBridge.emit()
             } catch (_: Exception) {}
         }
-        stack.addView(spinner)
-        stack.addView(statusLabel)
-        stack.addView(progress)
-        stack.addView(retryBtn)
-        stack.addView(skipBtn)
-        overlay.addView(stack, stackLp)
+        // 失败态按钮行：药丸正下方 24dp，两个按钮并排居中。
+        val actions = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+        }
+        val retryLp = android.widget.LinearLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { rightMargin = (16 * context.resources.displayMetrics.density).toInt() }
+        retryBtn.layoutParams = retryLp
+        actions.addView(retryBtn)
+        actions.addView(skipBtn)
+        val actionsLp = android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.CENTER_HORIZONTAL or android.view.Gravity.CENTER_VERTICAL
+        ).apply { topMargin = (108 * context.resources.displayMetrics.density).toInt() }
+        pillWrap.addView(actions, actionsLp)
+
+        overlay.addView(pillWrap)
+    }
+
+    /// JS 采样页面累计传输字节，与上次采样做差得到网速；失败/已揭示时静默。
+    private val lastTransferRef = arrayOf(0L, 0L) // [bytes, timestampMs]
+    private fun sampleNetworkSpeed() {
+        if (disposed || videoRevealed || !isStripchat) return
+        try {
+            webView.evaluateJavascript(
+                """(function(){try{var t=0;var n=performance.getEntriesByType('navigation')[0];
+                if(n)t+=(n.transferSize||n.encodedBodySize||0);
+                performance.getEntriesByType('resource').forEach(function(e){t+=(e.transferSize||e.encodedBodySize||0)});
+                return t;}catch(_){return 0;}})()"""
+            ) { value ->
+                if (disposed || videoRevealed) return@evaluateJavascript
+                val bytes = value?.toLongOrNull() ?: return@evaluateJavascript
+                val now = System.currentTimeMillis()
+                val lastBytes = lastTransferRef[0]
+                val lastAt = lastTransferRef[1]
+                if (lastAt > 0) {
+                    val dt = (now - lastAt) / 1000.0
+                    val db = (bytes - lastBytes).coerceAtLeast(0L)
+                    if (dt > 0.2) {
+                        speedLabel.text = "网速 " + formatSpeed(db / dt)
+                    }
+                }
+                lastTransferRef[0] = maxOf(lastBytes, bytes)
+                lastTransferRef[1] = now
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun formatSpeed(bytesPerSecond: Double): String {
+        if (bytesPerSecond < 1024) return String.format("%.0f B/s", bytesPerSecond)
+        if (bytesPerSecond < 1024 * 1024) return String.format("%.1f KB/s", bytesPerSecond / 1024)
+        return String.format("%.2f MB/s", bytesPerSecond / (1024 * 1024))
     }
 
     private fun setupWebView() {
@@ -912,7 +974,10 @@ class StripchatLiveView(
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 mediaPlaybackRequiresUserGesture = false
-                loadsImagesAutomatically = true
+                // 直播房间只需要 <video> 和 JSON 数据；列表缩略图/封面图会
+                // 争抢带宽并把 DOM 就绪往后拖，关掉后主文档更快过半、video
+                // 捕获更早启动。
+                loadsImagesAutomatically = false
                 loadWithOverviewMode = true
                 useWideViewPort = true
                 mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
@@ -928,9 +993,17 @@ class StripchatLiveView(
             webView.webChromeClient = object : android.webkit.WebChromeClient() {
                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                     if (disposed || videoRevealed || !isStripchat) return
-                    progress.progress = newProgress.coerceIn(4, 96)
                     if (newProgress >= 95 && pageLoadedAt == 0L) {
                         statusLabel.text = "网页已加载，正在寻找直播画面…"
+                    }
+                    // 提速：不等 onPageFinished（页面尾部图片/统计脚本会拖住
+                    // 1~3 秒），主文档渲染过半就开始轮询 video 元素。直播画面
+                    // 由 <video> 承载，DOM 早于整页完成就能捕获。
+                    if (newProgress >= 60 && pageLoadedAt == 0L) {
+                        pageLoadedAt = System.currentTimeMillis()
+                        focusAttempts = 0
+                        handler.removeCallbacks(focusTick)
+                        handler.post(focusTick)
                     }
                 }
             }
@@ -947,7 +1020,6 @@ class StripchatLiveView(
                 override fun onPageFinished(v: WebView?, url: String?) {
                     if (disposed || !isStripchat || videoRevealed) return
                     if (pageLoadedAt == 0L) pageLoadedAt = System.currentTimeMillis()
-                    progress.progress = 96
                     statusLabel.text = "网页已加载，正在寻找直播画面… 0 秒"
                     focusAttempts = 0
                     handler.removeCallbacks(focusTick)
@@ -1013,9 +1085,9 @@ class StripchatLiveView(
         overlay.alpha = 1f
         overlay.visibility = android.view.View.VISIBLE
         spinner.visibility = android.view.View.VISIBLE
+        speedLabel.visibility = android.view.View.VISIBLE
         retryBtn.visibility = android.view.View.GONE
         skipBtn.visibility = android.view.View.GONE
-        progress.progress = 4
         if (loadingStartedAt == 0L) loadingStartedAt = System.currentTimeMillis()
         statusLabel.text = "正在连接直播… 0 秒"
         handler.removeCallbacks(statusTick)
@@ -1027,7 +1099,7 @@ class StripchatLiveView(
         handler.removeCallbacks(statusTick)
         handler.removeCallbacks(focusTick)
         spinner.visibility = android.view.View.GONE
-        progress.progress = 100
+        speedLabel.visibility = android.view.View.GONE
         statusLabel.text = message
         retryBtn.visibility = android.view.View.VISIBLE
         skipBtn.visibility = android.view.View.VISIBLE
@@ -1084,10 +1156,26 @@ class StripchatLiveView(
         focusAttempts++
         val flag = if (muted) "true" else "false"
         // Hide non-video UI + promote largest video (same strategy as iOS).
+        // 房间状态早判：initial state 里的 status 非 public（私密/群组/门票
+        // 秀）或 offline 时，直播画面永远不会出现——立即失败并给出明确原因，
+        // 让用户尽早"跳过"，而不是白等 15~35 秒超时。
         val script = """
             (function(){
               try {
                 window.__epickleMuted=$flag;
+                var roomStatus=null;
+                try {
+                  var scripts=document.querySelectorAll('script');
+                  for (var i=0;i<scripts.length;i++){
+                    var t=scripts[i].textContent||'';
+                    var m=t.match(/"status"\s*:\s*"([a-zA-Z]+)"/);
+                    if(m){roomStatus=m[1].toLowerCase();break;}
+                  }
+                } catch(e){}
+                if (roomStatus && roomStatus!=='public') {
+                  window.__epickleRoomStatus=roomStatus;
+                  return 'badroom:'+roomStatus;
+                }
                 var viewport=document.querySelector('meta[name="viewport"]');
                 if(!viewport){viewport=document.createElement('meta');viewport.name='viewport';document.head.appendChild(viewport)}
                 viewport.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover';
@@ -1138,7 +1226,24 @@ class StripchatLiveView(
         try {
             webView.evaluateJavascript(script) { value ->
                 if (disposed || videoRevealed) return@evaluateJavascript
-                val focused = value == "true"
+                val raw = value?.trim()?.removeSurrounding("\"") ?: ""
+                if (raw.startsWith("badroom:")) {
+                    // 收费/非公开房间：直播画面永远出不来，明确报因并立刻
+                    // 停止轮询（状态会写回 window.__epickleRoomStatus）。
+                    handler.removeCallbacks(focusTick)
+                    handler.removeCallbacks(statusTick)
+                    val reason = raw.removePrefix("badroom:")
+                    showFailure(
+                        when {
+                            reason.contains("private") -> "私密直播，无法观看，请跳过"
+                            reason.contains("group") -> "群组/门票直播，无法免费观看，请跳过"
+                            reason.contains("offline") -> "主播当前离线，请跳过"
+                            else -> "房间不可观看（$reason），请跳过"
+                        }
+                    )
+                    return@evaluateJavascript
+                }
+                val focused = raw == "true"
                 if (focused) {
                     revealVideo()
                 } else if (focusAttempts >= 20) {

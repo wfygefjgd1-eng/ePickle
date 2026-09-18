@@ -605,6 +605,40 @@ void main() {
     );
   });
 
+  test('Stripchat feed filters paid shows and offline rooms by status',
+      () async {
+    const base = 'https://strip-filter.fixture.test';
+    const liveSite = SiteDef(
+      id: 'stripchat',
+      name: 'Strip filter fixture',
+      kind: SiteKind.live,
+      tags: SourceCatalog.stripchatTags,
+      color: 0,
+      letter: 'S',
+      mirrors: [base],
+    );
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      '$base/api/front/models?limit=20&offset=0&primaryTag=girls&sortBy=stripRanking':
+          const _FixtureResponse(
+        '{"models":['
+        '{"username":"public_room","status":"public","isLive":true,'
+        '"isOnline":true,"streamName":"111"},'
+        '{"username":"private_room","status":"privateShow","isLive":true,'
+        '"isOnline":true,"streamName":"222"},'
+        '{"username":"ticket_room","status":"groupShow","isLive":true,'
+        '"isOnline":true,"streamName":"333"},'
+        '{"username":"offline_room","status":"public","isLive":false,'
+        '"isOnline":true,"streamName":"444"}'
+        ']}',
+      ),
+    });
+    final api = GenericSiteApi(dio: dio);
+
+    final feed = await api.fetchFeed(liveSite, tagId: 'girls', limit: 10);
+    expect(feed.map((item) => item.url), ['$base/public_room']);
+  });
+
   test('Stripchat replaces the male tab with a newest-girls feed', () async {
     expect(SourceCatalog.stripchatTags.map((tag) => tag.id), [
       'girls',

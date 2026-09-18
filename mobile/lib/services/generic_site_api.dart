@@ -3023,6 +3023,7 @@ class GenericSiteApi {
           RegExp(r'^[a-zA-Z0-9_-]{3,60}$').hasMatch(username)) {
         if (!matchesChaturbateCategory(map)) return;
         final online = map['is_online'] ?? map['isOnline'] ?? map['online'];
+        final isLive = map['isLive'] ?? map['is_live'];
         final status = (stringValue(map, const [
                   'current_show',
                   'room_status',
@@ -3031,6 +3032,12 @@ class GenericSiteApi {
                 ]) ??
                 '')
             .toLowerCase();
+        // 收费/非公开展示过滤分两层：Stripchat 的状态值是 public /
+        // privateShow / groupShow（含 ticket 门票秀）等，此前按 "private/
+        // group" 子串匹配对不上（大小写/驼峰都不含），收费频道会混进信息流
+        // 点进去却看不了——用白名单只放行公开直播。其他站点（chaturbate
+        // 等）状态值是完整单词，继续用原子串黑名单，行为不变。
+        const publicStatuses = ['public', 'free', 'live', ''];
         const blockedStatuses = [
           'offline',
           'private',
@@ -3041,8 +3048,13 @@ class GenericSiteApi {
           'spy',
           'closed',
         ];
-        final blocked = falseValue(online) ||
-            blockedStatuses.any((value) => status.contains(value));
+        final stripchatSite = site.isStripchat;
+        final statusBlocked = stripchatSite
+            ? !publicStatuses.contains(status)
+            : blockedStatuses.any(status.contains);
+        final liveBlocked = stripchatSite && isLive != null && !trueValue(isLive);
+        final blocked =
+            falseValue(online) || statusBlocked || liveBlocked;
         final stripchatOnline = site.id != 'stripchat' ||
             online == true ||
             online == 1 ||

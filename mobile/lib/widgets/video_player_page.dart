@@ -91,7 +91,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
     widget.onSeekStart();
     setState(() {
-      _dragStartX = details.globalPosition.dx;
+      // 用 localPosition：旋转全屏（RotatedBox）下手势识别器按旋转后的本地
+      // 轴上报，globalPosition 的 dx 几乎不变，预览会卡在 0 秒。
+      _dragStartX = details.localPosition.dx;
       _dragStartPosition = ctrl.value.position;
       _seekPreviewText = '';
     });
@@ -104,7 +106,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final ctrl = widget.controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
 
-    final deltaX = details.globalPosition.dx - _dragStartX!;
+    final deltaX = details.localPosition.dx - _dragStartX!;
     final screenWidth = MediaQuery.of(context).size.width;
 
     // 拖动映射：拖动 1/6 屏幕宽度 = 40 秒（整屏 = 4 分钟）。比旧的
@@ -198,11 +200,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   void _onTapScreen() {
     final browserLiveUrl = widget.browserLiveUrl;
-    if (browserLiveUrl != null && browserLiveUrl.isNotEmpty) {
-      widget.onLiveToggle();
-      return;
-    }
+    final isLive = browserLiveUrl != null && browserLiveUrl.isNotEmpty;
     if (widget.immersive) {
+      // 全屏直播也必须能呼出退出/设置/进度浮层，否则全屏里没有任何退出
+      // 入口（iOS 系统返回会直接退整个页面）。呼出浮层的同时切换直播
+      // 暂停，保留原有的单点暂停交互。
       setState(() {
         _showExitButton = !_showExitButton;
       });
@@ -216,6 +218,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           }
         });
       }
+      if (isLive) {
+        widget.onLiveToggle();
+      }
+      return;
+    }
+    if (isLive) {
+      widget.onLiveToggle();
       return;
     }
     // Portrait: single tap toggles play/pause.
@@ -727,10 +736,32 @@ class _MinimalButtonState extends State<_MinimalButton> {
     // 40 = 按钮 footprint。clamp 的是按钮的绝对左边/上边，再换算回锚点
     // 偏移量——右/底锚定的按钮 dx/dy 轴是镜像的，不能直接套左/上锚的边界。
     const btn = 40.0;
-    final minLeft = pad.left;
-    final maxLeft = size.width - pad.right - btn;
-    final minTop = pad.top;
-    final maxTop = size.height - pad.bottom - btn;
+    // Positioned 在 SafeArea 外层、图标在 SafeArea 内层：SafeArea 会把图标
+    // 相对模型坐标平移（左/上锚 +pad、右/底锚 -pad）。要保证【真实】渲染
+    // 位置落在安全区内（状态栏/刘海/手势条之外），必须按锚定方向反解出
+    // 模型空间的边界，否则按钮会被拖到系统栏下面并被持久化。
+    final double minLeft;
+    final double maxLeft;
+    if (widget.anchorRight) {
+      // real.left = model.left - pad.right
+      minLeft = pad.left + pad.right;
+      maxLeft = size.width - btn;
+    } else {
+      // real.left = model.left + pad.left
+      minLeft = 0.0;
+      maxLeft = size.width - pad.right - btn - pad.left;
+    }
+    final double minTop;
+    final double maxTop;
+    if (widget.anchorBottom) {
+      // real.top = model.top - pad.bottom
+      minTop = pad.top + pad.bottom;
+      maxTop = size.height - btn;
+    } else {
+      // real.top = model.top + pad.top
+      minTop = 0.0;
+      maxTop = size.height - pad.bottom - btn - pad.top;
+    }
     // 右/底锚定时 defaultOffset 是距右/底边的距离，先换算成左/上边缘的
     // 绝对坐标（差一个按钮宽度），否则 o=0 不满足 clamp 恒等式，
     // 首次拖动会把按钮瞬移 30px 并持久化。
@@ -757,7 +788,11 @@ class _MinimalButtonState extends State<_MinimalButton> {
     // 只在尺寸/padding 真正变化时刷新缓存，拖拽 move 不再触发 MediaQuery/build。
     final mq = MediaQuery.of(context);
     _viewportSize = mq.size;
-    _viewportPadding = mq.padding;
+    // 用 viewPadding 而不是 padding：本按钮在外层 SafeArea 内，SafeArea 已把
+    // padding 清零（它自己消费掉了），只有 viewPadding 还保留状态栏/刘海/
+    // 手势条的物理遮挡值；clamp 用它才能把按钮限制在可视安全区内。旋转
+    // 全屏时 PlayerChrome 也已对 viewPadding 做了对应重映射。
+    _viewportPadding = mq.viewPadding;
     // 旧版本保存的偏移量按左上锚定 clamp，右/底锚定按钮可能被存到屏幕外；
     // 视口已知后一次性收敛回屏内。
     if (!_loadClamped && _savedOffset != null) {

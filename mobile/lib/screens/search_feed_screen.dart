@@ -1677,7 +1677,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     _seeking = true;
     setState(() {
-      _dragStartX = details.globalPosition.dx;
+      // 用 localPosition：旋转全屏（RotatedBox）下手势识别器按旋转后的本地
+      // 轴上报，globalPosition 的 dx 几乎不变，预览会卡在 0 秒。
+      _dragStartX = details.localPosition.dx;
       _dragStartPosition = ctrl.value.position;
       _seekPreviewText = '';
     });
@@ -1690,7 +1692,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final ctrl = _controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
 
-    final deltaX = details.globalPosition.dx - _dragStartX!;
+    final deltaX = details.localPosition.dx - _dragStartX!;
     final screenWidth = MediaQuery.of(context).size.width;
 
     final secondsPerScreenWidth = 360.0;

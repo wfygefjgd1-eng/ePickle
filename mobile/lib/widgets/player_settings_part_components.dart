@@ -86,7 +86,9 @@ class _NumField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
-      keyboardType: TextInputType.number,
+      // 分钟档支持小数（"1.5" = 90 秒）；iOS 的纯数字键盘没有小数点，
+      // 必须显式开 decimal 才能输入。
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
       style: const TextStyle(color: Colors.white, fontSize: 13),
       decoration: InputDecoration(
         labelText: label,

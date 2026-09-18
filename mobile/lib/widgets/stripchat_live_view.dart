@@ -32,15 +32,32 @@ class StripchatLiveView extends StatelessWidget {
 
   /// Native overlay's "跳过" (skip) button invokes 'skip' on [_control].
   /// Without a Dart-side handler the button does nothing — Android fires the
-  /// method and the reply silently reports notImplemented. The host screen
-  /// registers a handler while a live view is on screen and clears it on
-  /// dispose; passing null removes the handler.
-  static void setSkipHandler(void Function()? onSkip) {
+  /// method and the reply silently reports notImplemented.
+  ///
+  /// Handlers are keyed by owner: SiteFeedPage keeps every tab's
+  /// VideoFeedScreen alive in an IndexedStack, so a single global handler
+  /// would leave only the last-mounted tab's callback armed (its own guard
+  /// no-ops because it is offstage). With the registry, 'skip' is fanned out
+  /// to every live screen and each one self-guards on
+  /// `_canRun && _browserLiveUrl != null` — only the actually-streaming tab
+  /// acts (tab switching stops all other feeds, so at most one matches).
+  static final Map<Object, void Function()> _skipHandlers = {};
+
+  static void setSkipHandler(Object owner, void Function()? onSkip) {
+    if (onSkip == null) {
+      _skipHandlers.remove(owner);
+    } else {
+      _skipHandlers[owner] = onSkip;
+    }
     _control.setMethodCallHandler(
-      onSkip == null
+      _skipHandlers.isEmpty
           ? null
           : (call) async {
-              if (call.method == 'skip') onSkip();
+              if (call.method == 'skip') {
+                for (final handler in List.of(_skipHandlers.values)) {
+                  handler();
+                }
+              }
               return null;
             },
     );

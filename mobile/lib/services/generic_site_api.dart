@@ -339,8 +339,16 @@ class GenericSiteApi {
     // never be treated as Cloudflare/age-gate blocking pages — doing so
     // wastes a WKWebView render slot on every API-style failure.
     if (trim.startsWith('{') || trim.startsWith('[')) return false;
-    if (html.length < 350) return true;
     final low = html.toLowerCase();
+    // 短响应本身不是拦截证据：重定向桩、纯文本 API 响应等合法短页会被
+    // 误判成 Cloudflare 拦截，把健康镜像永久降权并浪费原生渲染槽位。
+    // 只在同时含拦截标记时才按拦截页处理。
+    if (html.length < 350) {
+      return low.contains('just a moment') ||
+          low.contains('cf-browser-verification') ||
+          low.contains('attention required') ||
+          low.contains('cloudflare');
+    }
     if (low.contains('just a moment') && low.contains('cloudflare')) {
       return true;
     }
@@ -487,14 +495,6 @@ class GenericSiteApi {
     return null;
   }
 
-  /// Mirror base for the currently-preferred mirror, clamped so a stale index
-  /// (catalog changed between sessions) can never throw RangeError.
-  String _preferredMirrorBase(SiteDef site) {
-    final mirrors = _mirrorsFor(site);
-    final index = (_mirrorIndex[site.id] ?? 0).clamp(0, mirrors.length - 1);
-    return mirrors[index].replaceAll(RegExp(r'/$'), '');
-  }
-
   String _abs(String base, String path) {
     final p = path.trim();
     if (p.isEmpty) return base;
@@ -505,7 +505,10 @@ class GenericSiteApi {
     return baseUri.resolve(p).toString();
   }
 
-  Future<String> _fetchWithMirrors(
+  /// 与 [_fetchPageWithMirrors] 配对：直播 API 的 failover 走多镜像竞速，
+  /// 解析时必须用实际响应的镜像 base，房间 URL 才不会指向刚失败的那个
+  /// （与 mitao/xvideos 的"相对地址锚定到实际服务的镜像"同一原则）。
+  Future<({String html, String base})> _fetchLiveWithMirrors(
     SiteDef site,
     String Function(String base) pathBuilder, {
     Map<String, String>? extraHeaders,
@@ -517,7 +520,7 @@ class GenericSiteApi {
       extraHeaders: extraHeaders,
       deadline: deadline,
     );
-    return page.html;
+    return (html: page.html, base: page.base);
   }
 
   Future<_FetchedPage> _fetchPageWithMirrors(
@@ -594,10 +597,17 @@ class GenericSiteApi {
     // catalog order (and to the single primary host for custom sites).
     var rankedBases = _ranker.rankedMirrors(site);
     if (rankedBases.isEmpty) rankedBases = List<String>.from(allMirrors);
+    // 归一化匹配（ranker 存的 base 去掉了尾斜杠，catalog 项可能带）：直接
+    // indexOf 会在尾斜杠不一致时得到 -1，probe(mirrors[-1]) 直接 RangeError，
+    // 该站点所有列表/搜索请求全挂。匹配不上的 ranker base 跳过。
+    final matched = <int>{
+      for (final base in rankedBases)
+        if (_rankMirrorIndex(site, base) case final i?) i,
+    };
     final ordered = <int>[
-      for (final base in rankedBases) allMirrors.indexOf(base),
+      ...matched,
       for (var i = 0; i < allMirrors.length; i++)
-        if (!rankedBases.contains(allMirrors[i])) i,
+        if (!matched.contains(i)) i,
     ];
 
     // Parallel race over [idxs]: first healthy page wins, losers are
@@ -1040,13 +1050,14 @@ class GenericSiteApi {
     for (final pathFn in endpoints) {
       if (_cancelEpoch != epoch) throw _cancelError('');
       try {
-        final html = await _fetchWithMirrors(
+        final served = await _fetchLiveWithMirrors(
           site,
           pathFn,
           deadline: deadline,
         );
-        final base = _preferredMirrorBase(site);
-        out.addAll(_parseLiveJson(html, base, seen, site, tagId: tagId));
+        out.addAll(
+          _parseLiveJson(served.html, served.base, seen, site, tagId: tagId),
+        );
         if (out.isNotEmpty) return out;
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
@@ -1084,9 +1095,8 @@ class GenericSiteApi {
           );
           final models = _stripchatModelsJson(html.html);
           if (models == null) continue;
-          final base = _preferredMirrorBase(site);
           out.addAll(
-            _parseLiveJson(models, base, seen, site, tagId: tagId),
+            _parseLiveJson(models, html.base, seen, site, tagId: tagId),
           );
           if (out.isNotEmpty) return out;
         } catch (e) {
@@ -1115,13 +1125,14 @@ class GenericSiteApi {
     for (final pathFn in endpoints) {
       if (_cancelEpoch != epoch) throw _cancelError('');
       try {
-        final html = await _fetchWithMirrors(
+        final served = await _fetchLiveWithMirrors(
           site,
           pathFn,
           deadline: deadline,
         );
-        final base = _preferredMirrorBase(site);
-        out.addAll(_parseLiveJson(html, base, seen, site, tagId: tagId));
+        out.addAll(
+          _parseLiveJson(served.html, served.base, seen, site, tagId: tagId),
+        );
         if (out.isNotEmpty) return out;
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
@@ -1351,7 +1362,10 @@ class GenericSiteApi {
           pathFn,
           deadline: deadline,
           accept: (html, base) {
-            fetchedAnyPage = true;
+            // 注意：accept 在探测阶段就会被调用来筛镜像，此刻页面还不算
+            // "抓到"——若在这里置位 fetchedAnyPage，探测页后续被拦截/结构
+            // 不匹配抛错时，真实网络错误会被吞成"无结果"。与 fetchFeed 的
+            // parsedAnyPage 一致：只在 _fetchPageWithMirrors 成功返回后置位。
             final items = parsedByHtml.putIfAbsent(
               (base, html),
               () => _parseSearchResponse(html, base, <String>{}, site),
@@ -1360,6 +1374,7 @@ class GenericSiteApi {
             return true;
           },
         );
+        fetchedAnyPage = true;
         final list =
             parsedByHtml[(fetched.base, fetched.html)] ?? const <VideoItem>[];
         final fresh = <VideoItem>[];
@@ -1428,7 +1443,9 @@ class GenericSiteApi {
       );
       if (candidates.any((e) => e.url == candidateUrl)) continue;
       candidates.add(
-        (url: candidateUrl, base: base, mirrorIndex: mirrors.indexOf(baseRaw)),
+        // 归一化匹配并容忍未命中（null），否则 -1 会被下游当作真实索引
+        // 写进 _mirrorIndex，静默顶掉学到的优选镜像。
+        (url: candidateUrl, base: base, mirrorIndex: _rankMirrorIndex(site, baseRaw)),
       );
     }
 
@@ -3049,6 +3066,12 @@ class GenericSiteApi {
                   'hlsStreamName',
                 ]);
           if (streamValue != null) {
+            // 有界缓存：长会话里每个 feed 解析都会写这里，不设上限会无界
+            // 增长（其余缓存均有上限）。写满后随机淘汰一行——条目只是
+            // 详情页加速键，丢了重抓即可。
+            if (_liveStreamNames.length >= 600) {
+              _liveStreamNames.remove(_liveStreamNames.keys.first);
+            }
             _liveStreamNames['${site.id}:$key'] = streamValue;
           }
           if (seen.add(key)) {
@@ -3188,8 +3211,23 @@ class GenericSiteApi {
               RegExp(r'<a\s[^>]*>\s*$', caseSensitive: false).hasMatch(tail);
           if (openerAtEnd && tailMatches.length == 1) {
             nextPending = <String>[tailMatches.first.group(1)!];
+          } else if (openerAtEnd) {
+            // 尾部以 <a 开头但带了多个 href：第一个属于下个卡片的 opener，
+            // 其余的是本卡片包裹块里漏进 tail 的自有链接，不能整批丢弃
+            // （否则共享尾块的每第二张卡片丢 href 被跳过）。
+            nextPending = <String>[
+              for (final m in tailMatches.skip(1)) m.group(1)!,
+            ];
+            tailOwnHref = tailMatches.first.group(1)!;
           } else {
             tailOwnHref = tailMatches.first.group(1)!;
+            // 非 opener 结尾的 tail 若带多个视频 href，第一个归本卡片，
+            // 剩余的顺延给后续卡片，同样避免整批丢弃。
+            if (tailMatches.length > 1) {
+              nextPending = <String>[
+                for (final m in tailMatches.skip(1)) m.group(1)!,
+              ];
+            }
           }
         }
       }

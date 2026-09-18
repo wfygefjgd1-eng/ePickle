@@ -409,14 +409,20 @@ import WebKit
   }
 
   /// Scene-based lifecycle: FlutterAppDelegate.window is never populated, so
-  /// resolve the foreground scene's key window instead.
+  /// resolve the foreground scene's key window instead. Accept both
+  /// foregroundActive and foregroundInactive: privacy-overlay install runs
+  /// from applicationWillResignActive, when the scene has already flipped to
+  /// .foregroundInactive — filtering on .active alone returned nil and the
+  /// app-switcher snapshot leaked player content.
   private var activeWindow: UIWindow? {
     if let window {
       return window
     }
-    return UIApplication.shared.connectedScenes
-      .compactMap { $0 as? UIWindowScene }
-      .first { $0.activationState == .foregroundActive }?
+    let scenes = UIApplication.shared.connectedScenes.compactMap {
+      $0 as? UIWindowScene
+    }
+    return (scenes.first { $0.activationState == .foregroundActive }
+      ?? scenes.first { $0.activationState == .foregroundInactive })?
       .keyWindow
   }
 
@@ -1276,32 +1282,37 @@ enum PrivacyNativeWipe {
   }
 
   static func run(completion: @escaping () -> Void) {
-    let group = DispatchGroup()
+    // The synchronous portion (recursive sandbox deletes, UserDefaults/
+    // keychain wipes) can take seconds — mirror Android and run it off the
+    // main thread so the UI does not freeze for the whole wipe.
+    DispatchQueue.global(qos: .userInitiated).async {
+      let group = DispatchGroup()
 
-    group.enter()
-    let types = WKWebsiteDataStore.allWebsiteDataTypes()
-    WKWebsiteDataStore.default().removeData(
-      ofTypes: types,
-      modifiedSince: Date(timeIntervalSince1970: 0)
-    ) {
-      group.leave()
-    }
+      group.enter()
+      let types = WKWebsiteDataStore.allWebsiteDataTypes()
+      WKWebsiteDataStore.default().removeData(
+        ofTypes: types,
+        modifiedSince: Date(timeIntervalSince1970: 0)
+      ) {
+        group.leave()
+      }
 
-    HTTPCookieStorage.shared.cookies?.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
-    URLCache.shared.removeAllCachedResponses()
-    // Empty the cache without permanently crippling it: drop the zero-capacity
-    // instance and restore defaults, so the app does not re-download every
-    // media byte if it stays alive after the wipe.
-    URLCache.shared = URLCache(memoryCapacity: 4 * 1024 * 1024,
-                                diskCapacity: 20 * 1024 * 1024,
-                                diskPath: nil)
+      HTTPCookieStorage.shared.cookies?.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
+      URLCache.shared.removeAllCachedResponses()
+      // Empty the cache without permanently crippling it: drop the zero-capacity
+      // instance and restore defaults, so the app does not re-download every
+      // media byte if it stays alive after the wipe.
+      URLCache.shared = URLCache(memoryCapacity: 4 * 1024 * 1024,
+                                  diskCapacity: 20 * 1024 * 1024,
+                                  diskPath: nil)
 
-    wipeSandboxFiles()
-    wipeUserDefaults()
-    wipeKeychain()
+      wipeSandboxFiles()
+      wipeUserDefaults()
+      wipeKeychain()
 
-    group.notify(queue: .main) {
-      completion()
+      group.notify(queue: .main) {
+        completion()
+      }
     }
   }
 

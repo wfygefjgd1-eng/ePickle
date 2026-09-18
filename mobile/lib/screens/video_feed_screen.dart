@@ -275,7 +275,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     WidgetsBinding.instance.addObserver(this);
     // Android 原生失败浮层的"跳过"按钮走 'skip' 方法回 Dart；不监听的话
     // 按钮点了没有任何效果。
-    StripchatLiveView.setSkipHandler(_onNativeLiveSkip);
+    StripchatLiveView.setSkipHandler(this, _onNativeLiveSkip);
     _muted = context.read<AppSettings>().muted;
     final genericVideoSite = widget.site != null &&
         SourceCatalog.usesRandomizedGenericFeed(widget.site!);
@@ -474,7 +474,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   @override
   void dispose() {
     stopPlaybackImmediately();
-    StripchatLiveView.setSkipHandler(null);
+    StripchatLiveView.setSkipHandler(this, null);
     if (_items.isNotEmpty && widget.initialItems.isEmpty) {
       final idx = _currentIndex.clamp(0, _items.length - 1);
       FeedListCache.put(
@@ -1138,7 +1138,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     );
     _retryTimer?.cancel();
     _retryTimer = Timer(const Duration(milliseconds: 700), () {
-      if (_canRun && mounted) _playIndex(next);
+      if (_canRun && mounted) {
+        // _onPageChanged 不取消本定时器：用户在 700ms 内手动滑走时必须以
+        // PageView 实际所在页为准，否则会把播放强行拉回计划里的旧条目、
+        // 冻结用户正在看的那条（只剩声音在跑）。
+        final page = _pageCtrl.hasClients ? _pageCtrl.page?.round() : null;
+        if (page != null && page != fromIndex) return;
+        _playIndex(next);
+      }
     });
   }
 

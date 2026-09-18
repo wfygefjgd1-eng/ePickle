@@ -937,6 +937,10 @@ class StripchatLiveView(
             webView.webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     if (disposed || !isStripchat || videoRevealed) return
+                    // showFailure 会把 WebView 指到 about:blank 来截断失败页；
+                    // 这不算"开始加载"，忽略它，否则会重新进入 loading 态
+                    // 并与超时逻辑互相触发（重试按钮消失→失败→…闪烁循环）。
+                    if (url == "about:blank") return
                     showLoading()
                 }
 

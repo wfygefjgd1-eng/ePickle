@@ -602,6 +602,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       },
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
+    PlaybackSolo.track(player);
     _initializingControllers.add(player);
     return player;
   }
@@ -792,8 +793,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (_controller != null && _controller!.value.isInitialized) {
       // pausePlayback() muted the controller before pausing; re-apply the
       // user's mute preference or a route-return resumes silently forever.
-      _controller!.setVolume(_muted ? 0 : 1);
-      _controller!.play();
+      final c = _controller!;
+      c.setVolume(_muted ? 0 : 1);
+      PlaybackSolo.enforceSolo(c);
+      c.play();
       _startProgressTimer();
       _restartPreloading();
       WakelockPlus.enable();
@@ -811,12 +814,16 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _cancelBackgroundWork();
     final c = _controller;
     final hadBrowserLive = _browserLiveUrl != null;
-    try {
-      if (c != null) {
+    // 静音与暂停必须各自独立兜底：合在一个 try 里时，setVolume 一旦抛
+    // （平台异常被吞），pause 被跳过，一个仍在出声的控制器被留下继续播。
+    if (c != null) {
+      try {
         await c.setVolume(0);
+      } catch (_) {}
+      try {
         await c.pause();
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
     final frozen = _frozenController;
     _frozenController = null;
     _frozenIndex = null;
@@ -1468,6 +1475,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           ),
         );
       }
+      PlaybackSolo.enforceSolo(preloaded);
       await preloaded.play();
       if (seq != _loadSeq || !_canRun) {
         if (identical(_controller, preloaded)) _controller = null;
@@ -1743,6 +1751,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         ),
       );
     }
+    PlaybackSolo.enforceSolo(ready);
     await ready.play();
     if (seq != _loadSeq || !_canRun) {
       if (identical(_controller, ready)) _controller = null;
@@ -2368,6 +2377,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               if (c.value.isPlaying) {
                 c.pause();
               } else {
+                PlaybackSolo.enforceSolo(c);
                 c.play();
               }
             },
@@ -2423,10 +2433,17 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         await stale.dispose();
       } catch (_) {}
     }
+    // 还原速度/静音/暂停必须逐项独立兜底：合并成一个 try 时，任一调用抛
+    // （平台异常被吞），pause 就被跳过，一个仍在出声的控制器被停进冻结槽
+    // ——正是"当前视频在播、后台还有一个视频在响"的僵尸来源。
     try {
       // 长按 3 倍速期间被冻结的控制器，回看时会以 3x 重放 —— 冻结时一并还原。
       await controller.setPlaybackSpeed(1.0);
+    } catch (_) {}
+    try {
       await controller.setVolume(0);
+    } catch (_) {}
+    try {
       await controller.pause();
     } catch (_) {}
     if (!_canRun) {

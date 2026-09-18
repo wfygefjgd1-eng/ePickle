@@ -116,9 +116,12 @@ class MediaPrewarm with WidgetsBindingObserver {
           ),
           ...stream.headers,
         },
-        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-      );
-      try {
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+    );
+    // 登记进全局「单一发声」表：预热槽若因平台异常漏掉下面的 pause，
+    // enforceSolo 会在下一次任何 play() 前把它压停。
+    PlaybackSolo.track(player);
+    try {
         await player.initialize().timeout(_initTimeout);
       } catch (_) {
         await _dispose(player);
@@ -141,14 +144,28 @@ class MediaPrewarm with WidgetsBindingObserver {
         await _dispose(player);
         return;
       }
+      // 静音与暂停各自独立兜底：合在一个 try 里时，pause 一旦抛（平台异常
+      // 被吞），setVolume 被跳过，一个带声、可播的控制器被入库长期闲置。
       try {
         await player.pause();
+      } catch (_) {}
+      try {
         await player.setVolume(0);
       } catch (_) {}
       // LRU: make room before parking the new decoder.
       while (_entries.length >= maxWarmPlayers) {
         final oldest = _entries.removeAt(0);
         await _dispose(oldest.controller);
+      }
+      // 淘汰循环里有 await：间隙中 take() 可能已递增 generation，或同一条流
+      // 已从别的路径入库（入口查重时它还不在 _entries）。入库前在无 await
+      // 位置做最后一次身份复查，避免产生同一条流的第二个暂停态僵尸解码器。
+      if (!_enabled ||
+          !_appInForeground ||
+          generation != _generation ||
+          _entries.any((e) => e.streamUrl == stream.url)) {
+        await _dispose(player);
+        return;
       }
       _entries.add(_WarmEntry(
         itemUrl: item.url,

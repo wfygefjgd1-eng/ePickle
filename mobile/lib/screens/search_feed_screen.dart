@@ -258,6 +258,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       // _pausePlaybackForRouteChange muted the controller before pausing;
       // re-apply the mute preference or a route return resumes silently.
       unawaited(c.setVolume(_muted ? 0 : 1));
+      PlaybackSolo.enforceSolo(c);
       unawaited(
         c
             .play()
@@ -292,7 +293,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _autoRotate?.stop();
     try {
       if (current != null) {
+        // 静音与暂停各自独立兜底：合在一个 try 里时，setVolume 一旦抛
+        // （平台异常被吞），pause 被跳过，仍在出声的控制器被留在路由下方。
         await current.setVolume(0);
+      }
+    } catch (_) {}
+    try {
+      if (current != null) {
         await current.pause();
       }
     } catch (_) {}
@@ -515,6 +522,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       },
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
+    PlaybackSolo.track(player);
     _initializingControllers.add(player);
     return player;
   }
@@ -902,6 +910,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           ),
         );
       }
+      PlaybackSolo.enforceSolo(preloaded);
       await preloaded.play();
       if (seq != _seq || !_canRun) {
         if (identical(_controller, preloaded)) _controller = null;
@@ -1151,6 +1160,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         ),
       );
     }
+    PlaybackSolo.enforceSolo(player);
     await player.play();
     if (seq != _seq || !_canRun) {
       if (identical(_controller, player)) _controller = null;
@@ -1408,10 +1418,17 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         await stale.dispose();
       } catch (_) {}
     }
+    // 还原速度/静音/暂停必须逐项独立兜底：合并成一个 try 时，任一调用抛
+    // （平台异常被吞），pause 就被跳过，一个仍在出声的控制器被停进冻结槽
+    // ——正是"当前视频在播、后台还有一个视频在响"的僵尸来源。
     try {
       // 长按 3 倍速期间被冻结的控制器，回看时会以 3x 重放 —— 冻结时一并还原。
       await controller.setPlaybackSpeed(1.0);
+    } catch (_) {}
+    try {
       await controller.setVolume(0);
+    } catch (_) {}
+    try {
       await controller.pause();
     } catch (_) {}
     if (!_canRun) {
@@ -1819,6 +1836,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   c.pause();
                   if (mounted) setState(() => _manualPaused = true);
                 } else {
+                  PlaybackSolo.enforceSolo(c);
                   c.play();
                   if (mounted) setState(() => _manualPaused = false);
                 }

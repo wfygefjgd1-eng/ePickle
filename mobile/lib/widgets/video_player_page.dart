@@ -191,6 +191,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     if (c.value.isPlaying) {
       c.pause();
     } else {
+      PlaybackSolo.enforceSolo(c);
       c.play();
     }
   }

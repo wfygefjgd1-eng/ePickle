@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -5,6 +7,62 @@ import 'package:video_player/video_player.dart';
 import '../models/video_item.dart';
 import '../services/app_settings.dart';
 import '../services/source_catalog.dart';
+
+/// 全局「单一发声」执行器。
+///
+/// 背景：本应用的设计不变量是"同一时刻最多只有一个解码器在出声"，但这个
+/// 不变量分散在每个播放路径的 try/catch 与 seq 守卫里。偶发场景（平台通道
+/// 异常被吞、切 tab 与在途播放交叉、预热/冻结/预载槽收编竞态）只要漏掉
+/// 一次 pause，就会出现"当前视频在播、后台还有另一个视频在响"且无人回收。
+///
+/// 兜底原理：每个 VideoPlayerController 创建时调用 [track]；任何 play() 之前
+/// 调用 [enforceSolo]，把注册表里其它已初始化的控制器全部补一记 pause。
+/// 平台通道按调用顺序 FIFO 执行，这些 pause 必然先于紧随的 play 生效，
+/// 所以无论哪条路径漏了 pause，声音都活不过下一次 play()。
+class PlaybackSolo {
+  PlaybackSolo._();
+
+  /// 被跟踪的解码器。只增不主动删：dispose 后的条目会在 enforceSolo 的
+  /// pause 抛错时顺手摘除，另设 FIFO 上限防长会话累积（被挤掉的必然是
+  /// 早已 dispose 的老控制器——活跃的冻结/预载条目离队首相差几十次创建）。
+  static final List<VideoPlayerController> _tracked =
+      <VideoPlayerController>[];
+
+  /// 每次滑动新建 ~1-3 个控制器；24 ≈ 8 条滑动深度内全部保持被跟踪，
+  /// 而任何存活控制器的年龄都不可能超过一个滑动周期。
+  static const _maxTracked = 24;
+
+  /// 控制器创建时登记（三个构造点：两个信息流屏的 _createNetworkPlayer、
+  /// MediaPrewarm.warm）。重复登记按同一性去重。
+  static void track(VideoPlayerController controller) {
+    for (final c in _tracked) {
+      if (identical(c, controller)) return;
+    }
+    _tracked.add(controller);
+    while (_tracked.length > _maxTracked) {
+      _tracked.removeAt(0);
+    }
+  }
+
+  /// 即将在 [active] 上开始播放：把其它一切已初始化的控制器压停。
+  /// fire-and-forget——pause 的平台消息同步入队，先于调用方随后的 play；
+  /// 不 await 也避免给滑动起播串行加延迟。
+  static void enforceSolo(VideoPlayerController active) {
+    for (var i = _tracked.length - 1; i >= 0; i--) {
+      final c = _tracked[i];
+      if (identical(c, active)) continue;
+      // 未初始化的控制器不可能在出声（也不会 autoplay）；对它调 pause 会
+      // 抛 StateError，还会把一个即将合法播放的候选误摘出跟踪表。
+      if (!c.value.isInitialized) continue;
+      unawaited(
+        c.pause().catchError((_) {
+          // dispose 后的控制器 pause 必然抛错：借机摘除死条目。
+          _tracked.remove(c);
+        }),
+      );
+    }
+  }
+}
 
 /// Shared playback helpers for feed / search-feed.
 class PlaybackHelpers {

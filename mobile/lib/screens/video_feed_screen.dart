@@ -74,6 +74,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   String? _browserLiveUrl;
   bool _browserIsStripchat = false;
   bool _livePaused = false;
+
+  /// 原生 WebView 失败原因（'onLiveFailed' 推送）：非空时 Flutter 渲染
+  /// 重试/跳过按钮（原生浮层按钮被 IgnorePointer 挡住点不到）。
+  String? _liveFailedMessage;
   int _currentIndex = 0;
   int _loadSeq = 0;
 
@@ -276,6 +280,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     // Android 原生失败浮层的"跳过"按钮走 'skip' 方法回 Dart；不监听的话
     // 按钮点了没有任何效果。
     StripchatLiveView.setSkipHandler(this, _onNativeLiveSkip);
+    // 原生失败浮层的按钮被 IgnorePointer 挡住点不到，失败原因由原生推给
+    // Dart（onLiveFailed），由 Flutter 渲染重试/跳过按钮。
+    StripchatLiveView.setFailureHandler(this, _onNativeLiveFailed);
     _muted = context.read<AppSettings>().muted;
     final genericVideoSite = widget.site != null &&
         SourceCatalog.usesRandomizedGenericFeed(widget.site!);
@@ -475,6 +482,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   void dispose() {
     stopPlaybackImmediately();
     StripchatLiveView.setSkipHandler(this, null);
+    StripchatLiveView.setFailureHandler(this, null);
     if (_items.isNotEmpty && widget.initialItems.isEmpty) {
       final idx = _currentIndex.clamp(0, _items.length - 1);
       FeedListCache.put(
@@ -1843,6 +1851,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _currentDetail = detail;
     _browserLiveUrl = url;
     _livePaused = false;
+    _liveFailedMessage = null;
     // Both providers can restore a promotional/full-site shell after an iOS
     // background round-trip. Keep their WebViews in controlled player mode.
     final focusLive = live &&
@@ -1901,6 +1910,35 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
     final next = (_currentIndex + 1) % _items.length;
     _playIndex(next);
+  }
+
+  /// 原生 WebView 失败（超时/拦截/badroom）：Flutter 渲染重试/跳过按钮。
+  void _onNativeLiveFailed(String message) {
+    if (!mounted || !_canRun || _browserLiveUrl == null) return;
+    setState(() => _liveFailedMessage = message);
+  }
+
+  /// 重试当前直播间：置空浏览器地址让平台视图销毁重建（原生彻底重载房间），
+  /// 同时清掉失败提示与暂停残留。
+  Future<void> _reloadCurrentLive() async {
+    if (!mounted || _browserLiveUrl == null) return;
+    setState(() {
+      _browserLiveUrl = null;
+      _browserIsStripchat = false;
+      _livePaused = false;
+      _liveFailedMessage = null;
+      _pageLoading = true;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    if (!mounted || !_canRun) return;
+    await _playIndex(_currentIndex);
+  }
+
+  /// 跳过失败直播间，切下一条。
+  void _skipFailedLive() {
+    if (!mounted) return;
+    setState(() => _liveFailedMessage = null);
+    _onNativeLiveSkip();
   }
 
   /// Drop items far from the play head so memory stays bounded.
@@ -2448,6 +2486,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               onBack: _exitAfterStopping,
               onOpenSettings: _openPlayerSettings,
               onLiveToggle: () => unawaited(_toggleBrowserLivePlayback()),
+              liveFailed: _browserIsStripchat ? _liveFailedMessage : null,
+              onLiveRetry: () => unawaited(_reloadCurrentLive()),
+              onLiveSkip: _skipFailedLive,
               onSeekPreview: _onSeekPreview,
               onSeekStart: () => _seeking = true,
               onSeekEnd: _onSeekCommit,

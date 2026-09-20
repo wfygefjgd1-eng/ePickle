@@ -31,6 +31,9 @@ class VideoPlayerPage extends StatefulWidget {
     this.browserLiveUrl,
     this.browserIsStripchat = false,
     required this.livePaused,
+    this.liveFailed,
+    this.onLiveRetry,
+    this.onLiveSkip,
     required this.onPageChanged,
     required this.onMute,
     required this.onFastForward,
@@ -58,6 +61,11 @@ class VideoPlayerPage extends StatefulWidget {
   final String? browserLiveUrl;
   final bool browserIsStripchat;
   final bool livePaused;
+  /// 原生 WebView 失败原因：非空时渲染重试/跳过按钮。原生浮层按钮被
+  /// IgnorePointer 挡住收不到点击，动作必须由 Flutter 接管。
+  final String? liveFailed;
+  final VoidCallback? onLiveRetry;
+  final VoidCallback? onLiveSkip;
 
   final ValueChanged<int> onPageChanged;
   final VoidCallback onMute;
@@ -201,6 +209,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   void _onTapScreen() {
     final browserLiveUrl = widget.browserLiveUrl;
     final isLive = browserLiveUrl != null && browserLiveUrl.isNotEmpty;
+    // 失败态下点屏不再切换暂停（避免"已暂停"角标盖在失败提示上干扰）。
+    final liveToggleable = isLive && widget.liveFailed == null;
     if (widget.immersive) {
       // 全屏直播也必须能呼出退出/设置/进度浮层，否则全屏里没有任何退出
       // 入口（iOS 系统返回会直接退整个页面）。呼出浮层的同时切换直播
@@ -218,12 +228,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           }
         });
       }
-      if (isLive) {
+      if (liveToggleable) {
         widget.onLiveToggle();
       }
       return;
     }
-    if (isLive) {
+    if (liveToggleable) {
       widget.onLiveToggle();
       return;
     }
@@ -251,7 +261,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 stripchatMode: widget.browserIsStripchat,
               ),
             ),
-            if (widget.livePaused)
+            if (widget.livePaused && widget.liveFailed == null)
               IgnorePointer(
                 child: Center(
                   child: DecoratedBox(
@@ -285,6 +295,74 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                       ),
                     ),
                   ),
+                ),
+              ),
+            // 失败态：原生浮层按钮收不到点击（IgnorePointer），重试/跳过
+            // 必须由 Flutter 渲染并处理。按钮放在失败提示药丸下方。
+            if (widget.liveFailed != null &&
+                widget.onLiveRetry != null &&
+                widget.onLiveSkip != null)
+              Align(
+                alignment: const Alignment(0, 0.42),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF6B35),
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: widget.onLiveRetry,
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 10,
+                            ),
+                            child: Text(
+                              '重新连接',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF404040),
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: widget.onLiveSkip,
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 10,
+                            ),
+                            child: Text(
+                              '跳过',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
           ],

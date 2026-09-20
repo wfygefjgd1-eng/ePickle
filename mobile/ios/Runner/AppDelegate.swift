@@ -44,6 +44,7 @@ import WebKit
       binaryMessenger: messenger
     )
     stripchatControlChannel = stripchatChannel
+    StripchatLivePlatformView.controlChannel = stripchatChannel
     stripchatChannel.setMethodCallHandler { call, result in
       guard let view = StripchatLivePlatformView.activeView.value else {
         result(nil)
@@ -459,13 +460,16 @@ private final class StripchatLivePlatformView: NSObject,
   WKUIDelegate {
   static let activeView = WeakBox<StripchatLivePlatformView>()
 
+  /// 控制通道引用（native → Dart 方向）：失败原因经 onLiveFailed 推给
+  /// Dart，由 Flutter 渲染重试/跳过按钮。AppDelegate 建通道时赋值。
+  static weak var controlChannel: FlutterMethodChannel?
+
   private let containerView: UIView
   private let webView: WKWebView
   private let loadingOverlay: UIView
   private let loadingIndicator: UIActivityIndicatorView
   private let statusLabel: UILabel
   private let speedLabel: UILabel
-  private let retryButton: UIButton
   private let isStripchat: Bool
   private var muted: Bool
   private var livePaused = false
@@ -498,7 +502,6 @@ private final class StripchatLivePlatformView: NSObject,
     loadingIndicator = UIActivityIndicatorView(style: .medium)
     statusLabel = UILabel()
     speedLabel = UILabel()
-    retryButton = UIButton(type: .system)
     super.init()
 
     StripchatLivePlatformView.activeView.value = self
@@ -596,7 +599,6 @@ private final class StripchatLivePlatformView: NSObject,
     }
     webView.navigationDelegate = nil
     webView.uiDelegate = nil
-    retryButton.removeTarget(self, action: #selector(handleRetry), for: .touchUpInside)
     if StripchatLivePlatformView.activeView.value === self {
       StripchatLivePlatformView.activeView.value = nil
     }
@@ -642,23 +644,12 @@ private final class StripchatLivePlatformView: NSObject,
     pill.translatesAutoresizingMaskIntoConstraints = false
     loadingOverlay.addSubview(pill)
 
-    retryButton.setTitle("重新连接", for: .normal)
-    retryButton.setTitleColor(.white, for: .normal)
-    retryButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-    retryButton.backgroundColor = UIColor(red: 1, green: 0.42, blue: 0.21, alpha: 1)
-    retryButton.layer.cornerRadius = 18
-    retryButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 22, bottom: 8, right: 22)
-    retryButton.isHidden = true
-    retryButton.addTarget(self, action: #selector(handleRetry), for: .touchUpInside)
-    retryButton.translatesAutoresizingMaskIntoConstraints = false
-    loadingOverlay.addSubview(retryButton)
-
+    // 重试/跳过按钮由 Flutter 渲染（本平台视图被 IgnorePointer 挡住，
+    // 原生按钮收不到点击），失败原因经 onLiveFailed 推给 Dart。
     NSLayoutConstraint.activate([
       pill.centerXAnchor.constraint(equalTo: loadingOverlay.centerXAnchor),
       pill.centerYAnchor.constraint(equalTo: loadingOverlay.centerYAnchor),
       pill.leadingAnchor.constraint(greaterThanOrEqualTo: loadingOverlay.leadingAnchor, constant: 28),
-      retryButton.centerXAnchor.constraint(equalTo: loadingOverlay.centerXAnchor),
-      retryButton.centerYAnchor.constraint(equalTo: loadingOverlay.centerYAnchor, constant: 84),
     ])
   }
 
@@ -667,6 +658,9 @@ private final class StripchatLivePlatformView: NSObject,
       showFailure("房间地址无效")
       return
     }
+    // 重试即恢复播放态：失败前的暂停残留（livePaused）不重置的话，捕获到
+    // 画面后 video 仍是暂停的，且 Dart 侧的"已暂停"角标会一直挂着。
+    livePaused = false
     focusTimer?.invalidate()
     if isStripchat {
       showLoading(resetClock: true)
@@ -686,7 +680,6 @@ private final class StripchatLivePlatformView: NSObject,
     loadingOverlay.isHidden = false
     loadingIndicator.startAnimating()
     speedLabel.isHidden = false
-    retryButton.isHidden = true
     if resetClock || loadingStartedAt == nil {
       loadingStartedAt = Date()
       pageLoadedAt = nil  // 重置网页加载时间
@@ -784,13 +777,13 @@ private final class StripchatLivePlatformView: NSObject,
     loadingIndicator.stopAnimating()
     statusLabel.text = message
     speedLabel.isHidden = true
-    retryButton.isHidden = false
     loadingOverlay.alpha = 1
     loadingOverlay.isHidden = false
-  }
-
-  @objc private func handleRetry() {
-    startRoomLoad()
+    // 失败原因推给 Dart：重试/跳过按钮由 Flutter 渲染（本平台视图被
+    // IgnorePointer 挡住，原生按钮收不到点击）。
+    StripchatLivePlatformView.controlChannel?.invokeMethod(
+      "onLiveFailed", arguments: message
+    )
   }
 
   func setMuted(_ value: Bool) {
@@ -1029,6 +1022,7 @@ private final class StripchatLivePlatformView: NSObject,
         window.scrollTo(0, 0);
         if (video.paused) video.play().catch(() => {});
         return true;
+        } catch (e) { return false; }
       })()
       """
     webView.evaluateJavaScript(script) { [weak self] value, _ in

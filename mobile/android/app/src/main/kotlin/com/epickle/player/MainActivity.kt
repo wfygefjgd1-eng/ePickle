@@ -757,8 +757,8 @@ class StripchatLiveView(
     private val statusLabel = android.widget.TextView(context)
     private val speedLabel = android.widget.TextView(context)
     private val spinner = android.widget.ProgressBar(context)
-    private val retryBtn = android.widget.Button(context)
-    private val skipBtn = android.widget.Button(context)
+    // 失败态的重试/跳过按钮由 Flutter 渲染（原生浮层被 IgnorePointer 挡住
+    // 收不到点击），原生失败后通过 onLiveFailed 把原因推给 Dart。
     private val handler = Handler(Looper.getMainLooper())
     private var videoRevealed = false
     private var disposed = false
@@ -891,44 +891,6 @@ class StripchatLiveView(
             android.view.Gravity.CENTER
         )
         pillWrap.addView(pill, pillLp)
-
-        fun styleAction(btn: android.widget.Button, fill: Int) {
-            btn.setTextColor(0xFFFFFFFF.toInt())
-            btn.setBackgroundColor(fill)
-            btn.textSize = 14f
-            btn.visibility = android.view.View.GONE
-            btn.setPadding(48, 20, 48, 20)
-        }
-        retryBtn.text = "重新连接"
-        styleAction(retryBtn, 0xFFFF6B35.toInt())
-        retryBtn.setOnClickListener { if (!disposed) loadRoom(resetClock = true) }
-        skipBtn.text = "跳过"
-        styleAction(skipBtn, 0xFF404040.toInt())
-        skipBtn.setOnClickListener {
-            try {
-                // Dart listens on stripchat control channel for 'skip'
-                // MainActivity holds channel; fire via static if available
-                StripchatSkipBridge.emit()
-            } catch (_: Exception) {}
-        }
-        // 失败态按钮行：药丸正下方 24dp，两个按钮并排居中。
-        val actions = android.widget.LinearLayout(context).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER
-        }
-        val retryLp = android.widget.LinearLayout.LayoutParams(
-            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { rightMargin = (16 * context.resources.displayMetrics.density).toInt() }
-        retryBtn.layoutParams = retryLp
-        actions.addView(retryBtn)
-        actions.addView(skipBtn)
-        val actionsLp = android.widget.FrameLayout.LayoutParams(
-            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-            android.view.Gravity.CENTER_HORIZONTAL or android.view.Gravity.CENTER_VERTICAL
-        ).apply { topMargin = (108 * context.resources.displayMetrics.density).toInt() }
-        pillWrap.addView(actions, actionsLp)
 
         overlay.addView(pillWrap)
     }
@@ -1081,13 +1043,14 @@ class StripchatLiveView(
     private fun showLoading() {
         if (disposed || !isStripchat) return
         videoRevealed = false
+        // 重试即恢复播放态：失败前的暂停残留不重置的话，捕获到画面后
+        // video 仍是暂停的，且 Dart 侧的"已暂停"角标会一直挂着。
+        livePaused = false
         webView.alpha = 0f
         overlay.alpha = 1f
         overlay.visibility = android.view.View.VISIBLE
         spinner.visibility = android.view.View.VISIBLE
         speedLabel.visibility = android.view.View.VISIBLE
-        retryBtn.visibility = android.view.View.GONE
-        skipBtn.visibility = android.view.View.GONE
         if (loadingStartedAt == 0L) loadingStartedAt = System.currentTimeMillis()
         statusLabel.text = "正在连接直播… 0 秒"
         handler.removeCallbacks(statusTick)
@@ -1101,8 +1064,6 @@ class StripchatLiveView(
         spinner.visibility = android.view.View.GONE
         speedLabel.visibility = android.view.View.GONE
         statusLabel.text = message
-        retryBtn.visibility = android.view.View.VISIBLE
-        skipBtn.visibility = android.view.View.VISIBLE
         overlay.visibility = android.view.View.VISIBLE
         overlay.alpha = 1f
         // Keep WebView hidden so site chrome never flashes on failure.
@@ -1110,6 +1071,11 @@ class StripchatLiveView(
         try {
             webView.stopLoading()
             webView.loadUrl("about:blank")
+        } catch (_: Exception) {}
+        // 失败原因推给 Dart：重试/跳过按钮由 Flutter 渲染（原生浮层被
+        // IgnorePointer 挡住收不到点击）。
+        try {
+            StripchatSkipBridge.channel?.invokeMethod("onLiveFailed", message)
         } catch (_: Exception) {}
     }
 

@@ -110,15 +110,30 @@ class LangmeiApi {
   /// 会话级内存缓存（key = site.id），resetSession 时清空。
   final Map<String, List<LangmeiType>> _typesCache = {};
 
+  /// 用户自添加站点（设置-添加网站选"浪妹/要发发解析"）的派生配置，
+  /// key = site.id；resetSession 一并清空。
+  final Map<String, LangmeiSiteConfig> _customConfigs = {};
+
   /// 会话序号（调试观测用：每次 reset 递增）。
   int sessionSeq = 0;
 
   LangmeiSiteConfig configOf(SiteDef site) {
-    final cfg = _configs[site.id];
-    if (cfg == null) {
-      throw ArgumentError('LangmeiApi: unknown site ${site.id}');
+    final exact = _configs[site.id];
+    if (exact != null) return exact;
+    // 自定义站点（id 形如 custom_langmei_<url>）：API 前缀与密钥跟随解析
+    // 家族，入口域名用用户填写的站点（/get/play.php 挂在该域上）。
+    final family = site.parserId == null ? null : _configs[site.parserId!];
+    if (family != null) {
+      return _customConfigs.putIfAbsent(
+        site.id,
+        () => LangmeiSiteConfig(
+          entryBase: site.primaryHost,
+          apiBase: family.apiBase,
+          keyMask: family.keyMask,
+        ),
+      );
     }
-    return cfg;
+    throw ArgumentError('LangmeiApi: unknown site ${site.id}');
   }
 
   /// 每次进入卡片调用：丢弃旧 Dio（连接池/缓冲一并作废）并清空会话缓存，
@@ -127,6 +142,7 @@ class LangmeiApi {
     _dio?.close(force: true);
     _dio = null;
     _typesCache.clear();
+    _customConfigs.clear();
     sessionSeq++;
   }
 

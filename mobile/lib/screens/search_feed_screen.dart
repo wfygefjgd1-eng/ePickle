@@ -720,15 +720,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         if (lmSite != null) {
           return context.read<LangmeiApi>().getVideoDetail(lmSite, url);
         }
-        return Future.value(
-          VideoDetail(
-            url: url,
-            title: '',
-            durationSec: 0,
-            streams: const [],
-            unavailable: true,
-          ),
-        );
+        // 无站点配置（自定义解析入口兜底）：LangmeiApi 无状态，可临时构造。
+        return LangmeiApi()
+            .getVideoDetail(SiteDef.customFromUrl(url, parserId: 'langmei'), url);
       case SearchSource.ph:
         return context.read<PhubApi>().getVideoDetail(url);
       case SearchSource.generic:

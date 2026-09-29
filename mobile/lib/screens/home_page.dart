@@ -125,8 +125,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
         return;
       }
-      if (site.id == 'langmei' || site.id == 'yaofafa') {
-        // 浪妹系站内入口：动态标签栏 + 搜索 + 网格专用页（隐私会话）。
+      if (site.isLangmeiParser) {
+        // 浪妹系站内入口（内置卡片或自添加解析）：动态标签栏 + 搜索 +
+        // 网格专用页（隐私会话）。
         await Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => LangmeiPage(site: site)),
         );

@@ -54,6 +54,14 @@ class SiteDef {
   bool get isStripchat => id == 'stripchat' || parserId == 'stripchat';
   bool get isChaturbate => id == 'chaturbate' || parserId == 'chaturbate';
 
+  /// 浪妹系解析（浪妹视频/要发发视频）：内置卡片 id 或用户自添加解析。
+  /// 二者共用同一套解析器，仅入口域名不同。
+  bool get isLangmeiParser =>
+      id == 'langmei' ||
+      id == 'yaofafa' ||
+      parserId == 'langmei' ||
+      parserId == 'yaofafa';
+
   String get primaryHost =>
       mirrors.isNotEmpty ? mirrors.first : 'https://example.com';
 
@@ -71,7 +79,12 @@ class SiteDef {
       kind: parserId == 'stripchat' || parserId == 'chaturbate'
           ? SiteKind.live
           : SiteKind.video,
-      color: 0xFF607D8B,
+      // 浪妹系解析的主色跟内置卡片一致（橙/蓝），便于识别。
+      color: parserId == 'langmei'
+          ? 0xFFF97316
+          : parserId == 'yaofafa'
+              ? 0xFF2563EB
+              : 0xFF607D8B,
       letter: letter,
       // 不能用 startsWith('http') 判 scheme：httpbin.org / httpx.cc 这类域名
       // 会被误判成"已有 scheme"而原样入库，请求时变成无 scheme 的相对路径
@@ -81,6 +94,9 @@ class SiteDef {
             ? u
             : 'https://$u',
       ],
+      // 浪妹系解析：标签由 LangmeiApi.fetchTypes 动态解析（LangmeiPage
+      // 专用页），tags 留空即可——home_page._openSite 按 isLangmeiParser
+      // 分发到 LangmeiPage，通用 feed 页不会被走到。
       tags: switch (parserId) {
         'stripchat' => SourceCatalog.stripchatTags,
         'chaturbate' => SourceCatalog.chaturbateTags,
@@ -88,6 +104,7 @@ class SiteDef {
         'xvideos' => SourceCatalog.xvideos.tags,
         'mitao' => SourceCatalog.mitao.tags,
         'huangguo' => SourceCatalog.huangguoTags,
+        'langmei' || 'yaofafa' => const <SiteTag>[],
         _ => SourceCatalog.vodTags,
       },
       directoryTags: switch (parserId) {
@@ -1140,14 +1157,13 @@ class SourceCatalog {
 
   /// The first three VOD adapters randomize internally. Remaining VOD sites
   /// use generic random pages; live channels must stay ordered and stable.
-  /// 浪妹系两站走专用页（LangmeiPage），从不消费通用随机页。
+  /// 浪妹系（含自添加解析）走专用页（LangmeiPage），从不消费通用随机页。
   static bool usesRandomizedGenericFeed(SiteDef site) =>
       site.kind == SiteKind.video &&
       site.id != 'pornhub' &&
       site.id != 'xvideos' &&
       site.id != 'mitao' &&
-      site.id != 'langmei' &&
-      site.id != 'yaofafa';
+      !site.isLangmeiParser;
 
   static const defaultLiveId = 'chaturbate';
 }

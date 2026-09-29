@@ -142,7 +142,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (site.id == 'huangguo') {
       return context.read<HuangGuoApi>().search(query, page: page);
     }
-    if (site.id == 'langmei' || site.id == 'yaofafa') {
+    if (site.isLangmeiParser) {
       return context.read<LangmeiApi>().search(site, query, page: page);
     }
     return context.read<GenericSiteApi>().search(site, query, page: page);
@@ -218,14 +218,15 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_navLock) return;
     final items = _results[site.id] ?? [];
     if (items.isEmpty) return;
-    final source = switch (site.id) {
-      'xvideos' => SearchSource.x,
-      'mitao' => SearchSource.zhong,
-      'pornhub' => SearchSource.ph,
-      'huangguo' => SearchSource.huangguo,
-      'langmei' || 'yaofafa' => SearchSource.langmei,
-      _ => SearchSource.generic,
-    };
+    final source = site.isLangmeiParser
+        ? SearchSource.langmei
+        : switch (site.id) {
+            'xvideos' => SearchSource.x,
+            'mitao' => SearchSource.zhong,
+            'pornhub' => SearchSource.ph,
+            'huangguo' => SearchSource.huangguo,
+            _ => SearchSource.generic,
+          };
     _navLock = true;
     try {
       await Navigator.of(context).push(

@@ -8,6 +8,7 @@ import '../utils/des_ecb.dart';
 import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
 import '../utils/native_browser_http.dart';
+import 'langmei_api.dart';
 import 'phub_api.dart';
 import 'mirror_ranker.dart';
 import 'source_catalog.dart';
@@ -1416,6 +1417,11 @@ class GenericSiteApi {
     final deadline = DateTime.now().add(_detailResolveTimeout);
     if (site.isStripchat) {
       throw PhubException('Stripchat 使用房间 WebRTC 实时播放，不使用预览 HLS');
+    }
+    if (site.isLangmeiParser) {
+      // 浪妹系解析（浪妹视频/要发发视频）：API 是加密 JSON 而非 HTML，
+      // 通用 HTML 解析链路不适用，直接转交专用解析器（无状态，可临时构造）。
+      return LangmeiApi().getVideoDetail(site, url);
     }
     if (site.kind == SiteKind.live) {
       final fast = await _getLiveDetailFast(site, url, deadline);

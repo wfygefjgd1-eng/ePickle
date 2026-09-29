@@ -22,6 +22,7 @@ import '../widgets/player_settings_sheet.dart';
 import '../widgets/site_logo.dart';
 import 'search_screen.dart';
 import 'huangguo_web_page.dart';
+import 'langmei_page.dart';
 import 'site_feed_page.dart';
 
 /// Primary home: site list + bottom search (always multi-site).
@@ -121,6 +122,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // 黄果站内入口：网页版卡片网格页（无底部 Tab），点卡片进播放器。
         await Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => HuangGuoWebPage(site: site)),
+        );
+        return;
+      }
+      if (site.id == 'langmei' || site.id == 'yaofafa') {
+        // 浪妹系站内入口：动态标签栏 + 搜索 + 网格专用页（隐私会话）。
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => LangmeiPage(site: site)),
         );
         return;
       }

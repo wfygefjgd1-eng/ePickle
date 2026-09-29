@@ -12,6 +12,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/video_item.dart';
 import '../services/generic_site_api.dart';
 import '../services/huangguo_api.dart';
+import '../services/langmei_api.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
 import '../services/translator.dart';
@@ -28,7 +29,7 @@ import '../utils/playback_helpers.dart';
 import '../widgets/player_settings_sheet.dart';
 
 /// Which backend to use for detail / headers.
-enum SearchSource { ph, x, zhong, huangguo, generic }
+enum SearchSource { ph, x, zhong, huangguo, langmei, generic }
 
 /// Vertical swipe player for search results.
 /// Single active player + one silent pre-buffered next-video controller
@@ -169,6 +170,16 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           ...AppHttpHeaders.forMediaUrl(null, pageUrl: base),
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         };
+      case SearchSource.langmei:
+        final s = widget.site;
+        if (s != null) {
+          final base = s.primaryHost.replaceAll(RegExp(r'/$'), '');
+          return {
+            ...AppHttpHeaders.forMediaUrl(null, pageUrl: base),
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          };
+        }
+        return AppHttpHeaders.browser;
       case SearchSource.generic:
         final s = widget.site;
         if (s != null) {
@@ -689,6 +700,35 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           );
         }
         return context.read<HuangGuoApi>().getVideoDetail(url);
+      case SearchSource.langmei:
+        // 条目已带直接播放地址时跳过详情（与黄果同款快路径）。
+        final lmDirect = item?.directUrl;
+        if (lmDirect != null && lmDirect.isNotEmpty) {
+          return Future.value(
+            VideoDetail(
+              url: item!.url,
+              title: item.title,
+              durationSec: 0,
+              thumb: item.thumb,
+              streams: [
+                StreamQuality(width: 1280, height: 720, url: lmDirect),
+              ],
+            ),
+          );
+        }
+        final lmSite = widget.site;
+        if (lmSite != null) {
+          return context.read<LangmeiApi>().getVideoDetail(lmSite, url);
+        }
+        return Future.value(
+          VideoDetail(
+            url: url,
+            title: '',
+            durationSec: 0,
+            streams: const [],
+            unavailable: true,
+          ),
+        );
       case SearchSource.ph:
         return context.read<PhubApi>().getVideoDetail(url);
       case SearchSource.generic:

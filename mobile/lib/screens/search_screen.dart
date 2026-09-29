@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/video_item.dart';
 import '../services/generic_site_api.dart';
 import '../services/huangguo_api.dart';
+import '../services/langmei_api.dart';
 import '../services/layout_settings.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
@@ -117,7 +118,12 @@ class _SearchScreenState extends State<SearchScreen> {
     _enQuery = en;
 
     for (final site in sites) {
-      final query = (site.id == 'mitao' || site.id == 'huangguo') ? q : en;
+      final query = (site.id == 'mitao' ||
+              site.id == 'huangguo' ||
+              site.id == 'langmei' ||
+              site.id == 'yaofafa')
+          ? q
+          : en;
       // ignore: unawaited_futures
       _searchOne(site, query, 1, replace: true, gen: gen);
     }
@@ -135,6 +141,9 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     if (site.id == 'huangguo') {
       return context.read<HuangGuoApi>().search(query, page: page);
+    }
+    if (site.id == 'langmei' || site.id == 'yaofafa') {
+      return context.read<LangmeiApi>().search(site, query, page: page);
     }
     return context.read<GenericSiteApi>().search(site, query, page: page);
   }
@@ -214,6 +223,7 @@ class _SearchScreenState extends State<SearchScreen> {
       'mitao' => SearchSource.zhong,
       'pornhub' => SearchSource.ph,
       'huangguo' => SearchSource.huangguo,
+      'langmei' || 'yaofafa' => SearchSource.langmei,
       _ => SearchSource.generic,
     };
     _navLock = true;
@@ -227,8 +237,11 @@ class _SearchScreenState extends State<SearchScreen> {
             title: site.name,
             // Generic sites need the real SiteDef so detail resolution keeps the
             // site-specific parser branches AND mirror failover (instead of
-            // degrading to a synthetic custom-site detail query).
-            site: source == SearchSource.generic ? site : null,
+            // degrading to a synthetic custom-site detail query). Langmei 系
+            // 详情解析同样需要站点配置（域名/AES 密钥）。
+            site: source == SearchSource.generic || source == SearchSource.langmei
+                ? site
+                : null,
             onLoadMore: () async {
               final before = (_results[site.id] ?? []).length;
               await _loadMore(site);

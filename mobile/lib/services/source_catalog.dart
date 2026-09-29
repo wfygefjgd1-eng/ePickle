@@ -116,6 +116,8 @@ class SourceCatalog {
     'javmix',
     'javgg',
     'bestjavporn',
+    'langmei',
+    'yaofafa',
   };
 
   // Chinese short labels via \u escapes (avoid file encoding breakage).
@@ -925,6 +927,34 @@ class SourceCatalog {
     directoryTags: huangguoDirectoryTags,
   );
 
+  // 浪妹系两站（同一套 Vue 模板 + 同一内容库，仅域名/AES 密钥不同）：
+  // 标签栏由 LangmeiApi.fetchTypes 按站点 a=types 动态解析（非硬编码），
+  // 打开走 LangmeiPage 专用页（home_page._openSite 分发）；tags 留空使
+  // home_page 预热按"无标签"自动跳过，不浪费网络。
+  static const langmei = SiteDef(
+    id: 'langmei',
+    name: '\u6d6a\u59b9\u89c6\u9891',
+    kind: SiteKind.video,
+    color: 0xFFF97316,
+    letter: 'L',
+    mirrors: [
+      'https://10326.rczga.cn',
+    ],
+    tags: [],
+  );
+
+  static const yaofafa = SiteDef(
+    id: 'yaofafa',
+    name: '\u8981\u53d1\u53d1\u89c6\u9891',
+    kind: SiteKind.video,
+    color: 0xFF2563EB,
+    letter: 'Y',
+    mirrors: [
+      'https://10326.lfbrs.cn',
+    ],
+    tags: [],
+  );
+
   static const mitao = SiteDef(
     id: 'mitao',
     name: 'mitaohk.com',
@@ -1082,6 +1112,8 @@ class SourceCatalog {
     // mitao 已按用户要求从卡片列表移除（2026-09）：SiteDef 保留供
     // customFromUrl 的 'mitao' 解析器复用，但不再出现在任何卡片里。
     huangguo,
+    langmei,
+    yaofafa,
     xnxx,
     xhamster,
     tnaflix,
@@ -1108,11 +1140,14 @@ class SourceCatalog {
 
   /// The first three VOD adapters randomize internally. Remaining VOD sites
   /// use generic random pages; live channels must stay ordered and stable.
+  /// 浪妹系两站走专用页（LangmeiPage），从不消费通用随机页。
   static bool usesRandomizedGenericFeed(SiteDef site) =>
       site.kind == SiteKind.video &&
       site.id != 'pornhub' &&
       site.id != 'xvideos' &&
-      site.id != 'mitao';
+      site.id != 'mitao' &&
+      site.id != 'langmei' &&
+      site.id != 'yaofafa';
 
   static const defaultLiveId = 'chaturbate';
 }

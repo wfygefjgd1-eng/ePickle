@@ -13,7 +13,8 @@ class LayoutSettings extends ChangeNotifier {
   static const _kCustomUrls = 'layout_custom_urls_v1';
   static const _kCustomSites = 'layout_custom_sites_v2';
   static const _kHiddenSites = 'layout_hidden_sites_v1';
-  static const _catalogVer = 13;
+  // v14（2026-09-29）：新增浪妹视频 / 要发发视频两张卡片。
+  static const _catalogVer = 14;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);

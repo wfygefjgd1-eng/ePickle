@@ -133,6 +133,68 @@ class PlaybackHelpers {
     return d;
   }
 
+  /// How close a reading must be to a pending seek target to count as
+  /// "the player got there".
+  static const Duration seekTolerance = Duration(seconds: 3);
+
+  /// Readings at or below this, coming from a playhead that was at least
+  /// [zeroCollapseGap] further along, are the "position unknown" glitch.
+  static const Duration zeroCollapseFloor = Duration(seconds: 2);
+  static const Duration zeroCollapseGap = Duration(seconds: 3);
+
+  /// Direction-agnostic distance between two positions.
+  static Duration gap(Duration a, Duration b) => a > b ? a - b : b - a;
+
+  /// Sanitize one raw `VideoPlayerController.value.position` reading.
+  ///
+  /// The platform layer cannot always answer with a real playhead, and the
+  /// junk it substitutes survives into `value.position` as something that
+  /// looks like a tiny (but plausible) duration:
+  /// * iOS AVPlayer answers an indefinite `currentTime` while a seek waits for
+  ///   the seeked-to segment to decode. `video_player_avfoundation` maps that
+  ///   to the same `TIME_UNSET` (-9223372036854775807) sentinel ExoPlayer uses
+  ///   for unknown positions, and its Dart layer then converts it with a plain
+  ///   `Duration(milliseconds:)` multiply — an int64 overflow that lands on
+  ///   ~+1 ms (exactly 0 when the CMTime scales to zero).
+  /// * Android's ExoPlayer reports the same sentinel for an unknown position.
+  ///
+  /// Painting one of those as progress (`position / duration`) is what snapped
+  /// the bar back to 0:00 right after a seek — the "像是重新载入了视频" report.
+  /// Worse, the same reading fed the stall detector and became the resume
+  /// point of a quality switch, so the reloaded player started over at 0:00.
+  ///
+  /// Returns the playhead to trust, or null when [raw] must be ignored — the
+  /// caller then keeps its own last believable value (or the pending seek
+  /// target) instead of drawing the platform's garbage.
+  static Duration? playhead(
+    Duration raw, {
+    required Duration duration,
+    Duration? lastGood,
+    Duration? pendingSeek,
+  }) {
+    if (duration <= Duration.zero || raw.isNegative) return null;
+    final target = pendingSeek;
+    if (target != null) {
+      // A seek we asked for has not been confirmed yet: while the platform
+      // refetches that segment it reports an unknown time (which lands near
+      // zero), so any reading far from the target is noise, not a playhead.
+      return gap(raw, target) <= seekTolerance ? _cap(raw, duration) : null;
+    }
+    final good = lastGood;
+    if (good != null &&
+        raw < zeroCollapseFloor &&
+        good - raw > zeroCollapseGap) {
+      // Sudden collapse of a substantial playhead towards 0:00 without a seek
+      // is the unknown-position glitch, not a real rewind.
+      return null;
+    }
+    return _cap(raw, duration);
+  }
+
+  /// Same clamp the plugin itself applies (`position > duration → duration`).
+  static Duration _cap(Duration value, Duration max) =>
+      value > max ? max : value;
+
   static StreamQuality? pickStream(VideoDetail detail, int qualityCap) =>
       detail.streamForCap(qualityCap);
 

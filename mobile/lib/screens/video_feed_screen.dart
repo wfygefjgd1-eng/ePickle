@@ -132,6 +132,25 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _preloadCycle = 0;
   int _preloadWaveIndex = -1;
   bool _seeking = false;
+
+  /// Last playhead the progress UI could trust. Cleared whenever a fresh
+  /// decoder is attached (a brand-new controller honestly starts at 0:00), so
+  /// the glitch filter never fights a legitimate restart.
+  Duration? _lastGoodPos;
+
+  /// Target of a seek the player has not confirmed yet, plus the epoch (ms)
+  /// after which the pin gives up. While pinned the progress bar and the time
+  /// label stay on that target: the platform reports an unknown (≈0) position
+  /// while it refetches the seeked-to segment, which used to snap the bar back
+  /// to the origin — "像重新载入了视频".
+  Duration? _seekPin;
+  int _seekPinUntilMs = 0;
+
+  /// Consecutive readings the filter rejected while unpinned. Persisting for
+  /// [_glitchTicksToTrust] ticks means the player really is where it says (a
+  /// genuine restart), so filtering stops and the UI reports the truth.
+  int _glitchTicks = 0;
+
   VideoDetail? _currentDetail;
   PlayerChrome? _chrome;
   AutoRotateController? _autoRotate;
@@ -173,6 +192,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   /// Live list hard cap (window around current index).
   static const _maxLiveItems = 150;
+
+  /// How long a seek target is held in the progress UI before the player's own
+  /// (possibly bogus) reading is believed again.
+  static const _seekPinWindowMs = 6000;
+
+  /// Rejected readings after which the platform reading wins.
+  static const _glitchTicksToTrust = 8;
 
   /// Initialize or resize preload slots list to match current slot count.
   void _ensurePreloadSlots() {
@@ -1363,6 +1389,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (!_canRun || index < 0 || index >= _items.length) return;
     final seq = ++_loadSeq;
     final item = _items[index];
+    // 归一化续播点：Duration.zero 等价于"从头播"，按无续播处理。
+    final resume =
+        (resumeFrom != null && resumeFrom > Duration.zero) ? resumeFrom : null;
 
     if (widget.site?.isStripchat == true) {
       _disposePreload();
@@ -1495,12 +1524,21 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _baseSpeed = speed;
       });
       _totalTime.value = PlaybackHelpers.fmtDuration(dur);
-      _sliderValue.value = 0;
-      _currentTime.value = '0:00';
+      // A fresh decoder starts at 0:00 as far as the platform is concerned.
+      _resetPlayheadTracking();
+      if (resume != null) {
+        // Quality switch / auto-lower reusing this slot: the viewer's playhead
+        // must come along. Without this the pooled controller silently played
+        // from 0:00 (both a pinned seek and skip-intro are wrong here).
+        _pinPlayhead(resume, dur);
+      } else {
+        _sliderValue.value = 0;
+        _currentTime.value = '0:00';
+      }
       // Don't carry the previous video's speed label into this one.
       _speedLabel.value = '';
       _lastSpeedLabel = '';
-      if (preloadDetail != null) {
+      if (resume == null && preloadDetail != null) {
         unawaited(
           PlaybackHelpers.skipIntroFromSettings(
             preloaded,
@@ -1508,6 +1546,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
             fallbackDurationSec: preloadDetail.durationSec,
           ),
         );
+      }
+      if (resume != null) {
+        try {
+          await preloaded.seekTo(resume).timeout(const Duration(seconds: 4));
+          if (!mounted || !identical(preloaded, _controller)) return;
+        } catch (_) {}
       }
       PlaybackSolo.enforceSolo(preloaded);
       await preloaded.play();
@@ -1522,6 +1566,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           } catch (_) {}
         }
         return;
+      }
+      if (resume != null) {
+        unawaited(_confirmResume(preloaded, resume));
       }
       _recordWatch(item);
       _startProgressTimer();
@@ -1571,11 +1618,17 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _currentIndex = index;
       _titleText = item.title;
     });
-    _totalTime.value = '0:00';
     _speedLabel.value = '';
     _lastSpeedLabel = '';
-    _sliderValue.value = 0;
-    _currentTime.value = '0:00';
+    if (resume == null) {
+      _totalTime.value = '0:00';
+      _sliderValue.value = 0;
+      _currentTime.value = '0:00';
+    } else {
+      // 续播重载（切清晰度 / 卡顿自动降档）期间进度条、时间与总时长都保持
+      // 原样，不掉回 0:00 —— 否则用户看到的就是"重新载入了视频"。
+      _pinPlayhead(resume);
+    }
 
     VideoDetail detail;
     try {
@@ -1754,6 +1807,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
     final ready = player;
     _controller = ready;
+    // Fresh decoder: it honestly starts at 0:00, so drop the playhead filters'
+    // memory of the previous one (see [_resetPlayheadTracking]).
+    _resetPlayheadTracking();
     final effDur = PlaybackHelpers.effectiveDuration(
       ready,
       fallbackSec: detail.durationSec,
@@ -1763,20 +1819,19 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _titleText = detail.title;
       _totalTime.value = PlaybackHelpers.fmtDuration(effDur);
     });
-    if (resumeFrom != null && resumeFrom > Duration.zero) {
-      // Quality switch mid-video: restore the old position. skip-intro must
-      // not fire — it would yank a mid-scene viewer back to the intro end.
+    if (resume != null) {
+      // Quality switch mid-video: restore the old position and PIN the bar
+      // there. skip-intro must not fire — it would yank a mid-scene viewer
+      // back to the intro end — and the bar must not fall back to the platform
+      // reading either, which is the glitch this fix is about.
+      _pinPlayhead(resume, effDur);
       try {
-        await ready.seekTo(resumeFrom).timeout(const Duration(seconds: 4));
+        await ready.seekTo(resume).timeout(const Duration(seconds: 4));
         if (!mounted || !identical(ready, _controller)) return;
-        final d = ready.value.duration;
-        if (d.inMilliseconds > 0) {
-          _sliderValue.value =
-              (resumeFrom.inMilliseconds / d.inMilliseconds).clamp(0.0, 1.0);
-          _currentTime.value = PlaybackHelpers.fmtDuration(resumeFrom);
-        }
       } catch (_) {}
     } else {
+      _sliderValue.value = 0;
+      _currentTime.value = '0:00';
       unawaited(
         PlaybackHelpers.skipIntroFromSettings(
           player,
@@ -1801,6 +1856,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         } catch (_) {}
       }
       return;
+    }
+    if (resume != null) {
+      unawaited(_confirmResume(ready, resume));
     }
     // The preload wave launched by _restartPreloading() above already covers
     // index+1..+3; scheduling the same slots again here would race it and leak
@@ -1860,6 +1918,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _titleText = title;
     _totalTime.value = live ? 'LIVE' : '-';
     _speedLabel.value = live ? '' : '网页';
+    // No native decoder owns the progress bar here.
+    _resetPlayheadTracking();
     _sliderValue.value = 0;
     _currentTime.value = live ? 'LIVE' : '0:00';
     setState(() => _pageLoading = false);
@@ -2039,77 +2099,118 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       // Skip update while seeking, but keep timer alive
       if (_seeking) return;
 
-      final pos = ctrl.value.position;
       final dur = PlaybackHelpers.effectiveDuration(
         ctrl,
         fallbackSec: _currentDetail?.durationSec ?? 0,
       );
       if (dur.inMilliseconds <= 0) return;
       final now = DateTime.now().millisecondsSinceEpoch;
+      final pinned = _seekPin != null && now < _seekPinUntilMs;
+      // 平台读到的 position 不一定是真播放头（iOS seek 换段期间 AVPlayer 报
+      // "时间未知"，avfoundation 层把它溢出成 ~1ms；见 PlaybackHelpers.playhead）。
+      // seek 未落定时钉在用户目标上，其余时候沿用最后一次可信位置——绝不把这
+      // 种假 0 画进进度条（"进度条回到原点 / 像重新载入"）。
+      final raw = ctrl.value.position;
+      final trusted = PlaybackHelpers.playhead(
+        raw,
+        duration: dur,
+        lastGood: _lastGoodPos,
+        pendingSeek: pinned ? _seekPin : null,
+      );
+      Duration? shown = trusted;
+      if (trusted == null) {
+        if (pinned) {
+          shown = _seekPin;
+        } else {
+          _seekPin = null;
+          _glitchTicks++;
+          if (_glitchTicks >= _glitchTicksToTrust) {
+            // 连续多次都不可信：不是抖动，播放器真的回到了这个位置。
+            _lastGoodPos = null;
+            _glitchTicks = 0;
+            shown = PlaybackHelpers.playhead(raw, duration: dur);
+          }
+        }
+      } else {
+        _glitchTicks = 0;
+        final pin = _seekPin;
+        if (pin != null &&
+            PlaybackHelpers.gap(trusted, pin) <=
+                PlaybackHelpers.seekTolerance) {
+          _seekPin = null; // 播放器已跟上这次 seek，解除钉住
+        }
+      }
       final ranges = ctrl.value.buffered;
       final bufMs =
           ranges.isEmpty ? 0.0 : ranges.last.end.inMilliseconds.toDouble();
-      final posMs = pos.inMilliseconds.toDouble();
-      if (_lastTickMs > 0) {
-        final dMs = now - _lastTickMs;
-        final dBuf = bufMs - _lastBufferedMs;
-        final dPlayed = posMs - _lastPosMs;
-        final downloaded = (dBuf + dPlayed).clamp(0.0, double.infinity);
-        if (dMs > 0 && downloaded > 0) {
-          final ratio = (downloaded / dMs).clamp(0.0, 3.0);
-          final sample = (_baseSpeed * ratio).clamp(0, 12000).toDouble();
-          // Warm up and use a slower rise so one buffer burst cannot jump the label.
-          _speedSamples++;
-          if (_speedSamples >= 3) {
-            if (_smoothedSpeedKbps <= 0) {
-              _smoothedSpeedKbps = sample.clamp(0, 1200);
-            } else {
-              final weight = sample > _smoothedSpeedKbps ? 0.08 : 0.24;
-              _smoothedSpeedKbps += (sample - _smoothedSpeedKbps) * weight;
+      if (trusted != null) {
+        final posMs = trusted.inMilliseconds.toDouble();
+        if (_lastTickMs > 0) {
+          final dMs = now - _lastTickMs;
+          final dBuf = bufMs - _lastBufferedMs;
+          final dPlayed = posMs - _lastPosMs;
+          final downloaded = (dBuf + dPlayed).clamp(0.0, double.infinity);
+          if (dMs > 0 && downloaded > 0) {
+            final ratio = (downloaded / dMs).clamp(0.0, 3.0);
+            final sample = (_baseSpeed * ratio).clamp(0, 12000).toDouble();
+            // Warm up and use a slower rise so one buffer burst cannot jump the label.
+            _speedSamples++;
+            if (_speedSamples >= 3) {
+              if (_smoothedSpeedKbps <= 0) {
+                _smoothedSpeedKbps = sample.clamp(0, 1200);
+              } else {
+                final weight = sample > _smoothedSpeedKbps ? 0.08 : 0.24;
+                _smoothedSpeedKbps += (sample - _smoothedSpeedKbps) * weight;
+              }
+            }
+            if (_speedSamples >= 3) {
+              final speed = _smoothedSpeedKbps.round().clamp(0, 20000);
+              final label = '$speed Kbps';
+              if (label != _lastSpeedLabel) {
+                _lastSpeedLabel = label;
+                _speedLabel.value = label;
+              }
             }
           }
-          if (_speedSamples >= 3) {
-            final speed = _smoothedSpeedKbps.round().clamp(0, 20000);
-            final label = '$speed Kbps';
-            if (label != _lastSpeedLabel) {
-              _lastSpeedLabel = label;
-              _speedLabel.value = label;
-            }
+          // Stall: playing but position barely advances.
+          final isPlaying = ctrl.value.isPlaying;
+          final nearEnd = posMs >= dur.inMilliseconds - 800;
+          final armed = now >= _stallArmedAfterMs;
+          if (armed &&
+              isPlaying &&
+              !nearEnd &&
+              dMs >= 150 &&
+              dPlayed < 40 &&
+              posMs > 2000) {
+            _stallTicks++;
+          } else if (dPlayed >= 80) {
+            _stallTicks = 0;
+          }
+          if (_stallTicks >= 14) {
+            _stallTicks = 0;
+            // ignore: unawaited_futures
+            _maybeAutoLowerQuality();
           }
         }
-        // Stall: playing but position barely advances.
-        final isPlaying = ctrl.value.isPlaying;
-        final nearEnd = posMs >= dur.inMilliseconds - 800;
-        final armed = now >= _stallArmedAfterMs;
-        if (armed &&
-            isPlaying &&
-            !nearEnd &&
-            dMs >= 150 &&
-            dPlayed < 40 &&
-            posMs > 2000) {
-          _stallTicks++;
-        } else if (dPlayed >= 80) {
-          _stallTicks = 0;
-        }
-        if (_stallTicks >= 14) {
-          _stallTicks = 0;
-          // ignore: unawaited_futures
-          _maybeAutoLowerQuality();
-        }
+        _lastBufferedMs = bufMs;
+        _lastTickMs = now;
+        _lastPosMs = posMs;
+      } else {
+        // 位置不可信：速度与卡顿都需要真实位移，重新起算基线，别把垃圾喂进去
+        // （否则一次假 0 会被算成"播放中位置不走"，直接触发自动降档）。
+        _lastTickMs = 0;
+        _lastBufferedMs = 0;
       }
-      _lastBufferedMs = bufMs;
-      _lastTickMs = now;
-      _lastPosMs = posMs;
-      _sliderValue.value = (pos.inMilliseconds / dur.inMilliseconds).clamp(
+      if (shown == null) return;
+      _lastGoodPos = shown;
+      _sliderValue.value = (shown.inMilliseconds / dur.inMilliseconds).clamp(
         0.0,
         1.0,
       );
-      _currentTime.value = PlaybackHelpers.fmtDuration(pos);
-      if (dur.inMilliseconds > 0) {
-        final t = PlaybackHelpers.fmtDuration(dur);
-        if (t != _totalTime.value) {
-          _totalTime.value = t;
-        }
+      _currentTime.value = PlaybackHelpers.fmtDuration(shown);
+      final t = PlaybackHelpers.fmtDuration(dur);
+      if (t != _totalTime.value) {
+        _totalTime.value = t;
       }
     });
   }
@@ -2212,6 +2313,73 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     return 600;
   }
 
+  /// Forget every playhead the previous decoder taught us. Called whenever a
+  /// controller is (re)attached: a fresh player starts at 0:00, and carrying
+  /// the old memory over would make the glitch filter reject its honest reads.
+  void _resetPlayheadTracking() {
+    _lastGoodPos = null;
+    _seekPin = null;
+    _seekPinUntilMs = 0;
+    _glitchTicks = 0;
+  }
+
+  /// Put the progress UI on [target] and hold it there until the player
+  /// confirms the seek, or [_seekPinWindowMs] expires
+  /// (see [PlaybackHelpers.playhead]).
+  ///
+  /// [total] only redraws the ratio; pass null to keep the ratio the bar is
+  /// already showing (a reload in flight has no new duration yet).
+  void _pinPlayhead(Duration target, [Duration? total]) {
+    _seekPin = target;
+    _seekPinUntilMs = DateTime.now().millisecondsSinceEpoch + _seekPinWindowMs;
+    _lastGoodPos = target;
+    _glitchTicks = 0;
+    final t = total;
+    if (t == null) return;
+    if (t.inMilliseconds > 0) {
+      _sliderValue.value =
+          (target.inMilliseconds / t.inMilliseconds).clamp(0.0, 1.0);
+    }
+    _currentTime.value = PlaybackHelpers.fmtDuration(target);
+  }
+
+  /// Playhead a quality switch / auto-lower must resume from: the pending seek
+  /// target, else the last believable position. Never read the raw platform
+  /// value here — an "unknown position" reading (≈0) is exactly what restarted
+  /// the reloaded video from 0:00.
+  Duration? get _resumePoint {
+    final pin = _seekPin;
+    if (pin != null && pin > Duration.zero) return pin;
+    final good = _lastGoodPos;
+    if (good != null && good > Duration.zero) return good;
+    return null;
+  }
+
+  /// Confirm a resume seek once the plugin's 100 ms position poll had a chance
+  /// to report the platform's own value (right after `seekTo` the plugin writes
+  /// the requested position into `value` optimistically, so checking any sooner
+  /// proves nothing). A just-initialized HLS player can swallow that first seek
+  /// while it is still filling its initial buffer — the plugin resolves the call
+  /// anyway — which is how a quality switch ended up replaying from 0:00.
+  Future<void> _confirmResume(
+    VideoPlayerController ctrl,
+    Duration target,
+  ) async {
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted || !identical(ctrl, _controller)) return;
+    final dur = ctrl.value.duration;
+    if (dur.inMilliseconds <= 0) return;
+    final ok = PlaybackHelpers.playhead(
+      ctrl.value.position,
+      duration: dur,
+      pendingSeek: target,
+    );
+    if (ok != null) return;
+    try {
+      await ctrl.seekTo(target).timeout(const Duration(seconds: 4));
+    } catch (_) {}
+  }
+
   /// Drag/tap preview only — never touch the player (prevents snap-back).
   void _onSeekPreview(double v) {
     final c = _controller;
@@ -2225,7 +2393,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     );
   }
 
-  /// Seek after drag/tap ends; keep [_seeking] until player position settles.
+  /// Seek after drag/tap ends; keep [_seeking] until the player position settles.
   Future<void> _onSeekCommit(double v) async {
     // Buffer refill after seek is normal — not a stall.
     _stallTicks = 0;
@@ -2243,26 +2411,21 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final target = v.clamp(0.0, 1.0);
     final posMs = (durMs * target).round();
     _seeking = true;
-    _sliderValue.value = target;
-    _currentTime.value = PlaybackHelpers.fmtDuration(
+    // Pin the bar to the requested target. The player's own position cannot be
+    // used to paint progress right after a seek: iOS reports an unknown time
+    // (≈0) until the seeked-to segment is decoded, so the bar used to snap back
+    // to 0:00 — and the progress timer's next readable tick releases the pin.
+    _pinPlayhead(
       Duration(milliseconds: posMs),
+      Duration(milliseconds: durMs),
     );
     try {
       // Timeout a hanging seek so _seeking can never wedge the progress bar.
-      await c.seekTo(Duration(milliseconds: posMs))
+      await c
+          .seekTo(Duration(milliseconds: posMs))
           .timeout(const Duration(seconds: 4));
-      // Brief hold so progress timer doesn't overwrite with stale position
+      // Brief hold so the progress timer doesn't read a stale position.
       await Future<void>.delayed(const Duration(milliseconds: 120));
-      if (!mounted || !identical(c, _controller)) return;
-      final p = c.value.position;
-      final d = c.value.duration;
-      if (d.inMilliseconds > 0) {
-        _sliderValue.value = (p.inMilliseconds / d.inMilliseconds).clamp(
-          0.0,
-          1.0,
-        );
-        _currentTime.value = PlaybackHelpers.fmtDuration(p);
-      }
     } catch (_) {
     } finally {
       if (mounted) _seeking = false;
@@ -2282,9 +2445,19 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   Future<void> _fastForward() async {
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
-    final currentPos = c.value.position;
     final duration = c.value.duration;
+    // 快进基准必须是可信播放头：seek 换段期间平台会报 ~0，用它算 +30s 会把
+    // 正在中段看的视频原地拉回开头附近。
+    final currentPos = PlaybackHelpers.playhead(
+          c.value.position,
+          duration: duration,
+          lastGood: _lastGoodPos,
+        ) ??
+        _lastGoodPos;
+    if (currentPos == null) return;
     final newPos = currentPos + const Duration(seconds: 30);
+    final target = newPos < duration ? newPos : duration;
+    _pinPlayhead(target, duration);
 
     _seeking = true;
     void settle() {
@@ -2294,11 +2467,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
 
     try {
-      if (newPos < duration) {
-        await c.seekTo(newPos).timeout(const Duration(seconds: 4));
-      } else {
-        await c.seekTo(duration).timeout(const Duration(seconds: 4));
-      }
+      await c.seekTo(target).timeout(const Duration(seconds: 4));
       settle();
     } catch (_) {
       // Controller swapped / disposed mid-seek: never leave _seeking stuck.
@@ -2329,8 +2498,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _stallLoweredForItem = true;
     _sessionQualityCap = target.height;
     // Resume from the current position — a mid-scene auto quality drop must
-    // not restart the video from 0:00.
-    final resume = _controller?.value.position;
+    // not restart the video from 0:00. Sampled through [_resumePoint]: a raw
+    // platform read right after a seek can be the "unknown position" ≈0, which
+    // is the other half of "自动降档后从 0:00 重播".
+    final resume = _resumePoint;
     try {
       if (mounted) {
         PlaybackHelpers.toast(
@@ -2360,8 +2531,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       onQualityChanged: () {
         _sessionQualityCap = null;
         // Keep the playhead: a manual quality switch restarts from 0:00
-        // otherwise.
-        final resume = _controller?.value.position;
+        // otherwise (same filtered source as the auto-lower path).
+        final resume = _resumePoint;
         if (mounted) _playIndex(_currentIndex, resumeFrom: resume);
       },
     );

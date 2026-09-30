@@ -102,7 +102,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       // 用 localPosition：旋转全屏（RotatedBox）下手势识别器按旋转后的本地
       // 轴上报，globalPosition 的 dx 几乎不变，预览会卡在 0 秒。
       _dragStartX = details.localPosition.dx;
-      _dragStartPosition = ctrl.value.position;
+      // 拖动基准取进度条上显示的可信播放头，而不是平台原始读数：seek 换段
+      // 期间平台会报 ~0，拿它当基准会让一次小幅滑动把中段的视频拉回开头。
+      final durMs = ctrl.value.duration.inMilliseconds;
+      final ratio = widget.sliderValue.value.clamp(0.0, 1.0);
+      _dragStartPosition = durMs > 0
+          ? Duration(milliseconds: (durMs * ratio).round())
+          : ctrl.value.position;
       _seekPreviewText = '';
     });
   }

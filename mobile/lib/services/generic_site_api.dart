@@ -1455,6 +1455,11 @@ class GenericSiteApi {
       final decoded =
           ptype == 'hotsextube' ? _decodeHotsextubeOutUrl(url) : _decodeIxxxOutUrl(url);
       if (decoded != null) return getVideoDetail(site, decoded);
+      // 付费站推广落地页守卫（列表阶段 _aggPromoLandpage 已滤过，这里挡
+      // 旧缓存/转存条目）：直接拒播，别开 WebView 让用户看到"订阅解锁"页。
+      if (_aggPromoLandpage(url)) {
+        throw PhubException('${site.name} 条目指向付费站推广页，已移除');
+      }
     }
     if (site.kind == SiteKind.live) {
       final fast = await _getLiveDetailFast(site, url, deadline);
@@ -2616,11 +2621,24 @@ class GenericSiteApi {
 
   bool _aggPromoLandpage(String url) {
     final u = url.toLowerCase();
+    // 付费站联盟网关/计费参数：任何一条命中即代表这是"订阅/注册解锁"的
+    // 落地页，免费端永远无流：
+    //  - join./mbr./members./signup./billing. 子域 —— 联盟 track 链
+    //  - /track/ —— 同上（path 形态）
+    //  - video-click.php —— 12milf/pornstarfreecams 等站群点击网关
+    //  - nats= —— NATS 计费体系（vixen 及大量付费站联盟参数）
+    //  - merchantpartnerid= —— reflectivedesire 自有域联盟参数
+    //  - /lander、/tour/ —— 付费站订阅引导页路径
     if (RegExp(
           r'^https?://(?:join|mbr|member|members|signup|billing)\.',
           caseSensitive: false,
         ).hasMatch(u) ||
-        u.contains('/track/')) {
+        u.contains('/track/') ||
+        u.contains('video-click.php') ||
+        u.contains('nats=') ||
+        u.contains('merchantpartnerid=') ||
+        u.contains('/lander?') ||
+        u.contains('/tour/')) {
       return true;
     }
     // host 精确匹配（去掉 www./m. 前缀），不做子串匹配以免 query 参数误命中。

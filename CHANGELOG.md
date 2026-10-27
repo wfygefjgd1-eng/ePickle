@@ -9,6 +9,30 @@
 
 ---
 
+## [2.8.46] - 付费站全量移除（模式化识别 + 详情层拒播）
+
+### 🚫 付费网站全部移除
+经全货架普查（iXXX /zh/popular 快照 240/12 域解码、Qorno/FuQ 14 个页面全部
+外链主机普查、HotSexTube 8 页全量外链、PornKai 搜索结果页），付费/推广站
+清单与过滤网如下：
+1. **已确认付费站（`_aggPromoHosts` 名单持续生效）**：Mature NL（join.），
+   Reflective Desire，Vixen，Nookies（join.），Lustery，PornstarFreecams
+   （直播联盟），12Milf 站群，Babestare，Jacquie & Michel TV，xh.partners
+   —— 这 10 域在 2.8.44 已整卡丢弃。
+2. **本版新增模式识别**（对付货架轮换出场的付费站，不必追域名）：
+   `join./mbr./members./signup./billing.` 子域、`/track/`、
+   `video-click.php`（12milf/pornstarfreecams 点击网关）、`nats=`
+   （NATS 计费参数）、`merchantpartnerid=`、`/lander?`、`/tour/` ——
+   列表解析阶段整卡丢弃。
+3. **详情层兜底拒播**：旧缓存/转存条目若仍指向付费推广页，
+   `getVideoDetail` 直接返回明确错误（"条目指向付费站推广页，已移除"），
+   播放层按不可用跳过，不再让用户看到"订阅解锁"落地页。
+4. **确认为免费真实可播的合作站保留**：fhgte/faphouse（正片质量映射已解
+   禁）、eporner、xgroovy、vidzx、w1mp、xozilla、w4nkr、momvids 等；
+   Qorno/FuQ/HotSexTube/PornKai 的卡片链接全部为站内链接，无付费推广。
+
+---
+
 ## [2.8.45] - 播放链路兜底（无流条目网页播放 / faphouse 正片解禁 / CF 二次渲染）
 
 ### 🐛 用户反馈三问题逐个修复

@@ -109,6 +109,10 @@ Future<void> _showAddSiteDialog(
                       child: Text('点播 · Jable 解析'),
                     ),
                     DropdownMenuItem(
+                      value: 'ixxx',
+                      child: Text('点播 · iXXX 解析'),
+                    ),
+                    DropdownMenuItem(
                       value: 'langmei',
                       child: Text('点播 · 浪妹视频 解析'),
                     ),
@@ -224,6 +228,7 @@ String _customParserLabel(String parser) => switch (parser) {
   'xhamster' => '点播 · xHamster 解析',
   'tnaflix' => '点播 · TNAFlix 解析',
   'jable' => '点播 · Jable 解析',
+  'ixxx' => '点播 · iXXX 解析',
   'langmei' => '点播 · 浪妹视频 解析',
   'yaofafa' => '点播 · 要发发视频 解析',
   'stripchat' => '直播 · Stripchat',

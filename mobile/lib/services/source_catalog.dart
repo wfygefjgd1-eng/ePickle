@@ -104,6 +104,7 @@ class SiteDef {
         'xvideos' => SourceCatalog.xvideos.tags,
         'mitao' => SourceCatalog.mitao.tags,
         'huangguo' => SourceCatalog.huangguoTags,
+        'ixxx' => SourceCatalog.ixxx.tags,
         'langmei' || 'yaofafa' => const <SiteTag>[],
         _ => SourceCatalog.vodTags,
       },
@@ -111,6 +112,7 @@ class SiteDef {
         'stripchat' => SourceCatalog.stripchatDirectoryTags,
         'chaturbate' => SourceCatalog.chaturbateDirectoryTags,
         'huangguo' => SourceCatalog.huangguoDirectoryTags,
+        'ixxx' => SourceCatalog.ixxxDirectoryTags,
         _ => SourceCatalog.vodDirectoryTags,
       },
       ready: true,
@@ -1067,6 +1069,63 @@ class SourceCatalog {
     directoryTags: tnaflixDirectoryTags,
   );
 
+  /// iXXX（FuQ/Tiava 同网络聚合站）目录标签：取自官网首页"最热门的类别"
+  /// 卡片（/zh/c/{slug}），2026-10 重新捕获。聚合站视频卡以 /out/?l= 外链
+  /// 到合作播放站，目录本身仍是稳定的分类卡。
+  static const ixxxDirectoryTags = <SiteTag>[
+    SiteTag(id: 'chinese', label: '\u4e2d\u56fd\u7684', icon: Icons.translate_outlined, iconSelected: Icons.translate),
+    SiteTag(id: 'japanese', label: '\u65e5\u672c\u7684', icon: Icons.flag_outlined, iconSelected: Icons.flag),
+    SiteTag(id: 'ai-generated', label: '\u4eba\u5de5\u667a\u80fd\u751f\u6210', icon: Icons.brush_outlined, iconSelected: Icons.brush),
+    SiteTag(id: 'japanese-pornstar', label: '\u65e5\u672c\u8272\u60c5\u660e\u661f', icon: Icons.star_outline, iconSelected: Icons.star),
+    SiteTag(id: 'uncensored', label: '\u672a\u7ecf\u5ba1\u67e5', icon: Icons.visibility_off_outlined, iconSelected: Icons.visibility_off),
+    SiteTag(id: 'asian', label: '\u4e9a\u6d32\u7684', icon: Icons.public_outlined, iconSelected: Icons.public),
+    SiteTag(id: 'chinese-homemade', label: '\u4e2d\u56fd\u81ea\u5236', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'taiwanese', label: '\u53f0\u6e7e\u7684', icon: Icons.flag_circle_outlined, iconSelected: Icons.flag_circle),
+    SiteTag(id: 'korean', label: '\u97e9\u56fd\u7684', icon: Icons.language_outlined, iconSelected: Icons.language),
+    SiteTag(id: 'vietnamese', label: '\u8d8a\u5357\u7684', icon: Icons.language_outlined, iconSelected: Icons.language),
+    SiteTag(id: 'oriental', label: '\u4e1c\u65b9\u7684', icon: Icons.face_outlined, iconSelected: Icons.face),
+    SiteTag(id: 'indian', label: '\u5370\u5ea6\u7684', icon: Icons.history_edu_outlined, iconSelected: Icons.history_edu),
+    SiteTag(id: 'indonesian', label: '\u5370\u5c3c\u7684', icon: Icons.language_outlined, iconSelected: Icons.language),
+    SiteTag(id: 'japanese-hd', label: '\u65e5\u672c\u4eba\u9ad8\u6e05', icon: Icons.hd_outlined, iconSelected: Icons.hd),
+    SiteTag(id: 'japanese-hot-mom', label: '\u65e5\u672c\u8fa3\u5988', icon: Icons.person_outline, iconSelected: Icons.person),
+    SiteTag(id: 'japanese-mature', label: '\u65e5\u672c\u6210\u719f', icon: Icons.face_outlined, iconSelected: Icons.face),
+    SiteTag(id: 'japanese-amateur', label: '\u65e5\u672c\u7d20\u4eba', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'japanese-student', label: '\u65e5\u672c\u5b66\u751f', icon: Icons.school_outlined, iconSelected: Icons.school),
+    SiteTag(id: 'japanese-big-tits', label: '\u65e5\u672c\u4eba\u5de8\u4e73', icon: Icons.spa_outlined, iconSelected: Icons.spa),
+    SiteTag(id: 'japanese-group-sex', label: '\u65e5\u672c\u7fa4\u4ea4', icon: Icons.groups_3_outlined, iconSelected: Icons.groups_3),
+    SiteTag(id: 'japanese-massage', label: '\u65e5\u672c\u6309\u6469', icon: Icons.spa_outlined, iconSelected: Icons.spa),
+    SiteTag(id: 'chinese-teen', label: '\u4e2d\u56fd\u9752\u5c11\u5e74', icon: Icons.child_care_outlined, iconSelected: Icons.child_care),
+    SiteTag(id: 'hot-mom', label: '\u8fa3\u5988', icon: Icons.person_outline, iconSelected: Icons.person),
+    SiteTag(id: 'massage', label: '\u6309\u6469', icon: Icons.spa_outlined, iconSelected: Icons.spa),
+    SiteTag(id: 'public', label: '\u516c\u5171\u573a\u5408', icon: Icons.videocam_outlined, iconSelected: Icons.videocam),
+    SiteTag(id: 'mom', label: '\u5988\u5988', icon: Icons.person_outline, iconSelected: Icons.person),
+    SiteTag(id: 'hentai', label: '\u53d8\u6001\u52a8\u6f2b', icon: Icons.animation_outlined, iconSelected: Icons.animation),
+    SiteTag(id: 'japanese-mom', label: '\u65e5\u672c\u5988\u5988', icon: Icons.person_outline, iconSelected: Icons.person),
+    SiteTag(id: 'cum-inside', label: '\u7cbe\u6db2\u5728\u91cc\u9762', icon: Icons.water_drop_outlined, iconSelected: Icons.water_drop),
+    SiteTag(id: 'japanese-threesome', label: '\u65e5\u672c\u4e09\u4eba\u884c', icon: Icons.groups_outlined, iconSelected: Icons.groups),
+    SiteTag(id: 'chinese-amateur', label: '\u4e2d\u56fd\u7d20\u4eba', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'perfect-body', label: '\u5b8c\u7f8e\u8eab\u6750', icon: Icons.fitness_center_outlined, iconSelected: Icons.fitness_center),
+    SiteTag(id: 'young', label: '\u5e74\u8f7b\u4eba', icon: Icons.child_care_outlined, iconSelected: Icons.child_care),
+    SiteTag(id: 'asian-homemade', label: '\u4e9a\u6d32\u81ea\u5236', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'cheating', label: '\u51fa\u8f68', icon: Icons.favorite_outline, iconSelected: Icons.favorite),
+    SiteTag(id: 'black', label: '\u9ed1\u76ae\u80a4', icon: Icons.nightlife_outlined, iconSelected: Icons.nightlife),
+    SiteTag(id: 'interracial', label: '\u8de8\u79cd\u65cf', icon: Icons.interpreter_mode_outlined, iconSelected: Icons.interpreter_mode),
+    SiteTag(id: 'asian-mature', label: '\u4e9a\u6d32\u6210\u719f', icon: Icons.face_outlined, iconSelected: Icons.face),
+    SiteTag(id: 'virgin', label: '\u5904\u5973', icon: Icons.face_3_outlined, iconSelected: Icons.face_3),
+    SiteTag(id: 'japanese-lesbian', label: '\u65e5\u672c\u5973\u540c\u6027', icon: Icons.favorite_outline, iconSelected: Icons.favorite),
+    SiteTag(id: 'story', label: '\u6545\u4e8b', icon: Icons.psychology_outlined, iconSelected: Icons.psychology),
+    SiteTag(id: 'orgy', label: '\u7fa4\u4ea4', icon: Icons.groups_2_outlined, iconSelected: Icons.groups_2),
+    SiteTag(id: 'compilation', label: '\u6c47\u7f16', icon: Icons.blur_on_outlined, iconSelected: Icons.blur_on),
+    SiteTag(id: 'russian-beauty', label: '\u4fc4\u7f57\u65af\u7f8e\u5973', icon: Icons.ac_unit_outlined, iconSelected: Icons.ac_unit),
+    SiteTag(id: 'korean-homemade', label: '\u97e9\u56fd\u81ea\u5236', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'chinese-couple', label: '\u4e2d\u56fd\u592b\u5987', icon: Icons.people_outline, iconSelected: Icons.people),
+    SiteTag(id: 'cheating-wife', label: '\u5077\u60c5\u59bb\u5b50', icon: Icons.favorite_outline, iconSelected: Icons.favorite),
+    SiteTag(id: 'big-ass', label: '\u5de8\u81c0', icon: Icons.airline_seat_legroom_reduced_outlined, iconSelected: Icons.airline_seat_legroom_reduced),
+    SiteTag(id: 'huge-ass', label: '\u5de8\u80a8', icon: Icons.airline_seat_recline_normal_outlined, iconSelected: Icons.airline_seat_recline_normal),
+    SiteTag(id: 'anal', label: '\u540e\u5ead', icon: Icons.airline_seat_recline_extra_outlined, iconSelected: Icons.airline_seat_recline_extra),
+    SiteTag(id: 'blowjob', label: '\u53e3\u4ea4', icon: Icons.mic_external_on_outlined, iconSelected: Icons.mic_external_on),
+  ];
+
   static const jable = SiteDef(
     id: 'jable',
     name: 'Jable',
@@ -1081,6 +1140,48 @@ class SourceCatalog {
     ],
     tags: jableTags,
     directoryTags: jableDirectoryTags,
+  );
+
+  /// iXXX 聚合站（FuQ/Tiava 同网络，卡片直接挂在 www.ixxx.com 的 /out/ 跳转
+  /// 上）。标签隧道由通用解析驱动：hot/new/best 命中站内榜单页，其余走
+  /// /zh/c/{tag} 分类页；解析规则见 GenericSiteApi 的 'ixxx' 分支。
+  static const ixxx = SiteDef(
+    id: 'ixxx',
+    name: 'iXXX',
+    kind: SiteKind.video,
+    color: 0xFFB71C1C,
+    letter: 'I',
+    ready: true,
+    mirrors: [
+      'https://www.ixxx.com',
+    ],
+    tags: [
+      SiteTag(
+        id: 'hot',
+        label: '\u70ed',
+        icon: Icons.local_fire_department_outlined,
+        iconSelected: Icons.local_fire_department,
+      ),
+      SiteTag(
+        id: 'new',
+        label: '\u65b0',
+        icon: Icons.fiber_new_outlined,
+        iconSelected: Icons.fiber_new,
+      ),
+      SiteTag(
+        id: 'asian',
+        label: '\u4e9a',
+        icon: Icons.public_outlined,
+        iconSelected: Icons.public,
+      ),
+      SiteTag(
+        id: 'best',
+        label: '\u699c',
+        icon: Icons.emoji_events_outlined,
+        iconSelected: Icons.emoji_events,
+      ),
+    ],
+    directoryTags: ixxxDirectoryTags,
   );
 
   // Removed: our55, xqq88 (unstable for users).
@@ -1135,6 +1236,7 @@ class SourceCatalog {
     xhamster,
     tnaflix,
     jable,
+    ixxx,
     stripchat,
     chaturbate,
   ];

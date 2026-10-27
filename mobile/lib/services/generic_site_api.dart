@@ -1423,6 +1423,11 @@ class GenericSiteApi {
       // 通用 HTML 解析链路不适用，直接转交专用解析器（无状态，可临时构造）。
       return LangmeiApi().getVideoDetail(site, url);
     }
+    if ((site.parserId ?? site.id) == 'ixxx') {
+      // 旧缓存/手动粘贴可能带原始 /out/?l= 链接：先离线解成合作站播放页。
+      final decoded = _decodeIxxxOutUrl(url);
+      if (decoded != null) return getVideoDetail(site, decoded);
+    }
     if (site.kind == SiteKind.live) {
       final fast = await _getLiveDetailFast(site, url, deadline);
       if (fast != null) return fast;
@@ -1436,11 +1441,19 @@ class GenericSiteApi {
     if (originalBase != null) {
       candidates.add((url: url, base: originalBase, mirrorIndex: null));
     }
-    final mirrors = _mirrorsFor(site);
+    // iXXX 的条目 URL 是合作播放站（xozilla/fhgte/eporner…）：把别人的
+    // 路径强行拼到 iXXX 镜像上只会换来 404/首页，徒耗预算还可能把外站
+    // 学习镜像误判成不可用。合作站 URL 只用其原生 base 请求。
+    final mirrors = (site.parserId ?? site.id) == 'ixxx' &&
+           !(parsed?.host.contains('ixxx.') ?? false)
+        ? const <String>[]
+        : _mirrorsFor(site);
     // Fastest-known mirror first (persistent ranking), remaining mirrors
     // after — every mirror stays in play for failover.
     var ranked = _ranker.rankedMirrors(site);
     if (ranked.isEmpty) ranked = List<String>.from(mirrors);
+    // 合作站 URL（见上）：不加镜像候选。
+    if (mirrors.isEmpty) ranked = const <String>[];
     for (final baseRaw in ranked) {
       final base = baseRaw.replaceAll(RegExp(r'/$'), '');
       final candidateUrl = _abs(
@@ -1647,6 +1660,23 @@ class GenericSiteApi {
       throw PhubException('无法获取直播流：${site.name}（主播可能离线）');
     }
 
+    // iXXX 选择合作的 eporner 落地页：复用 eporner 的专用抽取（该站流由
+    // 独立 AJAX 端点给出，通用宽匹配会漏）。
+    if ((site.parserId ?? site.id) == 'ixxx' &&
+        RegExp(r'https?://(?:www\.)?eporner\.com/(?:video-|hd-porn/)')
+            .hasMatch(url)) {
+      final ep = await _extractEpornerStreams(url, html, base);
+      if (ep.isNotEmpty) {
+        return VideoDetail(
+          url: url,
+          title: _extractTitle(html) ?? url,
+          durationSec: _extractDurationSec(html),
+          thumb: _resolvedThumb(html, url),
+          streams: ep,
+        );
+      }
+    }
+
     // Eporner: dedicated AJAX/download endpoints
     if (site.id == 'eporner') {
       final ep = await _extractEpornerStreams(url, html, base);
@@ -1723,6 +1753,13 @@ class GenericSiteApi {
     }
     if (streams.isEmpty) {
       streams = _extractStreams(html, url);
+    }
+    // iXXX 合作站很多是 KVS 模板（xozilla 等：kt_player/flashvars），
+    // 通用宽匹配抢不到轮次这些站的签名数据，提前用 KVS 抽取。
+    if (streams.isEmpty &&
+        (site.parserId ?? site.id) == 'ixxx' &&
+        RegExp(r'kt_player|flashvars', caseSensitive: false).hasMatch(html)) {
+      streams = _extractKvsStreams(html, url);
     }
 
     // MissAV / Jable often put m3u8 in packed JS or data-src
@@ -2456,6 +2493,200 @@ class GenericSiteApi {
     return full;
   }
 
+  /// iXXX 卡片的 /out/?l= 资源解链：`l` 是一段 base64 帧（审核/查重标签进场
+  /// 使用的 msgpack 结构），URL 是帧里的 ASCII 字段（如
+  /// https://drtvid.com/v/QJrx / https://fhgte.com/videos/tyAyMU?utm_...）。
+  /// 服务器独立跳转会落到首页，所以这里离线解 out 链接，指向真实播放页。
+  String? _decodeIxxxOutUrl(String url) {
+    final raw = url.replaceAll('&amp;', '&');
+    final m = RegExp(r'[?&]l=([^&]+)').firstMatch(raw);
+    if (m == null) return null;
+    var token = m.group(1)!;
+    if (token.contains('%')) {
+      try {
+        token = Uri.decodeComponent(token);
+      } on ArgumentError {
+        // 个别坏转义：保留原始 token 继续参与 base64 过滤。
+      }
+    }
+    final b64 = token.replaceAll(RegExp(r'[^A-Za-z0-9+/=]'), '');
+    if (b64.length < 16) return null;
+    final padded = b64 + '=' * ((4 - b64.length % 4) % 4);
+    final List<int> bytes;
+    try {
+      bytes = base64.decode(padded);
+    } on FormatException {
+      return null;
+    }
+    final out = _firstHttpsUrl(bytes);
+    return out;
+  }
+
+  /// 在 msgpack 帧里结构化找第一个含 https 的字符串元素；找不到就退回
+  /// ASCII 扫描（帧可能带自定义头，遍历失败时兜底）。
+  String? _firstHttpsUrl(List<int> bytes) {
+    final structured = _msgpackHttpsUrl(bytes);
+    if (structured != null) return structured;
+    const head = 'https://';
+    for (var i = 0; i + head.length <= bytes.length; i++) {
+      var ok = true;
+      for (var j = 0; j < head.length; j++) {
+        if (bytes[i + j] != head.codeUnitAt(j)) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      final sb = StringBuffer();
+      var lastWasQ = false;
+      for (var k = i; k < bytes.length; k++) {
+        final c = bytes[k];
+        // 连续两个 ? 属于 msgpack 整数误当字符，真 URL 不会这样写。
+        if (c == 0x3f && lastWasQ) break;
+        lastWasQ = c == 0x3f;
+        if (c <= 0x20 || c >= 0x7f || c == 0x22 || c == 0x27) break;
+        sb.writeCharCode(c);
+      }
+      final u = sb.toString().replaceAll(RegExp(r'[.,;)\]!?&]+$'), '');
+      if (u.length > 12 && Uri.tryParse(u) != null) return u;
+    }
+    return null;
+  }
+
+  /// 生命值最小 msgpack 遍历：只关心在元素边界抽 url 所需的定长跳表。
+  int? _msgpackSkip(List<int> b, int i) {
+    if (i >= b.length) return null;
+    final c = b[i];
+    if (c >= 0xa0 && c <= 0xbf) return i + 1 + (c & 0x1f);
+    if (c == 0xd9 || c == 0xc4) {
+      if (i + 1 >= b.length) return null;
+      return i + 2 + b[i + 1];
+    }
+    if (c == 0xda || c == 0xc5) {
+      if (i + 2 >= b.length) return null;
+      return i + 3 + ((b[i + 1] << 8) | b[i + 2]);
+    }
+    if (c == 0xdb || c == 0xc6) {
+      if (i + 3 >= b.length) return null;
+      return i + 4 + ((b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]);
+    }
+    if (c >= 0x80 && c <= 0x8f) {
+      // fixmap：{key, value} × n → 递归跳 2n 个子元素。
+      final n = (c & 0x0f) * 2;
+      i++;
+      for (var k = 0; k < n; k++) {
+        if (i >= b.length) return null;
+        final r = _msgpackSkip(b, i);
+        if (r == null) return null;
+        i = r;
+      }
+      return i;
+    }
+    if (c >= 0x90 && c <= 0x9f) {
+      // fixarray：n 个子元素。
+      final n = c & 0x0f;
+      i++;
+      for (var k = 0; k < n; k++) {
+        if (i >= b.length) return null;
+        final r = _msgpackSkip(b, i);
+        if (r == null) return null;
+        i = r;
+      }
+      return i;
+    }
+    if (c >= 0xd4 && c <= 0xd8) {
+      // fixext{1,2,4,8,16}：类型字节 + 数据。
+      return i + 2 + (1 << (c - 0xd4));
+    }
+    // array16/32 与 map16/32：数量头之后逐个递归跳子元素。
+    if (c == 0xdc || c == 0xdd || c == 0xde || c == 0xdf) {
+      int count;
+      if (c == 0xdc || c == 0xde) {
+        if (i + 2 >= b.length) return null;
+        count = (b[i + 1] << 8) | b[i + 2];
+        i += 3;
+      } else {
+        if (i + 3 >= b.length) return null;
+        count =
+            (b[i + 1] << 24) | (b[i + 2] << 16) | (b[i + 3] << 8) | b[i + 4];
+        i += 5;
+      }
+      if (c == 0xde || c == 0xdf) count *= 2;
+      if (count > 4096) return null; // 帧外误判 / 防御性上限
+      for (var k = 0; k < count; k++) {
+        if (i >= b.length) return null;
+        final r = _msgpackSkip(b, i);
+        if (r == null) return null;
+        i = r;
+      }
+      return i;
+    }
+    if ((c >= 0x00 && c <= 0x1f) ||
+        c >= 0xe0 ||
+        c == 0xc0 ||
+        c == 0xc1 ||
+        c == 0xc2 ||
+        c == 0xc3) {
+      return i + 1;
+    }
+    switch (c) {
+      case 0xcc:
+        return i + 2;
+      case 0xcd:
+        return i + 3;
+      case 0xce:
+        return i + 5;
+      case 0xcf:
+        return i + 9;
+      case 0xd0:
+      case 0xd1:
+        return i + 2;
+      case 0xd2:
+        return i + 5;
+      case 0xd3:
+      case 0xca:
+      case 0xcb:
+        return i + 9;
+      default:
+        // dc/dd/de/df/c7/c8/c9 等：未知锚点，交给 ASCII 兜底。
+        return null;
+    }
+  }
+
+  String? _msgpackHttpsUrl(List<int> bytes) {
+    var i = 0;
+    var guard = 0;
+    while (i < bytes.length && guard++ < 256) {
+      final c = bytes[i];
+      int pos;
+      int len;
+      if (c >= 0xa0 && c <= 0xbf) {
+        pos = i + 1;
+        len = c & 0x1f;
+      } else if (c == 0xd9) {
+        if (i + 1 >= bytes.length) return null;
+        len = bytes[i + 1];
+        pos = i + 2;
+      } else if (c == 0xda) {
+        if (i + 2 >= bytes.length) return null;
+        len = (bytes[i + 1] << 8) | bytes[i + 2];
+        pos = i + 3;
+      } else {
+        final next = _msgpackSkip(bytes, i);
+        if (next == null || next <= i || next > bytes.length) return null;
+        i = next;
+        continue;
+      }
+      if (pos + len > bytes.length) return null;
+      if (len > 12) {
+        final v = String.fromCharCodes(bytes.sublist(pos, pos + len));
+        if (v.startsWith('https://') && Uri.tryParse(v) != null) return v;
+      }
+      i = pos + len;
+    }
+    return null;
+  }
+
   /// Custom user URL: treat host as one-off site.
   Future<List<VideoItem>> fetchCustomHost(
     String baseUrl, {
@@ -2757,6 +2988,17 @@ class GenericSiteApi {
           (b) =>
               '$b/api/ts/roomlist/room-list/?limit=90&offset=${(p - 1) * 90}$categoryQuery',
         ];
+      case 'ixxx':
+        // 聚合站：榜单页（首页卡）+ 分类页 /zh/c/{slug}，均支持 ?page=N 翻页。
+        // 2026-10 重新捕获：/zh/popular、/zh/new、/zh/rating、/zh/c/{slug}。
+        return [
+          if (tagId == 'hot') (b) => '$b/zh/popular?page=$p',
+          if (tagId == 'new') (b) => '$b/zh/new?page=$p',
+          if (tagId == 'best') (b) => '$b/zh/rating?page=$p',
+          if (tagId == 'asian') (b) => '$b/zh/c/asian?page=$p',
+          (b) => '$b/zh/c/$tagId?page=$p',
+          (b) => '$b/zh/popular?page=$p',
+        ];
       default:
         return [
           (b) => '$b/videos?page=$p&sort=$tagId',
@@ -2822,6 +3064,9 @@ class GenericSiteApi {
           (b) => '$b/search/?wd=$enc&page=$p',
           (b) => '$b/?wd=$enc&page=$p',
         ];
+      case 'ixxx':
+        // /zh/search/{enc}?page=N：即站点自带搜索（rel=next 同款格式）。
+        return [(b) => '$b/zh/search/$enc?page=$p'];
       default:
         return [
           (b) => '$b/search?q=$enc&page=$p',
@@ -3255,7 +3500,22 @@ class GenericSiteApi {
       }
       pendingHrefs = nextPending;
       if (href == null) continue;
-      final abs = _abs(base, href);
+      var abs = _abs(base, href);
+      // iXXX：卡片 href 是 /out/?l= 混淆跳转，直接把它解成合作播放站 URL，
+      // 后续详情/播放都按外站页处理（解不开就保留原始 out 链接兜底）。
+      if ((site.parserId ?? site.id) == 'ixxx') {
+        final decoded = _decodeIxxxOutUrl(abs);
+        if (decoded != null &&
+            (RegExp(
+              r'^https?://(?:join|mbr|member|members|signup|billing)\.',
+              caseSensitive: false,
+            ).hasMatch(decoded) ||
+                RegExp(r'/track/').hasMatch(decoded))) {
+          // 联盟推广落地页不是视频正文，直接丢弃这张卡。
+          continue;
+        }
+        abs = decoded ?? abs;
+      }
       // 只去 fragment，保留 query：/video?id=N 型站点的身份全靠 query，
       // 剥掉会把整页视频塌缩成一条。
       final key = abs.split('#').first;
@@ -3401,6 +3661,10 @@ class GenericSiteApi {
         return h.contains('/videos/') || RegExp(r'/movies/\d+').hasMatch(h);
       case 'xnxx':
         return RegExp(r'/video-[a-z0-9]+/').hasMatch(h);
+      case 'ixxx':
+        // 聚合站：所有视频卡都挂 /out/?l=<base64 混淆外链>，分类/榜单/搜索
+        // 页里再无其它视频形态 href；/zh/c/ 等分类跳转被上面的通用排除挡掉。
+        return h.contains('/out/') && h.contains('?l=');
       case 'stripchat':
       case 'chaturbate':
         // room username path

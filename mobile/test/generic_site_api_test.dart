@@ -725,6 +725,7 @@ void main() {
       'xhamster',
       'tnaflix',
       'jable',
+      'ixxx',
     ]) {
       expect(enabled, contains(id), reason: '$id should be ready/enabled');
     }
@@ -815,6 +816,73 @@ void main() {
           reason: site.id);
       expect(feed.single.duration, '12:34', reason: site.id);
     }
+  });
+
+  test('iXXX cards resolve /out/?l= to partner playback pages', () async {
+    final site = SourceCatalog.ixxx;
+    final base = site.primaryHost.replaceAll(RegExp(r'/$'), '');
+    // 列表页路径：hot 标签 → /zh/popular?page=1（2026-10 重新捕获的规则）。
+    // 混淆帧：垃圾前缀 + 公共 id + 合作站播放页 URL（utf8 里的 ASCII 段）。
+    final l = base64Encode(
+      utf8.encode(
+        'JUNKBIN EEAcMVrn4fm '
+        'https://fhgte.com/videos/tyAyMU?utm_campaign=pbw_free&v=3',
+      ),
+    );
+    final href = '/out/?l=$l&c=adc05086474ad796&v=3';
+    final adapter = _FixtureAdapter({
+      '$base/zh/popular?page=1': _FixtureResponse(
+        _html('''
+          <div class="card sub group relative block space-y-1" data-public-id="EEAcMVrn4fm">
+            <a class="item-link relative rounded" href="$href" title="Urban Beauties Alpha">
+              <img class="item-image" src="https://c3.ttcache.com/thumbnail/EEAcMVrn4fm/288x162/20.jpg" />
+            </a>
+            <span class="badge">22:06</span>
+          </div>
+        '''),
+      ),
+    });
+    final dio = Dio()..httpClientAdapter = adapter;
+    final feed = await GenericSiteApi(dio: dio).fetchFeed(
+      site,
+      tagId: 'hot',
+      limit: 1,
+    );
+    expect(feed, hasLength(1));
+    // /out 链接必须被解成合作站真实播放页
+    expect(
+      feed.single.url,
+      'https://fhgte.com/videos/tyAyMU?utm_campaign=pbw_free&v=3',
+    );
+    expect(feed.single.title, 'Urban Beauties Alpha');
+    expect(feed.single.thumb,
+        'https://c3.ttcache.com/thumbnail/EEAcMVrn4fm/288x162/20.jpg');
+    expect(feed.single.duration, '22:06');
+  });
+
+  test('iXXX searches via /zh/search/{q}?page=N', () async {
+    final site = SourceCatalog.ixxx;
+    final base = site.primaryHost.replaceAll(RegExp(r'/$'), '');
+    final adapter = _FixtureAdapter({
+      '$base/zh/search/asian?page=1': _FixtureResponse(
+        _html('''
+          <div class="card sub group relative block space-y-1" data-public-id="XeRAMH4Lned">
+            <a class="item-link" href="/out/?l=${base64Encode(utf8.encode('JUNK XeRAMH4Lned https://www.xozilla.xxx/videos/380190/alpha-video/'))}&c=xx&v=3"
+               title="Alpha Search Hit">
+              <img src="https://c3.ttcache.com/thumbnail/XeRAMH4Lned/288x162/3.jpg" />
+            </a>
+            <span class="badge">10:21</span>
+          </div>
+        '''),
+      ),
+    });
+    final dio = Dio()..httpClientAdapter = adapter;
+    final hits = await GenericSiteApi(dio: dio).search(site, 'asian');
+    expect(hits, isNotEmpty);
+    expect(
+      hits.first.url,
+      'https://www.xozilla.xxx/videos/380190/alpha-video/',
+    );
   });
 }
 

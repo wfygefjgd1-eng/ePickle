@@ -48,6 +48,14 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    // 进入页面即自动选中第一个标签并加载（此前必须手动点标签才出内容，
+    // 「直达标签页」开关开启后卡片直接落进本页，空白货架会被误认为故障）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _selected != null) return;
+      final tags = _tags;
+      if (tags.isEmpty) return;
+      unawaited(_select(tags.first));
+    });
   }
 
   @override

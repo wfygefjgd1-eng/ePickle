@@ -2516,8 +2516,12 @@ class GenericSiteApi {
 
   bool _isPreviewUrl(String url) {
     final low = url.toLowerCase();
-    if (low.contains('trailer')) return true;
-    if (low.contains('preview')) return true;
+    // faphouse（fhgte 卡 301 落点）的正片路径本身含 long_trailers —— 与
+    // _extractStreams 的 add() 同款豁免，否则预览过滤器把刚解禁的正片
+    // 再杀一次（两道过滤必须口径一致）。
+    final scan = low.replaceAll('long_trailers', 'long_segments');
+    if (scan.contains('trailer')) return true;
+    if (scan.contains('preview')) return true;
     if (low.contains('thumb')) return true;
     if (low.contains('sample') && !low.contains('m3u8')) return true;
     if (low.contains('mediabook')) return true;

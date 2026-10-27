@@ -980,6 +980,61 @@ void main() {
     expect(feed.single.thumb,
         'https://ei.phncdn.com/videos/202502/17/kai-new-alpha.jpg');
   });
+
+  test('faphouse long_trailers main video survives both filters', () async {
+    // fhgte 卡 301 落点 faphouse：主片质量映射在 &quot; 转义的 JSON 里，
+    // 路径含 long_trailers —— 曾在两处过滤（add() 防预告片 + 预览过滤）
+    // 被连续误杀，iXXX 货架最大一块可播卡从未能播。
+    const pageUrl = 'https://faphouse.com/videos/0XmK1O/slutty-tits';
+    String mk(int q) =>
+        'https://video-pr.xhcdn.com/key=x3MMpUjNj8STIO6Fv-+NrQ,end=1793152800'
+        '/data=38.47.115.236/speed=0k/0X/0XmK1O/long_trailers/$q.mp4';
+    final escaped = {
+      '"240"': '"${mk(240)}"',
+      '"480"': '"${mk(480)}"',
+      '"1080"': '"${mk(1080)}"',
+    }.entries
+        .map((e) => '{&quot;width&quot;:0,&quot;label&quot;:&quot;${e.key}'
+            '&quot;,&quot;file&quot;:${e.value}}')
+        .join(',');
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <script>window.__data = "[$escaped]";</script>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+
+    expect(
+      detail.streams.map((s) => s.url),
+      containsAll([mk(240), mk(480), mk(1080)]),
+    );
+  });
+
+  test('vidzx real source.mp4 passes preview filter while _preview drops',
+      () async {
+    const pageUrl = 'https://vidzx.org/video/161532/taylor-blake';
+    const main = 'https://a.trueamateurporn.org/sources/58ed479c/source.mp4';
+    const preview = 'https://a.trueamateurporn.org/sources/58ed479c/_preview.mp4';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <video src="$preview" muted autoplay></video>
+          <script type="application/ld+json">{"contentUrl":"$main"}</script>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+    final urls = detail.streams.map((s) => s.url).toList();
+
+    expect(urls, contains(main));
+    expect(urls, isNot(contains(preview)));
+  });
 }
 
 String _html(String body) => '<!doctype html><html><head>$body</head><body>'

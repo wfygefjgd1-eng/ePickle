@@ -585,7 +585,19 @@ class GenericSiteApi {
           if (rendered != null) html = rendered;
         }
         if (_isBlockedHtml(html)) {
-          throw PhubException('Cloudflare / Cookie 验证页拦截');
+          // Cloudflare 质询的 JS 大约 5 秒后自解：第一次渲染拿到的往往还是
+          // 质询壳，但 Cookie 已落进 WebView 会话——立刻再渲染一次通常就
+          // 是真页面（hot-sex-tube 用户侧"页面结构不匹配"的主场景）。
+          final retry = await _nativeRenderHtml(
+            url,
+            origin: _originOf(url),
+            headers: headers,
+            timeout: _requestBudget(deadline),
+          );
+          if (retry != null) html = retry;
+          if (_isBlockedHtml(html)) {
+            throw PhubException('Cloudflare / Cookie 验证页拦截');
+          }
         }
         if (accept != null && !accept(html, base)) {
           throw PhubException('${site.name} 页面结构不匹配');
@@ -4221,11 +4233,14 @@ class GenericSiteApi {
       if (!url.startsWith('http')) url = _abs(base, url);
       // Skip obvious non-media / short teasers
       final low = url.toLowerCase();
+      // 例外：faphouse（fhgte 卡 301 落点）的正片路径是
+      // .../long_trailers/{q}.mp4——字面含 "trailers" 但确实是主视频，
+      // 不能被防预告片过滤误杀（曾导致 iXXX 货架 40% 卡"无可播放"）。
       if (low.contains('.js') ||
           low.contains('.css') ||
           low.contains('favicon') ||
           RegExp(r'\.(?:jpg|jpeg|png|gif|webp|svg)(?:[?#]|$)').hasMatch(low) ||
-          low.contains('trailer') ||
+          (low.contains('trailer') && !low.contains('long_trailers')) ||
           low.contains('/preview') ||
           low.contains('mediabook') ||
           RegExp(r'[_-](9|10|15)s[_.-]').hasMatch(low)) {

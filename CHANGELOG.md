@@ -9,6 +9,32 @@
 
 ---
 
+## [2.8.45] - 播放链路兜底（无流条目网页播放 / faphouse 正片解禁 / CF 二次渲染）
+
+### 🐛 用户反馈三问题逐个修复
+1. **PORNKAI/QORNO/FUQ/iXXX "无可用播放地址"洪水** → 根因有三：
+   a) 目录标签流走的是 `search_feed_screen`，该屏在静态流提取为空或解码器
+      两连败时**一律跳过**（无 `video_feed_screen` 的网页播放兜底）——本版
+      补齐：`candidates.isEmpty` 与 `player == null` 两个失败点都改为调用
+      `_playInAppBrowser` 用应用内 WebView 直接渲染原播放页（含
+      `browserPlaybackUrl` 分离卡与 PornKai 的 JS 播放页 `view?key=` 嵌
+      pornl.com 二跳），翻页/退出即退出网页态；
+   b) **faphouse 正片被防预告片过滤器误杀**：fhgte 卡 301 落到 faphouse，
+      正片质量映射路径字面含 `long_trailers/…mp4`，`add()` 的
+      `low.contains('trailer')` 把 240/480/1080 三档全拒绝了 → iXXX 货架
+      最大的一块真实可播卡从未能播。现豁免 `long_trailers` 字样；
+   c) eporner/xgroovy/vidzx/w1mp 合作站页均经探测确认 `contentUrl`/
+      `<source>` 可静态提取（xgroovy 四档 source 标签、vidzx source.mp4、
+      w1mp get_file、eporner gvideo 直链 —— 均为真实视频）。
+2. **HST "页面结构不匹配"但浏览器能播** → Cloudflare 质询在设备上的
+   WebView 里约 5 秒后自解：此前一次 native render 拿到的还是质询壳就被判
+   失败。本版在 render 后仍命中拦截时**立即再渲染一次**（质询 Cookie 已落
+   进 WebView 会话，第二次即真页面），而不是直接抛结构不匹配。
+3. 另：首跳 iXXX 列表遗留的 join.nookies 等预订推广域在 2.8.44 黑域名单之
+   外的部分（vidzx 等）经实测为真实可播站，未加限制。
+
+---
+
 ## [2.8.44] - 聚合站修复（FuQ/Qorno 标签隧道 / iXXX 不可播卡流 / HST 解析）
 
 ### 🐛 用户反馈四问题逐个修复

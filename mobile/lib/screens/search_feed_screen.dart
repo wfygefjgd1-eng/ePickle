@@ -27,6 +27,7 @@ import '../services/source_catalog.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 import '../widgets/player_settings_sheet.dart';
+import '../widgets/stripchat_live_view.dart';
 
 /// Which backend to use for detail / headers.
 enum SearchSource { ph, x, zhong, huangguo, langmei, generic }
@@ -75,6 +76,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   bool _loadingMore = false;
   bool _muted = false;
   bool _seeking = false;
+
+  /// 流提取失败的兜底播放页：非空时当前页改为应用内 WebView 渲染该 URL
+  /// （与 video_feed_screen 的网页播放同款）。翻页/退出即清空。
+  String? _browserPageUrl;
 
   /// Last playhead the progress UI could trust. Cleared whenever a fresh
   /// decoder is attached (a brand-new controller honestly starts at 0:00), so
@@ -440,6 +445,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _retryTimer = null;
     _skipTimer?.cancel();
     _skipTimer = null;
+    _browserPageUrl = null;
     _autoRotate?.syncLandscapeMode(false);
     _autoRotate?.listening = false;
     _autoRotate?.stop();
@@ -874,10 +880,54 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
   }
 
+  /// 应用内 WebView 网页播放：释放全部解码器，把当前页切换为原生 WebView
+  /// 渲染 [pageUrl]（竖滑手势不受影响）。流/详情链路失败时仍在原地给出
+  /// 可看的画面，而不是黑屏跳过。
+  Future<void> _playInAppBrowser(
+    String pageUrl, {
+    required String title,
+  }) async {
+    final mySeq = ++_seq;
+    _progressTimer?.cancel();
+    final players = <VideoPlayerController>[
+      if (_controller != null) _controller!,
+      if (_frozenController != null) _frozenController!,
+      ..._initializingControllers,
+    ];
+    _controller = null;
+    _frozenController = null;
+    _frozenIndex = null;
+    _initializingControllers.clear();
+    _disposePreloadSync();
+    for (final p in players.toSet()) {
+      unawaited(_mutePauseDispose(p));
+    }
+    if (!mounted || mySeq != _seq || !_canRun) {
+      WakelockPlus.disable();
+      return;
+    }
+    setState(() {
+      _pageLoading = false;
+      _browserPageUrl = pageUrl;
+      _titleText = title;
+      _manualPaused = false;
+    });
+    _resetPlayheadTracking();
+    _slider.value = 0;
+    _curTime.value = '0:00';
+    _totalTime.value = '-';
+    _speedLabel.value = '网页';
+    WakelockPlus.enable();
+  }
+
   Future<void> _playIndexInner(int index, {Duration? resumeFrom}) async {
     if (!_canRun || index < 0 || index >= _items.length) return;
     final seq = ++_seq;
     final item = _items[index];
+    if (_browserPageUrl != null) {
+      // 新一轮真实播放开始：退出网页播放态（复播/重试/自动连播入口）。
+      setState(() => _browserPageUrl = null);
+    }
     // 归一化续播点：Duration.zero 等价于"从头播"，按无续播处理。
     final resume =
         (resumeFrom != null && resumeFrom > Duration.zero) ? resumeFrom : null;
@@ -1112,16 +1162,29 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       return;
     }
 
-    _restartPreloading();
-
     final cap = _effectiveQualityCap;
     final candidates = PlaybackHelpers.streamCandidates(detail, cap);
     if (candidates.isEmpty) {
+      // 网页播放兜底（与 video_feed_screen 同款）：合作站（Qorno/FuQ/iXXX/
+      // PornKai…）的落地页静态提取不到流时，直接用应用内 WebView 打开
+      // 原播放页——浏览器能播的这里也能播，不再一律跳过。
+      final page = detail.browserPlaybackUrl?.trim().isNotEmpty == true
+          ? detail.browserPlaybackUrl!.trim()
+          : item.url;
+      if (page.startsWith('http')) {
+        await _playInAppBrowser(
+          page,
+          title: detail.title.isNotEmpty ? detail.title : item.title,
+        );
+        return;
+      }
       setState(() => _pageLoading = false);
       PlaybackHelpers.toast(context, '无可用播放地址，已跳过');
       _scheduleSkipToNext(index);
       return;
     }
+
+    _restartPreloading();
 
     VideoPlayerController? player;
     StreamQuality? stream;
@@ -1183,6 +1246,18 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
     if (player == null || stream == null) {
       if (mounted && seq == _seq) {
+        // 解码器两连败：与"流为空"一致走网页播放兜底（原页面在 WebView
+        // 里往往能播），而不是直接跳过。
+        final page = detail.browserPlaybackUrl?.trim().isNotEmpty == true
+            ? detail.browserPlaybackUrl!.trim()
+            : (detail.url.startsWith('http') ? detail.url : item.url);
+        if (page.startsWith('http')) {
+          await _playInAppBrowser(
+            page,
+            title: detail.title.isNotEmpty ? detail.title : item.title,
+          );
+          return;
+        }
         setState(() => _pageLoading = false);
         // Proxy is auto-followed from the system route; there is no in-app
         // proxy settings UI — direct the user to TUN / system proxy instead.
@@ -1721,6 +1796,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _sessionQualityCap = null;
     _stallLoweredForItem = false;
     _stallTicks = 0;
+    if (_browserPageUrl != null) {
+      // 翻页离开网页播放：立即退出浏览器态（新页要么直接解码播放，
+      // 要么走各自的兜底）。
+      setState(() => _browserPageUrl = null);
+      WakelockPlus.disable();
+    }
     _prunePageState(page);
     _playIndex(page);
     // ignore: unawaited_futures
@@ -2084,6 +2165,20 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                 if (immersive)
                   Builder(
                     builder: (_) {
+                      if (_browserPageUrl != null) {
+                        // 网页播放：原生 WebView 渲染合作站页面。竖滑手势
+                        // 交给 PageView（外层），WebView 吃 IgnorePointer。
+                        return ColoredBox(
+                          color: Colors.black,
+                          child: IgnorePointer(
+                            child: StripchatLiveView(
+                              roomUrl: _browserPageUrl!,
+                              muted: _muted,
+                              stripchatMode: false,
+                            ),
+                          ),
+                        );
+                      }
                       final c = _controller;
                       if (c != null && c.value.isInitialized) {
                         final ar = c.value.aspectRatio;
@@ -2136,6 +2231,19 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     itemCount: _items.length,
                     onPageChanged: _onPageChanged,
                     itemBuilder: (_, i) {
+                      if (i == _index && _browserPageUrl != null) {
+                        // 网页播放：原生 WebView 渲染合作站页面。
+                        return ColoredBox(
+                          color: Colors.black,
+                          child: IgnorePointer(
+                            child: StripchatLiveView(
+                              roomUrl: _browserPageUrl!,
+                              muted: _muted,
+                              stripchatMode: false,
+                            ),
+                          ),
+                        );
+                      }
                       if (i == _index &&
                           _controller != null &&
                           _controller!.value.isInitialized) {

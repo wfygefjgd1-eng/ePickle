@@ -1,4 +1,4 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:epickle/services/layout_settings.dart';
 import 'package:epickle/services/source_catalog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,6 +20,27 @@ void main() {
     final site = settings.enabledVideoSites.singleWhere((item) => item.custom);
     expect(site.primaryHost, 'https://fixture.test:8443/catalog/root');
     expect(site.id, contains(Uri.encodeComponent(site.primaryHost)));
+  });
+
+  test('catalog version bump refreshes stale device lists for new cards',
+      () async {
+    // 老安装（如 v2.8.39，catalogVer=14）的存储列表缺 iXXX；新代码
+    // catalogVer=15 时 load 必须刷新为默认目录，否则新卡片不可见。
+    SharedPreferences.setMockInitialValues({
+      'layout_enabled_video_ids_v1': ['pornhub', 'xvideos', 'xnxx'],
+      'layout_catalog_ver_v1': 14,
+    });
+    final settings = LayoutSettings();
+    await settings.load();
+
+    expect(
+      settings.enabledVideoSites.map((s) => s.id),
+      contains('ixxx'),
+    );
+    // 刷新后的列表必须被持久化成 catalogVer=15 的新列表。
+    final p = await SharedPreferences.getInstance();
+    expect(p.getInt('layout_catalog_ver_v1'), 15);
+    expect(p.getStringList('layout_enabled_video_ids_v1'), contains('ixxx'));
   });
 
   test('custom URL rejects cleartext HTTP', () async {

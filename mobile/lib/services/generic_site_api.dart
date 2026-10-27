@@ -2544,7 +2544,7 @@ class GenericSiteApi {
     return out;
   }
 
-  /// hot-sex-tube 卡片的 /o.php?...&u=<base64url 合作站链接> 解链：字母表为
+  /// hot-sex-tube 卡片的 /o.php?...&u=`<base64url 合作站链接>` 解链：字母表为
   /// url-safe（- → +，_ → /），`~` 充当 '=' 填充（1 个/2 个分别对应遗留
   /// 1/2 字节）。服务器跳转不可靠且 xh.partners 落地会丢 utm 解析，卡片
   /// 直接离线解成真实播放页（hog.tv / icpvid / w4nkr / porndr / fhgte …）。

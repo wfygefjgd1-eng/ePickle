@@ -1474,7 +1474,7 @@ class SourceCatalog {
     directoryTags: tubesafariDirectoryTags,
   );
 
-  /// Hot-Sex-Tube 聚合站：卡 /o.php?...&u=<base64url 合作站链接>（离线解链），
+  /// Hot-Sex-Tube 聚合站：卡 /o.php?...&u=`<base64url 合作站链接>`（离线解链），
   /// 标签隧道 = 分类页 /categories/{tag}/N.html；见 GenericSiteApi 'hotsextube'。
   static const hotsextube = SiteDef(
     id: 'hotsextube',

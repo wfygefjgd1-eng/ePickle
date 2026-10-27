@@ -9,6 +9,31 @@
 
 ---
 
+## [2.8.43] - 老卡片目录标签重制（2026-10 实探捕获）
+
+### 🏷 目录标签逐站重制
+
+| 卡片 | 来源证据 | 变化 |
+|---|---|---|
+| **Pornhub** | `/categories` 抓 96 分类 → 每个分类页 `title` 逐个 200 校准（96/96 对号） | 新增 `_listPaths` case `'pornhub'`：`/video?c={id}&o=mr&page=N`（热门 o=ht / 最新 o=cm / 精选 o=tr 实测 92 卡/页），slug→c 映射 55 项 |
+| **xVideos** | `/tags` 页 1987 slug 全量落盘；候选逐个核检 | 新增 `_listPaths` case `'xvideos'`：`/tags/{slug}/` + `/best/{p}` + `/?k={slug}&p={n}` 搜索兜底；64 个目录标签 |
+| **xNxx** | `/tags/{slug}` 逐个探针 200（62 候选 61 可用，剔除 500 的 beautiful） | 57 个目录标签 |
+| **xHamster** | `/categories` 全量 583 slug 落盘；候选逐个核检 | 70 个目录标签（含 deep-throat / doggy-style / 18-year-old 等连字符实测 id） |
+| **Chaturbate** | roomlist API 180 房间标签收割 119 个可见话题 | 55 个目录标签（沿用客户端标签过滤语义） |
+
+### ⚠️ 本轮无法重捕（保旧列表）
+- **stripchat**：models API 载荷不含标签字段、`tag=` 参数实测被忽略
+  （tag=asian/feet 返回同一批未过滤房间）；网页 `/girls/{tag}` 由 CF 挡住，
+  维持既有 55 项列表不动。
+- **jable**：站点页面整体 CF 质询页，维持既有列表不动。
+- **tnaflix**：分类页 JS 渲染无静态 slug 表；其标签本就按关键词搜索命中
+  （`search.php?what={tag}`），维持既有词条可用。
+
+### ⚙️ 配套迁移
+- 目录版本 bump 到 **17**：老安装升级后刷新设备侧目录启用列表。
+
+---
+
 ## [2.8.42] - 新增站点卡片：FuQ / Qorno / PornKai / TubeSafari / Hot-Sex-Tube（5 张聚合站）
 
 ### 📡 新增卡片（2026-10 捕获）

@@ -18,7 +18,9 @@ class LayoutSettings extends ChangeNotifier {
   // 刷新为新目录默认启用列表，否则 iXXX 会被旧设备列表挡住不显示。
   // v16（2026-10-28）：新增 FuQ / Qorno / PornKai / TubeSafari / Hot-Sex-Tube
   // 五张聚合站卡片（同款迁移刷新）。
-  static const _catalogVer = 16;
+  // v17（2026-10-28）：老卡片（Pornhub / xVideos / xNxx / xHamster /
+  // Chaturbate）目录标签按 2026-10 实探全量重制，迁移时刷新设备侧列表。
+  static const _catalogVer = 17;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);

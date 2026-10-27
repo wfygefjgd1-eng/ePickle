@@ -2790,6 +2790,40 @@ class GenericSiteApi {
     final p = page < 1 ? 1 : page;
     // Site-specific first paths
     switch (id) {
+      case 'xvideos':
+        // 实证：/tags/{slug}/ 直达标签页成功，/best/{p} 精选页。
+        return [
+          if (tagId == 'hot' || tagId == 'new') (b) => '$b/?page=$p',
+          if (tagId == 'best') (b) => '$b/best/$p',
+          (b) => '$b/tags/$tagId/',
+          (b) => '$b/?k=$tagId&p=$p',
+        ];
+      case 'pornhub':
+        // 实证：/video?c={id} 分类页 200（c 映射逐个校准）。
+        const cId = <String, int>{
+          'asian': 1, 'amateur': 3, 'verified-amateurs': 138, 'milf': 29,
+          'mature': 28, 'anal': 35, 'blowjob': 13, 'creampie': 15,
+          'cumshot': 16, 'ebony': 17, 'latina': 26, 'lesbian': 27,
+          'uncensored-hentai': 722, 'cartoon': 86, 'pov': 41,
+          'threesome': 65, 'orgy': 2, 'gangbang': 80, 'squirt': 69,
+          'feet': 93, 'fetish': 18, 'bondage': 10, 'big-ass': 4,
+          'big-tits': 8, 'small-tits': 59, 'blonde': 9, 'brunette': 11,
+          'red-head': 42, 'russian': 99, 'indian': 101, 'japanese': 111,
+          'korean': 103, 'interracial': 25, 'massage': 78, 'casting': 90,
+          'masturbation': 22, 'toys': 23, 'webcam': 61, 'vintage': 43,
+          'public': 24, 'pissing': 211, 'cuckold': 242, 'party': 53,
+          'role-play': 81, 'romantic': 522, 'striptease': 33, 'cosplay': 241,
+          'solo-female': 492, 'fisting': 19, 'fingering': 592, 'euro': 55,
+          'bukkake': 14, 'rough-sex': 67, 'compilation': 57, 'hardcore': 21,
+        };
+        final cid = cId[tagId];
+        if (cid != null) {
+          return [(b) => '$b/video?c=$cid&o=mr&page=$p'];
+        }
+        if (tagId == 'hot') return [(b) => '$b/video?o=ht&page=$p'];
+        if (tagId == 'new') return [(b) => '$b/video?o=cm&page=$p'];
+        if (tagId == 'best') return [(b) => '$b/video?o=tr&page=$p'];
+        return [(b) => '$b/video?o=mr&page=$p'];
       case 'xnxx':
         return [
           if (tagId == 'new') (b) => '$b/search/new/$p',

@@ -726,6 +726,11 @@ void main() {
       'tnaflix',
       'jable',
       'ixxx',
+      'fuq',
+      'qorno',
+      'pornkai',
+      'tubesafari',
+      'hotsextube',
     ]) {
       expect(enabled, contains(id), reason: '$id should be ready/enabled');
     }
@@ -883,6 +888,97 @@ void main() {
       hits.first.url,
       'https://www.xozilla.xxx/videos/380190/alpha-video/',
     );
+  });
+
+  test('hot-sex-tube cards decode /o.php?u= base64url partner links', () async {
+    final site = SourceCatalog.hotsextube;
+    final base = site.primaryHost.replaceAll(RegExp(r'/$'), '');
+    // u=<base64url(token)>：url-safe 字母表（- → +，_ → /），~ 代 '=' 填充。
+    final token = base64Url
+        .encode(utf8.encode('https://icpvid.com/v/DO8i'))
+        .replaceAll('=', '~')
+        .replaceAll('+', '-')
+        .replaceAll('/', '_');
+    final adapter = _FixtureAdapter({
+      '$base/categories/asian/1.html': _FixtureResponse(
+        _html('''
+          <a href="/o.php?cat=asian&amp;id=39e443e5&amp;u=$token" target="_blank">
+            <img src="https://tn.hot-sex-tube.com/39/e4/39e443e5.jpg" class="t" alt="Kai Asian Alpha">
+            <span>Kai Asian Alpha</span>
+          </a>
+        '''),
+      ),
+    });
+    final dio = Dio()..httpClientAdapter = adapter;
+    final feed = await GenericSiteApi(dio: dio).fetchFeed(
+      site,
+      tagId: 'asian',
+      limit: 1,
+    );
+    expect(feed, hasLength(1));
+    // /o.php 外链必须被离线解成合作站真实播放页
+    expect(feed.single.url, 'https://icpvid.com/v/DO8i');
+  });
+
+  test('tubeSafari keeps /video?id= cards and searches via /search/{q}',
+      () async {
+    final site = SourceCatalog.tubesafari;
+    final base = site.primaryHost.replaceAll(RegExp(r'/$'), '');
+    final adapter = _FixtureAdapter({
+      '$base/search/new': _FixtureResponse(
+        _html('''
+          <a target="_blank" rel="nofollow" class="xktc opop trigger_pop"
+             href="/video?id=xv89494822" title="Safari New Alpha">
+            <img class="trigger_pop vid_thumbnail roll vtx"
+                 src="https://thumb-cdn77.others-cdn.com/1e70d6ac/xv_29_t.jpg" />
+            <div class="video_title">Safari New Alpha</div>
+            <span class="duration">12:02</span>
+          </a>
+        '''),
+      ),
+    });
+    final dio = Dio()..httpClientAdapter = adapter;
+    final feed = await GenericSiteApi(dio: dio).fetchFeed(
+      site,
+      tagId: 'new',
+      limit: 1,
+    );
+    expect(feed, hasLength(1));
+    // tubeSafari 条目保留站内中转页（详情页内嵌 xvideos 播放器）。
+    expect(feed.single.url, '$base/video?id=xv89494822');
+    expect(feed.single.title, 'Safari New Alpha');
+  });
+
+  test('pornKai keeps /view?key= cards and searches via /videos?q={q}',
+      () async {
+    final site = SourceCatalog.pornkai;
+    final base = site.primaryHost;
+    final adapter = _FixtureAdapter({
+      '$base/videos?q=new': _FixtureResponse(
+        _html('''
+          <a target="_blank" rel="nofollow" class="thumbnail_link th_derp trigger_pop"
+             href="/view?key=67b2e05707d2b">
+            <span class="trigger_pop th_wrap">Kai New Alpha</span>
+            <div class="trigger_pop thumbnail_image_holder">
+              <img class="trigger_pop slideshow roll"
+                   src="https://ei.phncdn.com/videos/202502/17/kai-new-alpha.jpg" />
+            </div>
+            <div class="thumbnail_video_length"><i class="far fa-clock"></i> 8:09</div>
+          </a>
+        '''),
+      ),
+    });
+    final dio = Dio()..httpClientAdapter = adapter;
+    final feed = await GenericSiteApi(dio: dio).fetchFeed(
+      site,
+      tagId: 'new',
+      limit: 1,
+    );
+    expect(feed, hasLength(1));
+    // pornKai 条目保留站内详情页（详情页内嵌 videopornl.com/embed）。
+    expect(feed.single.url, '$base/view?key=67b2e05707d2b');
+    expect(feed.single.thumb,
+        'https://ei.phncdn.com/videos/202502/17/kai-new-alpha.jpg');
   });
 }
 

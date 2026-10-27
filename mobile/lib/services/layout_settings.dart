@@ -16,7 +16,9 @@ class LayoutSettings extends ChangeNotifier {
   // v14（2026-09-29）：新增浪妹视频 / 要发发视频两张卡片。
   // v15（2026-10-28）：新增 iXXX 卡片。老安装（catalogVer<15）首次启动会
   // 刷新为新目录默认启用列表，否则 iXXX 会被旧设备列表挡住不显示。
-  static const _catalogVer = 15;
+  // v16（2026-10-28）：新增 FuQ / Qorno / PornKai / TubeSafari / Hot-Sex-Tube
+  // 五张聚合站卡片（同款迁移刷新）。
+  static const _catalogVer = 16;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);

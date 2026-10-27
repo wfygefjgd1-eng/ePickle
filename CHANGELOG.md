@@ -9,6 +9,29 @@
 
 ---
 
+## [2.8.42] - 新增站点卡片：FuQ / Qorno / PornKai / TubeSafari / Hot-Sex-Tube（5 张聚合站）
+
+### 📡 新增卡片（2026-10 捕获）
+按用户要求加入 5 个聚合站，各站规则逐站捕获：
+
+| 卡片 | 列表路径 | 卡片形态 | 详情链路 |
+|---|---|---|---|
+| **FuQ**（fuq.com） | /zh/popular、/zh/new、/zh/rating、/zh/c/{slug}?page=N | 同 iXXX：`/out/?l=` 混淆外链 | 复用 iXXX msgpack 离线解链 → 合作站 |
+| **Qorno**（qorno.com） | 同 FuQ | 同上 | 同上 |
+| **PornKai**（pornkai.com） | 首页卡流 + `/videos?q={tag}`（搜索词云 50 目录标签，无分页） | 站内详情卡 `/view?key=` | 详情页内嵌 `videopornl.com/embed`（2 级 embed 跟进） |
+| **TubeSafari**（tubesafari.com） | 首页 + `/search/{tag}`（搜索词云 63 目录标签） | 站内中转卡 `/video?id={xv\|xh\|pl}<id>` | 详情页内嵌 `xvideos.com/embedframe` 等（WebView 兜底） |
+| **Hot-Sex-Tube**（hot-sex-tube.com） | 首页 + `/categories/{slug}/N.html`（分类目录 60 标签，支持翻页，实测 440 卡/页） | `/o.php?...&u=<base64url 合作站链接>` | **新增 `_decodeHotsextubeOutUrl` 离线解链**（url-safe 字母表 + `~` 填充，捕获页 400/400 全解）→ hog.tv / icpvid / w4nkr / porndr / fhgte 等合作站 |
+
+### ⚙️ 配套迁移与修复
+- 目录版本 bump 到 **16**：老安装升级后五张新卡立即出现在首屏
+  （复用 2.8.41 的修复机制——否则又会被旧启用列表挡住）。
+- KVS 专用抽取 / eporner 专用抽取 / 镜像豁免全部扩展到新聚合站家族
+  （`ixxx/fuq/qorno/hotsextube`）。
+- 新增离线测试：hot-sex-tube base64url 解链、tubeSafari `/video?id=`
+  卡流、pornKai `/view?key=` 卡流；目录启用列表断言纳入 5 个新 id。
+
+---
+
 ## [2.8.41] - 修复：升级后看不到 iXXX 卡片（目录版本迁移）
 
 - **修复 2.8.40 升级后 iXXX 卡片不显示的问题**：老安装的「启用站点列表」

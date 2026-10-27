@@ -1423,9 +1423,15 @@ class GenericSiteApi {
       // 通用 HTML 解析链路不适用，直接转交专用解析器（无状态，可临时构造）。
       return LangmeiApi().getVideoDetail(site, url);
     }
-    if ((site.parserId ?? site.id) == 'ixxx') {
-      // 旧缓存/手动粘贴可能带原始 /out/?l= 链接：先离线解成合作站播放页。
-      final decoded = _decodeIxxxOutUrl(url);
+    final ptype = site.parserId ?? site.id;
+    if (ptype == 'ixxx' ||
+        ptype == 'fuq' ||
+        ptype == 'qorno' ||
+        ptype == 'hotsextube') {
+      // 旧缓存/手动粘贴可能带聚合站原始混淆外链：先离线解成合作站播放页
+      //（iXXX 族 = /out/?l= msgpack 帧；hot-sex-tube = /o.php?...&u= base64url）。
+      final decoded =
+          ptype == 'hotsextube' ? _decodeHotsextubeOutUrl(url) : _decodeIxxxOutUrl(url);
       if (decoded != null) return getVideoDetail(site, decoded);
     }
     if (site.kind == SiteKind.live) {
@@ -1441,11 +1447,20 @@ class GenericSiteApi {
     if (originalBase != null) {
       candidates.add((url: url, base: originalBase, mirrorIndex: null));
     }
-    // iXXX 的条目 URL 是合作播放站（xozilla/fhgte/eporner…）：把别人的
-    // 路径强行拼到 iXXX 镜像上只会换来 404/首页，徒耗预算还可能把外站
+    final hubFragment = switch (ptype) {
+      'fuq' => 'fuq.com',
+      'qorno' => 'qorno.com',
+      'hotsextube' => 'hot-sex-tube.',
+      _ => 'ixxx.',
+    };
+    // 聚合站的条目 URL 是合作播放站（xozilla/fhgte/eporner…）：把别人的
+    // 路径强行拼到聚合站镜像上只会换来 404/首页，徒耗预算还可能把外站
     // 学习镜像误判成不可用。合作站 URL 只用其原生 base 请求。
-    final mirrors = (site.parserId ?? site.id) == 'ixxx' &&
-           !(parsed?.host.contains('ixxx.') ?? false)
+    final mirrors = (ptype == 'ixxx' ||
+                ptype == 'fuq' ||
+                ptype == 'qorno' ||
+                ptype == 'hotsextube') &&
+           !(parsed?.host.contains(hubFragment) ?? false)
         ? const <String>[]
         : _mirrorsFor(site);
     // Fastest-known mirror first (persistent ranking), remaining mirrors
@@ -1642,6 +1657,7 @@ class GenericSiteApi {
     String html,
     String base,
   ) async {
+    final ptype = site.parserId ?? site.id;
     // Live rooms: try HLS from room page / API snippets
     if (site.kind == SiteKind.live) {
       if (site.isStripchat) {
@@ -1660,9 +1676,12 @@ class GenericSiteApi {
       throw PhubException('无法获取直播流：${site.name}（主播可能离线）');
     }
 
-    // iXXX 选择合作的 eporner 落地页：复用 eporner 的专用抽取（该站流由
+    // 聚合站选择合作的 eporner 落地页：复用 eporner 的专用抽取（该站流由
     // 独立 AJAX 端点给出，通用宽匹配会漏）。
-    if ((site.parserId ?? site.id) == 'ixxx' &&
+    if ((ptype == 'ixxx' ||
+            ptype == 'fuq' ||
+            ptype == 'qorno' ||
+            ptype == 'hotsextube') &&
         RegExp(r'https?://(?:www\.)?eporner\.com/(?:video-|hd-porn/)')
             .hasMatch(url)) {
       final ep = await _extractEpornerStreams(url, html, base);
@@ -1754,10 +1773,13 @@ class GenericSiteApi {
     if (streams.isEmpty) {
       streams = _extractStreams(html, url);
     }
-    // iXXX 合作站很多是 KVS 模板（xozilla 等：kt_player/flashvars），
+    // 聚合站合作站很多是 KVS 模板（xozilla 等：kt_player/flashvars），
     // 通用宽匹配抢不到轮次这些站的签名数据，提前用 KVS 抽取。
     if (streams.isEmpty &&
-        (site.parserId ?? site.id) == 'ixxx' &&
+        (ptype == 'ixxx' ||
+            ptype == 'fuq' ||
+            ptype == 'qorno' ||
+            ptype == 'hotsextube') &&
         RegExp(r'kt_player|flashvars', caseSensitive: false).hasMatch(html)) {
       streams = _extractKvsStreams(html, url);
     }
@@ -2522,6 +2544,35 @@ class GenericSiteApi {
     return out;
   }
 
+  /// hot-sex-tube 卡片的 /o.php?...&u=<base64url 合作站链接> 解链：字母表为
+  /// url-safe（- → +，_ → /），`~` 充当 '=' 填充（1 个/2 个分别对应遗留
+  /// 1/2 字节）。服务器跳转不可靠且 xh.partners 落地会丢 utm 解析，卡片
+  /// 直接离线解成真实播放页（hog.tv / icpvid / w4nkr / porndr / fhgte …）。
+  String? _decodeHotsextubeOutUrl(String url) {
+    final raw = url.replaceAll('&amp;', '&');
+    final m = RegExp(r'[?&]u=([^&\s<>"]+)').firstMatch(raw);
+    if (m == null) return null;
+    var token = m.group(1)!.trim();
+    if (token.length < 12) return null;
+    token = token.replaceAll('~', '=').replaceAll('-', '+').replaceAll('_', '/');
+    // '=' 只能出现在填充位；长度含填充尾时直接信任，否则按 4 对齐补齐。
+    final stripped = token.replaceAll('=', '');
+    final padded = token +
+        (token.length % 4 == 0
+            ? ''
+            : '=' * ((4 - stripped.length % 4) % 4));
+    try {
+      final bytes = base64.decode(padded);
+      final text = utf8.decode(bytes, allowMalformed: true).trim();
+      if (!RegExp(r'^https?://[A-Za-z0-9.:-]+').hasMatch(text)) return null;
+      final cut = RegExp(r'[\s<>"{}|\\^`]+').firstMatch(text);
+      final u = cut == null ? text : text.substring(0, cut.start);
+      return u.length > 12 ? u : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
   /// 在 msgpack 帧里结构化找第一个含 https 的字符串元素；找不到就退回
   /// ASCII 扫描（帧可能带自定义头，遍历失败时兜底）。
   String? _firstHttpsUrl(List<int> bytes) {
@@ -2999,6 +3050,49 @@ class GenericSiteApi {
           (b) => '$b/zh/c/$tagId?page=$p',
           (b) => '$b/zh/popular?page=$p',
         ];
+      case 'fuq':
+      case 'qorno':
+        // iXXX 同家族（FuQ 网络共用模板）：同款 /zh/… 路径；CF 强拦截时
+        // 上层走原生渲染，路径失败再退首页卡。
+        return [
+          if (tagId == 'hot') (b) => '$b/zh/popular?page=$p',
+          if (tagId == 'new') (b) => '$b/zh/new?page=$p',
+          if (tagId == 'best') (b) => '$b/zh/rating?page=$p',
+          if (tagId == 'asian') (b) => '$b/zh/c/asian?page=$p',
+          (b) => '$b/zh/c/$tagId?page=$p',
+          (b) => '$b/zh/popular?page=$p',
+          (b) => '$b/?page=$p',
+        ];
+      case 'pornkai':
+        // 搜索聚合站：/videos?q={词} 即完整结果流（无 ?page 分页），首页
+        // 自带一大列 /view?key= 卡（先入页面，翻页则换词重搜）。
+        return [
+          if (tagId == 'hot') (b) => '$b/',
+          if (tagId == 'new') (b) => '$b/videos?q=new',
+          if (tagId == 'asian') (b) => '$b/videos?q=asian',
+          if (tagId == 'best') (b) => '$b/videos?q=best',
+          (b) => '$b/videos?q=$tagId',
+          (b) => '$b/',
+        ];
+      case 'tubesafari':
+        // 搜索聚合站：/search/{tag} 结果页是 /video?id= 卡流（无 ?page 分
+        // 页，首页词云就是推荐标签）。
+        return [
+          if (tagId == 'hot') (b) => '$b/',
+          if (tagId == 'new') (b) => '$b/search/new',
+          if (tagId == 'asian') (b) => '$b/search/asian',
+          if (tagId == 'best') (b) => '$b/search/best',
+          (b) => '$b/search/$tagId',
+          (b) => '$b/',
+        ];
+      case 'hotsextube':
+        // 分类卡流：/categories/{slug}/N.html 逐页翻页；首页在最前有
+        // 一列 /o.php 卡（未知 slug 会被站点回跳到首页，天然兜底）。
+        return [
+          if (tagId == 'hot') (b) => '$b/',
+          (b) => '$b/categories/$tagId/$p.html',
+          (b) => '$b/',
+        ];
       default:
         return [
           (b) => '$b/videos?page=$p&sort=$tagId',
@@ -3067,6 +3161,26 @@ class GenericSiteApi {
       case 'ixxx':
         // /zh/search/{enc}?page=N：即站点自带搜索（rel=next 同款格式）。
         return [(b) => '$b/zh/search/$enc?page=$p'];
+      case 'fuq':
+      case 'qorno':
+        // iXX 家族同款搜索路径。
+        return [
+          (b) => '$b/zh/search/$enc?page=$p',
+          (b) => '$b/zh/$enc',
+        ];
+      case 'pornkai':
+        // 搜索聚合站：/videos?q={enc}（无分页）。
+        return [(b) => '$b/videos?q=$enc'];
+      case 'tubesafari':
+        return [(b) => '$b/search/$enc'];
+      case 'hotsextube':
+        // 分类页直接吃关键词（未知关键词回跳首页卡流，仍可用）；另外
+        // 站点搜索走 /search/{enc}/N.html（部分网络下 404 由分类页兜住）。
+        return [
+          (b) => '$b/search/$enc/1.html',
+          (b) => '$b/categories/$enc/1.html',
+          (b) => '$b/',
+        ];
       default:
         return [
           (b) => '$b/search?q=$enc&page=$p',
@@ -3501,20 +3615,25 @@ class GenericSiteApi {
       pendingHrefs = nextPending;
       if (href == null) continue;
       var abs = _abs(base, href);
-      // iXXX：卡片 href 是 /out/?l= 混淆跳转，直接把它解成合作播放站 URL，
-      // 后续详情/播放都按外站页处理（解不开就保留原始 out 链接兜底）。
-      if ((site.parserId ?? site.id) == 'ixxx') {
-        final decoded = _decodeIxxxOutUrl(abs);
-        if (decoded != null &&
-            (RegExp(
+      // 聚合站：卡片 href 是混淆跳转，直接把它解成合作播放站 URL，后续
+      // 详情/播放都按外站页处理（解不开就保留原始链接兜底）。
+      // iXXX 族 = /out/?l=<msgpack 帧>；hot-sex-tube = /o.php?...&u=<base64url>。
+      final ptype = site.parserId ?? site.id;
+      final outDecode = ptype == 'ixxx' || ptype == 'fuq' || ptype == 'qorno'
+          ? _decodeIxxxOutUrl(abs)
+          : ptype == 'hotsextube'
+              ? _decodeHotsextubeOutUrl(abs)
+              : null;
+      if (outDecode != null) {
+        if (RegExp(
               r'^https?://(?:join|mbr|member|members|signup|billing)\.',
               caseSensitive: false,
-            ).hasMatch(decoded) ||
-                RegExp(r'/track/').hasMatch(decoded))) {
+            ).hasMatch(outDecode) ||
+            RegExp(r'/track/').hasMatch(outDecode)) {
           // 联盟推广落地页不是视频正文，直接丢弃这张卡。
           continue;
         }
-        abs = decoded ?? abs;
+        abs = outDecode;
       }
       // 只去 fragment，保留 query：/video?id=N 型站点的身份全靠 query，
       // 剥掉会把整页视频塌缩成一条。
@@ -3529,6 +3648,18 @@ class GenericSiteApi {
       if (title == null || title.length < 2) {
         final aText = RegExp(r'>\s*([^<>]{4,120})\s*<').firstMatch(chunk);
         if (aText != null) title = _cleanTitle(aText.group(1)!);
+      }
+      // 新聚合站（pornkai/tubesafari/hotsextube）卡片没有 title 属性，
+      // 标题在 img alt / 卡内文本里；alt 兜底放在宽匹配之后、slug 之前。
+      if ((title == null || title.length < 2) &&
+          (ptype == 'pornkai' ||
+              ptype == 'tubesafari' ||
+              ptype == 'hotsextube')) {
+        final am = RegExp(
+          r'<img[^>]+alt\s*=\s*"([^"]{6,120})"',
+          caseSensitive: false,
+        ).firstMatch(chunk);
+        if (am != null) title = _cleanTitle(am.group(1)!);
       }
       if (title == null || title.length < 2) {
         final slug =
@@ -3665,6 +3796,20 @@ class GenericSiteApi {
         // 聚合站：所有视频卡都挂 /out/?l=<base64 混淆外链>，分类/榜单/搜索
         // 页里再无其它视频形态 href；/zh/c/ 等分类跳转被上面的通用排除挡掉。
         return h.contains('/out/') && h.contains('?l=');
+      case 'fuq':
+      case 'qorno':
+        // iXXX 同家族模板：同款 /out/?l= 卡。
+        return h.contains('/out/') && h.contains('?l=');
+      case 'pornkai':
+        // /view?key={key} 详情卡；/videos?q=（词云/分类）被本 case 挡掉，
+        // 通用排除不涉及 /view，需要这条正向规则。
+        return h.contains('/view?key=') || h.contains('/view%3fkey=');
+      case 'tubesafari':
+        // /video?id={xv|xh|pl}<id> 详情卡；/search/… 词云被通用排除挡掉。
+        return h.contains('/video?id=');
+      case 'hotsextube':
+        // /o.php?cat=&id=&u=<base64url 合作站> 外链卡。
+        return h.contains('/o.php?');
       case 'stripchat':
       case 'chaturbate':
         // room username path

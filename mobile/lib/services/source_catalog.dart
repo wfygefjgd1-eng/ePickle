@@ -300,7 +300,7 @@ class SourceCatalog {
     SiteTag(id: 'natural', label: '\u5929\u751f', icon: Icons.spa_outlined, iconSelected: Icons.spa),
     SiteTag(id: 'shy', label: '\u5bb3\u7f9e', icon: Icons.face_outlined, iconSelected: Icons.face),
     SiteTag(id: 'anal', label: '\u540e\u5ead', icon: Icons.airline_seat_recline_normal_outlined, iconSelected: Icons.airline_seat_recline_normal),
-    SiteTag(id: 'ass', label: '\u7fd8\u81c0', icon: Icons.airline_seat_class_outlined, iconSelected: Icons.airline_seat_class),
+    SiteTag(id: 'ass', label: '\u7fd8\u81c0', icon: Icons.airline_seat_flat_outlined, iconSelected: Icons.airline_seat_flat),
     SiteTag(id: 'latina', label: '\u62c9\u7f8e', icon: Icons.language_outlined, iconSelected: Icons.language),
     SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
     SiteTag(id: 'blonde', label: '\u91d1\u53d1', icon: Icons.face_retouching_natural_outlined, iconSelected: Icons.face_retouching_natural),

@@ -24,8 +24,8 @@ void main() {
 
   test('catalog version bump refreshes stale device lists for new cards',
       () async {
-    // 老安装（如 v2.8.39，catalogVer=14）的存储列表缺 iXXX；新代码
-    // catalogVer=15 时 load 必须刷新为默认目录，否则新卡片不可见。
+    // 老安装（如 v2.8.39，catalogVer=14）的存储列表缺 iXXX/新聚合站；新代码
+    // 版本号更高时 load 必须刷新为默认目录，否则新卡片不可见。
     SharedPreferences.setMockInitialValues({
       'layout_enabled_video_ids_v1': ['pornhub', 'xvideos', 'xnxx'],
       'layout_catalog_ver_v1': 14,
@@ -37,10 +37,18 @@ void main() {
       settings.enabledVideoSites.map((s) => s.id),
       contains('ixxx'),
     );
-    // 刷新后的列表必须被持久化成 catalogVer=15 的新列表。
+    expect(
+      settings.enabledVideoSites.map((s) => s.id),
+      contains('fuq'),
+    );
+    // 刷新后的列表必须被持久化为高于旧版本的目录号 + 新默认列表。
     final p = await SharedPreferences.getInstance();
-    expect(p.getInt('layout_catalog_ver_v1'), 15);
+    expect(p.getInt('layout_catalog_ver_v1'), greaterThan(14));
     expect(p.getStringList('layout_enabled_video_ids_v1'), contains('ixxx'));
+    expect(
+      p.getStringList('layout_enabled_video_ids_v1'),
+      contains('hotsextube'),
+    );
   });
 
   test('custom URL rejects cleartext HTTP', () async {

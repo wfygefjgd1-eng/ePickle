@@ -24,6 +24,7 @@ import 'search_screen.dart';
 import 'huangguo_web_page.dart';
 import 'langmei_page.dart';
 import 'site_feed_page.dart';
+import 'site_tag_directory_page.dart';
 
 /// Primary home: site list + bottom search (always multi-site).
 class HomePage extends StatefulWidget {
@@ -130,6 +131,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // 网格专用页（隐私会话）。
         await Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => LangmeiPage(site: site)),
+        );
+        return;
+      }
+      // 「直达标签页」开关（默认关）：带底部 tab 栏的站点卡片点开直接进
+      // 标签目录页 —— 底部 tab 栏（前 4 个内容 tab + 标签 tab）整根移除，
+      // 标签目录页本身就是无 tab 栏的独立页。
+      if (site.tags.isNotEmpty &&
+          context.read<AppSettings>().directTagOpen) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SiteTagDirectoryPage(site: site),
+          ),
         );
         return;
       }

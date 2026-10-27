@@ -28,6 +28,7 @@ class AppSettings extends ChangeNotifier {
   static const _kHuangguoDomain = 'huangguo_domain_v1';
   static const _kManualMirror = 'manual_mirror_override_enabled';
   static const _kAggressivePrewarm = 'aggressive_prewarm_enabled';
+  static const _kDirectTagOpen = 'site_feed_direct_tag_open';
 
   bool _skipIntro = true;
   bool _muted = false;
@@ -42,6 +43,7 @@ class AppSettings extends ChangeNotifier {
   bool _showFastForwardButton = true;
   bool _manualMirrorEnabled = false;
   bool _aggressivePrewarm = true;
+  bool _directTagOpen = false;
 
   /// 跳过片头按档位规则（可配置，折叠在“跳过片头”里）：
   /// 视频时长 ≥ 对应档位阈值（秒）时跳过该档秒数，取满足的最大档；
@@ -80,6 +82,10 @@ class AppSettings extends ChangeNotifier {
   /// 站点卡片首条视频的解码器预缓冲，点开卡片近乎秒播。耗流量耗电。
   bool get aggressivePrewarm => _aggressivePrewarm;
 
+  /// 直达标签页（默认关）：开启后，主页「底下带 tab 栏」的站点卡片点开
+  /// 直接进入标签目录页，不再展示底部 tab 栏（信息流 tab 全部移除）。
+  bool get directTagOpen => _directTagOpen;
+
   int get skipIntroMinSec => _skipIntroMinSec;
 
   /// 四档 (阈值秒, 跳过秒)。从低到高排列。缓存复用，档位变更时失效重建。
@@ -115,6 +121,7 @@ class AppSettings extends ChangeNotifier {
       _showFastForwardButton = p.getBool(_kShowFastForwardButton) ?? true;
       _manualMirrorEnabled = p.getBool(_kManualMirror) ?? false;
       _aggressivePrewarm = p.getBool(_kAggressivePrewarm) ?? true;
+      _directTagOpen = p.getBool(_kDirectTagOpen) ?? false;
       _skipIntroMinSec =
           (p.getInt(_kSkipIntroMinSec) ?? 45).clamp(5, 7200);
       _skipTier1At = (p.getInt(_kSkipTier1At) ?? 100).clamp(1, 7200);
@@ -168,6 +175,9 @@ class AppSettings extends ChangeNotifier {
   Future<void> setAggressivePrewarm(bool v) =>
       _setBool(_kAggressivePrewarm, v,
           current: _aggressivePrewarm, apply: (n) => _aggressivePrewarm = n);
+
+  Future<void> setDirectTagOpen(bool v) => _setBool(_kDirectTagOpen, v,
+      current: _directTagOpen, apply: (n) => _directTagOpen = n);
 
   /// 设置黄果规则主域名（自动补全 https:// 并去掉结尾斜杠）。
   Future<void> setHuangguoDomain(String v) async {

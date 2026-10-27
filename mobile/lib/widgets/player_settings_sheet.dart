@@ -400,6 +400,22 @@ Future<void> showPlayerSettingsSheet(
                           ),
                           SwitchListTile(
                             title: const Text(
+                              '直达标签页',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            subtitle: const Text(
+                              '开启后，主页带底部 tab 栏的站点卡片点开直接进标签目录页，并移除 tab 栏。默认关。',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                              ),
+                            ),
+                            activeThumbColor: const Color(0xFFFF6B35),
+                            value: settings.directTagOpen,
+                            onChanged: settings.setDirectTagOpen,
+                          ),
+                          SwitchListTile(
+                            title: const Text(
                               '激进预加载（实验）',
                               style: TextStyle(color: Colors.white),
                             ),

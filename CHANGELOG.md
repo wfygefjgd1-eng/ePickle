@@ -9,6 +9,38 @@
 
 ---
 
+## [2.8.44] - 聚合站修复（FuQ/Qorno 标签隧道 / iXXX 不可播卡流 / HST 解析）
+
+### 🐛 用户反馈四问题逐个修复
+1. **Qorno 标签页内容全一样** → 根因：FuQ/Qorno 与 iXXX 同模板但分类路径不同，
+   旧代码错用 iXXX 的 `/zh/c/{slug}` → Qorno/FuQ 服务端 404 后回跳首页，所有
+   标签都显示同一批内容。**实测新路径：`/category/{slug}?page=N`**（jina 读渲染页
+   逐个验证 240 张 /out/ 卡），热/新/榜改为 `/popular`、`/new`、`/rating`
+   （均支持 `?page=N` 翻页），搜索改为 `/search/{q}?page=N`；`_searchPaths`
+   与 `_listPaths` 两个 case 全部重写。
+2. **FuQ 标签与 iXXX 一致** → 同根因（`fuqDirectoryTags` 错配 ixxx 列表）。
+   现按各自站点 a-z 分类页采收独立 slug 集：FuQ 102 项 / Qorno 65 项，每个
+   id 均经 `/category/{slug}` 实捕 200 + 240 卡验证（Qorno 剔除 MISS 的
+   `masturbation`（改 `masturbation-solo`）与 `czech-wifeswap`；FuQ 剔除
+   `piss` / `cutie`）。
+3. **iXXX "本条无法播放"过频** → iXXX 货架约 1/3 的卡是付费站推广落地
+   （join.mature.nl/track、reflectivedesire、vixen、xh.partners、nookies、
+   lustery 等，免费端永远无流）。新增 `_aggPromoLandpage` 付费站黑域名单 +
+   `_aggPromoHosts`（10 域），列表解析阶段整卡丢弃，货架只留真实可播的
+   合作站条目（fhgte/eporner/w4nkr/momvids/xozilla…）。
+4. **Hot-Sex-Tube "页面结构不匹配"** → `/search/{q}/1.html` 全站已 404
+   （Dio 请求被 404 拒收后还要走一次 WebView 渲染，既慢又易中拦截）；实捕
+   确认站点本体健康（200 + 80 卡）。修复：hst 搜索路径删除死链，改
+   `/categories/{q}/1.html`（未知关键词由站点回跳首页卡流兜底）；`_getHtml`
+   对 404 新增"有效 HTML 直传解析"处理——服务器回跳的首页克隆卡流不再被
+   404 状态码拦掉，不再白烧一次 WebView 渲染（同时惠及未知分类 slug 的
+   回跳场景）。
+
+### ⚙️ 配套迁移
+- 目录版本 bump 到 **18**（FuQ/Qorno 标签集全量替换 + iXXX 货架过滤）。
+
+---
+
 ## [2.8.43] - 老卡片目录标签重制（2026-10 实探捕获）
 
 ### 🏷 目录标签逐站重制

@@ -172,6 +172,16 @@ class GenericSiteApi {
     final status = res.statusCode ?? 0;
     onStatus?.call(status);
     if (res.statusCode == 403 || res.statusCode == 404) {
+      // 404 例外：若干聚合站（hot-sex-tube 等）把不存在的分类/搜索页
+      // 回跳成"首页克隆卡流"仍返回 404 状态，这是服务器语义里的兜底
+      // 内容页而非失败——直接把有效 HTML 交给调用方解析（解析空会走
+      // 下一个 path/镜像），别再白烧一次 WebView 渲染。
+      if (res.statusCode == 404 &&
+          res.data != null &&
+          res.data!.trim().length > 500 &&
+          !_isBlockedHtml(res.data!)) {
+        return res.data!;
+      }
       // Browser often still works: soft-block / bot 404 / age gate.
       final native = await _nativeGetHtml(
         url,
@@ -2573,6 +2583,44 @@ class GenericSiteApi {
     }
   }
 
+  /// 聚合站 /out、/o.php 解链落地的"付费推广页"名单：这些域名只展示
+  /// "请订阅/注册观看"的落地页（或 utm 联盟跳转），喂进播放链路只会换来
+  /// "本条无法播放（请手动上下滑）"。2026-10-28 实测：iXXX /zh/popular
+  /// 240 张卡里约 1/3 是 join.mature.nl/track、reflectivedesire、vixen、
+  /// xh.partners 这类无法免费播放的推广/联盟页——列表解析阶段整卡丢弃，
+  /// 让货架全是真实可播的合作站条目。
+  static const _aggPromoHosts = <String>[
+    'reflectivedesire.com',
+    'vixen.com',
+    'nookies.com',
+    'lustery.com',
+    'pornstarfreecams.com',
+    '12milf.com',
+    'babestare.com',
+    'xh.partners',
+    'jacquieetmicheltv.net',
+    'mature.nl',
+  ];
+
+  bool _aggPromoLandpage(String url) {
+    final u = url.toLowerCase();
+    if (RegExp(
+          r'^https?://(?:join|mbr|member|members|signup|billing)\.',
+          caseSensitive: false,
+        ).hasMatch(u) ||
+        u.contains('/track/')) {
+      return true;
+    }
+    // host 精确匹配（去掉 www./m. 前缀），不做子串匹配以免 query 参数误命中。
+    final m = RegExp(r'^https?://([^/?]+)').firstMatch(u);
+    if (m == null) return false;
+    final host = m.group(1)!.replaceAll(RegExp(r'^(?:www|m)\.'), '');
+    for (final h in _aggPromoHosts) {
+      if (host == h || host.endsWith('.$h')) return true;
+    }
+    return false;
+  }
+
   /// 在 msgpack 帧里结构化找第一个含 https 的字符串元素；找不到就退回
   /// ASCII 扫描（帧可能带自定义头，遍历失败时兜底）。
   String? _firstHttpsUrl(List<int> bytes) {
@@ -3086,16 +3134,17 @@ class GenericSiteApi {
         ];
       case 'fuq':
       case 'qorno':
-        // iXXX 同家族（FuQ 网络共用模板）：同款 /zh/… 路径；CF 强拦截时
-        // 上层走原生渲染，路径失败再退首页卡。
+        // 2026-10-28 实测：FuQ/Qorno 与 iXXX 虽同模板但路径族不同——分
+        // 类页是 /category/{slug}?page=N（/zh/c/… 是 iXXX 专属，喂给
+        // Qorno/FuQ 全部 404 由站点回跳首页 → 用户侧表现为“所有标签
+        // 都是同一批内容”）。榜单页 /popular?/new?/rating 直接吃 ?page=N。
         return [
-          if (tagId == 'hot') (b) => '$b/zh/popular?page=$p',
-          if (tagId == 'new') (b) => '$b/zh/new?page=$p',
-          if (tagId == 'best') (b) => '$b/zh/rating?page=$p',
-          if (tagId == 'asian') (b) => '$b/zh/c/asian?page=$p',
-          (b) => '$b/zh/c/$tagId?page=$p',
-          (b) => '$b/zh/popular?page=$p',
-          (b) => '$b/?page=$p',
+          if (tagId == 'hot') (b) => '$b/popular?page=$p',
+          if (tagId == 'new') (b) => '$b/new?page=$p',
+          if (tagId == 'best') (b) => '$b/rating?page=$p',
+          (b) => '$b/category/$tagId?page=$p',
+          (b) => '$b/search/$tagId',
+          (b) => '$b/popular?page=$p',
         ];
       case 'pornkai':
         // 搜索聚合站：/videos?q={词} 即完整结果流（无 ?page 分页），首页
@@ -3197,10 +3246,12 @@ class GenericSiteApi {
         return [(b) => '$b/zh/search/$enc?page=$p'];
       case 'fuq':
       case 'qorno':
-        // iXX 家族同款搜索路径。
+        // 2026-10-28 实测：/search/{enc}?page=N 即站内搜索结果流（词串
+        // 也常直接命中真分类，/category/{enc} 命中时同卡流）。落后的
+        // /zh/search 只在 iXXX 有效，喂给 Qorno/FuQ 都是 404。
         return [
-          (b) => '$b/zh/search/$enc?page=$p',
-          (b) => '$b/zh/$enc',
+          (b) => '$b/search/$enc${p > 1 ? '?page=$p' : ''}',
+          (b) => '$b/category/$enc',
         ];
       case 'pornkai':
         // 搜索聚合站：/videos?q={enc}（无分页）。
@@ -3208,10 +3259,11 @@ class GenericSiteApi {
       case 'tubesafari':
         return [(b) => '$b/search/$enc'];
       case 'hotsextube':
-        // 分类页直接吃关键词（未知关键词回跳首页卡流，仍可用）；另外
-        // 站点搜索走 /search/{enc}/N.html（部分网络下 404 由分类页兜住）。
+        // 2026-10-28 实测：/search.php 其实是 NudeVista 聚合入口（结果页
+        // 没有任何 /o.php 卡，通用解析抓不到）；/search/{enc}/1.html 也已
+        // 404。关键词按 分类页处理：/categories/{enc}/1.html（未知关键词
+        // 由站点回跳首页卡流兜底）。
         return [
-          (b) => '$b/search/$enc/1.html',
           (b) => '$b/categories/$enc/1.html',
           (b) => '$b/',
         ];
@@ -3659,12 +3711,9 @@ class GenericSiteApi {
               ? _decodeHotsextubeOutUrl(abs)
               : null;
       if (outDecode != null) {
-        if (RegExp(
-              r'^https?://(?:join|mbr|member|members|signup|billing)\.',
-              caseSensitive: false,
-            ).hasMatch(outDecode) ||
-            RegExp(r'/track/').hasMatch(outDecode)) {
-          // 联盟推广落地页不是视频正文，直接丢弃这张卡。
+        if (_aggPromoLandpage(outDecode)) {
+          // 付费站推广/联盟落地页不是视频正文（免费侧永远播放失败），
+          // 整卡丢弃——只是货架里把这个词删掉，不打断解析。
           continue;
         }
         abs = outDecode;

@@ -20,7 +20,10 @@ class LayoutSettings extends ChangeNotifier {
   // 五张聚合站卡片（同款迁移刷新）。
   // v17（2026-10-28）：老卡片（Pornhub / xVideos / xNxx / xHamster /
   // Chaturbate）目录标签按 2026-10 实探全量重制，迁移时刷新设备侧列表。
-  static const _catalogVer = 17;
+  // v18（2026-10-28）：修复 FuQ / Qorno 标签隧道错用 iXXX 的 /zh/c/ 路径
+  // （所有标签回跳首页同内容）→ 独立 /category/{slug} 路径 + 各自全新标签
+  // 集聚合站推广卡过滤（iXXX 付费站落地页不再进货架）。
+  static const _catalogVer = 18;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);

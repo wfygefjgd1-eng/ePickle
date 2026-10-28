@@ -81,6 +81,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _currentIndex = 0;
   int _loadSeq = 0;
 
+  /// 列表窗口结构版本：仅在 [_trimItemsWindow] 重基索引时递增。
+  /// 700ms 延迟任务（自动跳过）捕获旧值，回调时若已重基则作废——旧
+  /// fromIndex/next 指向重基后完全不同的条目，强行播放会张冠李戴。
+  int _itemsEpoch = 0;
+
   /// Pre-buffered next video controllers (paused, muted) for instant swipe.
   final List<PreloadSlot> _preloadSlots = [];
 
@@ -111,7 +116,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   Timer? _progressTimer;
   Timer? _retryTimer;
-  Timer? _skipTimer;
   Timer? _loadMoreTimer;
   Timer? _liveWatchdog;
   // 冷启动空批次连续重试计数：站点持续返回可解析但为空的列表（如 Cloudflare
@@ -541,7 +545,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     WidgetsBinding.instance.removeObserver(this);
     _progressTimer?.cancel();
     _retryTimer?.cancel();
-    _skipTimer?.cancel();
     _loadMoreTimer?.cancel();
     _liveWatchdog?.cancel();
     _liveWatchdog = null;
@@ -567,8 +570,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _progressTimer = null;
     _retryTimer?.cancel();
     _retryTimer = null;
-    _skipTimer?.cancel();
-    _skipTimer = null;
     _loadMoreTimer?.cancel();
     _loadMoreTimer = null;
     _liveWatchdog?.cancel();
@@ -658,8 +659,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _progressTimer = null;
     _retryTimer?.cancel();
     _retryTimer = null;
-    _skipTimer?.cancel();
-    _skipTimer = null;
     _loadMoreTimer?.cancel();
     _loadMoreTimer = null;
     _liveWatchdog?.cancel();
@@ -839,9 +838,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       // pausePlayback() muted the controller before pausing; re-apply the
       // user's mute preference or a route-return resumes silently forever.
       final c = _controller!;
-      c.setVolume(_muted ? 0 : 1);
+      unawaited(c.setVolume(_muted ? 0 : 1).catchError((_) {}));
       PlaybackSolo.enforceSolo(c);
-      c.play();
+      unawaited(c.play().catchError((_) {}));
       _startProgressTimer();
       _restartPreloading();
       WakelockPlus.enable();
@@ -1171,6 +1170,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       message ?? '当前频道无信号，正在切换下一个。',
     );
     _retryTimer?.cancel();
+    final epoch = _itemsEpoch;
     _retryTimer = Timer(const Duration(milliseconds: 700), () {
       if (_canRun && mounted) {
         // _onPageChanged 不取消本定时器：用户在 700ms 内手动滑走时必须以
@@ -1178,6 +1178,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         // 冻结用户正在看的那条（只剩声音在跑）。
         final page = _pageCtrl.hasClients ? _pageCtrl.page?.round() : null;
         if (page != null && page != fromIndex) return;
+        // 窗口重基后 fromIndex/next 已指向别的条目，作废本次计划。
+        if (epoch != _itemsEpoch) return;
         _playIndex(next);
       }
     });
@@ -1360,7 +1362,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         slot.stream = stream;
         try {
           await player.pause();
-          player.setVolume(0);
+          unawaited(player.setVolume(0).catchError((_) {}));
         } catch (_) {}
         return;
       }
@@ -1501,7 +1503,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
       final settings = context.read<AppSettings>();
       _muted = settings.muted;
-      preloaded.setVolume(_muted ? 0 : 1);
+      unawaited(preloaded.setVolume(_muted ? 0 : 1).catchError((_) {}));
       if (seq != _loadSeq || !_canRun) {
         try {
           await preloaded.dispose();
@@ -1516,7 +1518,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       );
       final title = preloadDetail?.title ?? item.title;
       final speed = preloadStream != null
-          ? _estimateBaseSpeed(preloadStream.height)
+          ? PlaybackHelpers.estimateBaseSpeed(preloadStream.height)
           : 1500;
       setState(() {
         _pageLoading = false;
@@ -1798,8 +1800,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (_sessionQualityCap == null) _stallLoweredForItem = false;
     _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
     _muted = settings.muted;
-    player.setVolume(_muted ? 0 : 1);
-    _baseSpeed = _estimateBaseSpeed(stream.height);
+    unawaited(player.setVolume(_muted ? 0 : 1).catchError((_) {}));
+    _baseSpeed = PlaybackHelpers.estimateBaseSpeed(stream.height);
 
     if (seq != _loadSeq || !_canRun) {
       await player.dispose();
@@ -1892,8 +1894,26 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _loadSeq++;
     final mySeq = _loadSeq;
     _disposePreload();
+    // 与 search_feed_screen._playInAppBrowser 同款：统一收集当前/冻结/
+    // 初始化中的解码器，静音压停后释放——早退路径也必然被覆盖，不会
+    // 留下"页面下方一个还在出声的解码器"。
+    final players = <VideoPlayerController>[
+      if (_controller != null) _controller!,
+      if (_frozenController != null) _frozenController!,
+      ..._initializingControllers,
+    ];
+    _controller = null;
+    _frozenController = null;
+    _frozenIndex = null;
+    _initializingControllers.clear();
+    for (final p in players.toSet()) {
+      unawaited(_mutePauseDispose(p));
+    }
     await _disposeController();
-    if (mySeq != _loadSeq || !_canRun || !mounted) return;
+    if (mySeq != _loadSeq || !_canRun || !mounted) {
+      WakelockPlus.disable();
+      return;
+    }
     final url = pageUrl.trim();
     if (!url.startsWith('http')) {
       setState(() {
@@ -1903,6 +1923,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _livePaused = false;
       });
       PlaybackHelpers.toast(context, '无法打开页面地址');
+      WakelockPlus.disable();
       return;
     }
     _currentIndex = index;
@@ -1939,9 +1960,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (_livePaused) {
         await StripchatLiveView.resumeLive();
         if (mounted) setState(() => _livePaused = false);
+        // 复播后重新点亮屏幕常亮（暂停时已释放），与控制器播放路径一致。
+        WakelockPlus.enable();
       } else {
         await StripchatLiveView.pauseLive();
         if (mounted) setState(() => _livePaused = true);
+        // 用户主动暂停：释放屏幕常亮，否则WebView暂停后屏幕不熄灭。
+        WakelockPlus.disable();
       }
     } catch (_) {}
   }
@@ -2058,6 +2083,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     // / _items[...] for a DIFFERENT video. Bumping the seq makes it abort at
     // its next `seq != _loadSeq` guard and re-arm against the rebased list.
     _loadSeq++;
+    // 700ms 自动跳过计划同样捕获了旧索引：作废它（_scheduleSkipToNext
+    // 的 epoch 守卫在回调里放行前检查）。
+    _itemsEpoch++;
   }
 
   Future<void> _disposeController() async {
@@ -2305,14 +2333,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     } catch (_) {}
   }
 
-  int _estimateBaseSpeed(int height) {
-    if (height >= 1080) return 4500;
-    if (height >= 720) return 2800;
-    if (height >= 480) return 1500;
-    if (height >= 360) return 900;
-    return 600;
-  }
-
   /// Forget every playhead the previous decoder taught us. Called whenever a
   /// controller is (re)attached: a fresh player starts at 0:00, and carrying
   /// the old memory over would make the glitch filter reject its honest reads.
@@ -2436,7 +2456,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _muted = !_muted;
     _controller?.setVolume(_muted ? 0 : 1);
     if (_browserLiveUrl != null) {
-      unawaited(StripchatLiveView.setMuted(_muted));
+      unawaited(StripchatLiveView.setMuted(_muted).catchError((_) {}));
     }
     context.read<AppSettings>().setMuted(_muted);
     setState(() {});
@@ -2625,15 +2645,18 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               final c = _controller;
               if (c == null || !c.value.isInitialized) return;
               if (c.value.isPlaying) {
-                c.pause();
+                unawaited(c.pause().catchError((_) {}));
               } else {
                 PlaybackSolo.enforceSolo(c);
-                c.play();
+                unawaited(c.play().catchError((_) {}));
               }
             },
-            onLongPressStart: (_) => _controller?.setPlaybackSpeed(3.0),
-            onLongPressEnd: (_) => _controller?.setPlaybackSpeed(1.0),
-            onLongPressCancel: () => _controller?.setPlaybackSpeed(1.0),
+            onLongPressStart: (_) =>
+                unawaited(_controller?.setPlaybackSpeed(3.0).catchError((_) {})),
+            onLongPressEnd: (_) =>
+                unawaited(_controller?.setPlaybackSpeed(1.0).catchError((_) {})),
+            onLongPressCancel: () =>
+                unawaited(_controller?.setPlaybackSpeed(1.0).catchError((_) {})),
             child: VideoPlayerPage(
               items: _items,
               currentIndex: _currentIndex,

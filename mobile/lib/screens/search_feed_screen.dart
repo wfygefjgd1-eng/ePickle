@@ -108,7 +108,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   final ValueNotifier<String> _totalTime = ValueNotifier<String>('0:00');
   Timer? _progressTimer;
   Timer? _retryTimer;
-  Timer? _skipTimer;
   final ValueNotifier<double> _slider = ValueNotifier(0);
   final ValueNotifier<String> _curTime = ValueNotifier('0:00');
 
@@ -135,6 +134,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   Duration? _dragTargetPosition;
   String _seekPreviewText = '';
   bool _resumePlaybackOnRouteReturn = false;
+
+  /// 播放会话是否处于活跃期（startPlaying 置位，路由压栈/停止/压后台
+  /// 复位）。前台 resumed 事件据此判断是否需要重新拉起播放——不在活跃期
+  /// （例如用户已返回列表页）时，后台 resumed 不应自行起播。
+  bool _active = false;
   PageRoute<dynamic>? _route;
 
   /// Shared iOS/Android lookahead pool (slot 0..preloadSlotCount-1).
@@ -270,7 +274,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   @override
   void didPushNext() {
     _resumePlaybackOnRouteReturn =
-        (_controller?.value.isPlaying ?? false) || _pageLoading;
+        (_controller?.value.isPlaying ?? false) ||
+        _pageLoading ||
+        _browserPageUrl != null;
     unawaited(_pausePlaybackForRouteChange(releasePlayers: false));
   }
 
@@ -286,6 +292,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   void startPlaying() {
+    _active = true;
     _resumePlaybackOnRouteReturn = false;
     if (!_appInForeground) return;
     final immersive = _chrome?.immersive ?? false;
@@ -295,11 +302,19 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     );
     _autoRotate?.listening = true;
     _autoRotate?.start();
+    if (_browserPageUrl != null) {
+      // 网页播放态（含 Stripchat 直播 WebView）：没有原生解码器可拉起，
+      // 只需唤醒直播 WebView 与屏幕常亮（与 video_feed_screen.startPlaying
+      // 的 browser 分支同款）——否则路由/前台返回后 WebView 停在暂停帧。
+      unawaited(StripchatLiveView.resumeLive().catchError((_) {}));
+      WakelockPlus.enable();
+      return;
+    }
     final c = _controller;
     if (c != null && c.value.isInitialized) {
       // _pausePlaybackForRouteChange muted the controller before pausing;
       // re-apply the mute preference or a route return resumes silently.
-      unawaited(c.setVolume(_muted ? 0 : 1));
+      unawaited(c.setVolume(_muted ? 0 : 1).catchError((_) {}));
       PlaybackSolo.enforceSolo(c);
       unawaited(
         c
@@ -321,13 +336,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   Future<void> _pausePlaybackForRouteChange({
     required bool releasePlayers,
   }) async {
+    _active = false;
     _seq++;
     _progressTimer?.cancel();
     _progressTimer = null;
     _retryTimer?.cancel();
     _retryTimer = null;
-    _skipTimer?.cancel();
-    _skipTimer = null;
     _cancelBackgroundWork();
     final current = _controller;
     _autoRotate?.syncLandscapeMode(false);
@@ -355,6 +369,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       try {
         await frozen.dispose();
       } catch (_) {}
+    }
+    if (_browserPageUrl != null) {
+      // WebView 播放（含 Stripchat 直播）不归控制器管，路由压栈时也要压停，
+      // 否则页面下方的直播在推流出声。
+      unawaited(StripchatLiveView.pauseLive().catchError((_) {}));
     }
     WakelockPlus.disable();
     if (releasePlayers) {
@@ -423,7 +442,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     WidgetsBinding.instance.removeObserver(this);
     _progressTimer?.cancel();
     _retryTimer?.cancel();
-    _skipTimer?.cancel();
     _hideTimer?.cancel();
     _slider.dispose();
     _curTime.dispose();
@@ -435,6 +453,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   void stopPlaybackImmediately() {
+    _active = false;
     _appInForeground = false;
     _resumePlaybackOnRouteReturn = false;
     _resumePlaybackOnForeground = false;
@@ -443,8 +462,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _progressTimer = null;
     _retryTimer?.cancel();
     _retryTimer = null;
-    _skipTimer?.cancel();
-    _skipTimer = null;
     _browserPageUrl = null;
     _autoRotate?.syncLandscapeMode(false);
     _autoRotate?.listening = false;
@@ -618,8 +635,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _progressTimer = null;
     _retryTimer?.cancel();
     _retryTimer = null;
-    _skipTimer?.cancel();
-    _skipTimer = null;
     context.read<PhubApi>().cancelRequests('app backgrounded');
     context.read<XvideosApi>().cancelRequests('app backgrounded');
     context.read<MitaoApi>().cancelRequests('app backgrounded');
@@ -687,7 +702,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       if (!_appInForeground) return;
       _appInForeground = false;
       _resumePlaybackOnForeground =
-          (_controller?.value.isPlaying ?? false) || _pageLoading;
+          (_controller?.value.isPlaying ?? false) ||
+          _pageLoading ||
+          _browserPageUrl != null;
+      _active = false;
       _seq++;
       _autoRotate?.listening = false;
       _autoRotate?.stop();
@@ -696,6 +714,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       if (controller != null) {
         unawaited(controller.pause().catchError((_) {}));
       }
+      if (_browserPageUrl != null) {
+        // WebView 播放（含 Stripchat 直播）后台必须压停，否则继续解码
+        // 推流（发热+流量+音频继续出声）。
+        unawaited(StripchatLiveView.pauseLive().catchError((_) {}));
+      }
       WakelockPlus.disable();
       _stallTicks = 0;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 8000;
@@ -703,6 +726,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _appInForeground = true;
       _stallTicks = 0;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 8000;
+      if (!_active) return;
       _autoRotate?.listening = true;
       _autoRotate?.start();
       if (!_resumePlaybackOnForeground) return;
@@ -993,7 +1017,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       if (_sessionQualityCap == null) _stallLoweredForItem = false;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
       _muted = context.read<AppSettings>().muted;
-      preloaded.setVolume(_muted ? 0 : 1);
+      unawaited(preloaded.setVolume(_muted ? 0 : 1).catchError((_) {}));
       if (seq != _seq || !_canRun) {
         try {
           await preloaded.dispose();
@@ -1284,7 +1308,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       return;
     }
     _muted = context.read<AppSettings>().muted;
-    player.setVolume(_muted ? 0 : 1);
+    unawaited(player.setVolume(_muted ? 0 : 1).catchError((_) {}));
     if (seq != _seq || !_canRun) {
       await player.dispose();
       return;
@@ -1566,7 +1590,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         slot.stream = stream;
         try {
           await player.pause();
-          player.setVolume(0);
+          unawaited(player.setVolume(0).catchError((_) {}));
         } catch (_) {}
         return;
       }
@@ -1701,7 +1725,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
             double.infinity,
           );
           if (dMs > 0 && downloaded > 0) {
-            final sample = (1500 * (downloaded / dMs).clamp(0.0, 3.0))
+            // 与 video_feed_screen 同款：基准按当前流高度取（硬编码 1500
+            // 会把 1080p 的正常吞吐标成 3 倍速、把 240p 的慢速标成正常）。
+            final baseSpeed = PlaybackHelpers.estimateBaseSpeed(
+              _currentStreamHeight,
+            ).toDouble();
+            final sample = (baseSpeed * (downloaded / dMs).clamp(0.0, 3.0))
                 .clamp(0, 12000)
                 .toDouble();
             _speedSamples++;
@@ -1783,7 +1812,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (mounted) setState(() => _speedBoostActive = active);
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
-    c.setPlaybackSpeed(active ? 3.0 : 1.0);
+    unawaited(c.setPlaybackSpeed(active ? 3.0 : 1.0).catchError((_) {}));
   }
 
   void _onPageChanged(int page) {
@@ -1920,7 +1949,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   void _toggleMute() {
     _muted = !_muted;
-    _controller?.setVolume(_muted ? 0 : 1);
+    if (_browserPageUrl != null) {
+      // WebView 播放没有原生控制器可调 setVolume，静音要走平台层。
+      unawaited(StripchatLiveView.setMuted(_muted).catchError((_) {}));
+    } else {
+      unawaited(_controller?.setVolume(_muted ? 0 : 1).catchError((_) {}));
+    }
     context.read<AppSettings>().setMuted(_muted);
     setState(() {});
   }
@@ -2135,7 +2169,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                 final c = _controller;
                 if (c == null || !c.value.isInitialized) return;
                 if (c.value.isPlaying) {
-                  c.pause();
+                  unawaited(c.pause().catchError((_) {}));
                   if (mounted) setState(() => _manualPaused = true);
                 } else {
                   PlaybackSolo.enforceSolo(c);
@@ -2143,8 +2177,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   // 静音；手动暂停后返回不走 startPlaying 的音量恢复，点击
                   // 续播前必须按用户静音偏好重新应用，否则无声播放还显示
                   // 未静音图标。
-                  unawaited(c.setVolume(_muted ? 0 : 1));
-                  c.play();
+                  unawaited(c.setVolume(_muted ? 0 : 1).catchError((_) {}));
+                  unawaited(c.play().catchError((_) {}));
                   if (mounted) setState(() => _manualPaused = false);
                 }
               }
@@ -2356,18 +2390,23 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                       right: 0,
                       bottom: 0,
                       child: SafeArea(
-                        child: FeedProgressBar(
-                          slider: _slider,
-                          curTime: _curTime,
-                          totalTime: _totalTime,
-                          onChanged: _onSeekPreview,
-                          onChangeStart: (_) {
-                            _seeking = true;
-                          },
-                          onChangeEnd: (v) {
-                            // ignore: unawaited_futures
-                            _onSeekCommit(v);
-                          },
+                        // 进度条每 200ms 重画一次（ValueNotifier 驱动），
+                        // RepaintBoundary 把变更限制在独立图层，避免整页
+                        // 视频画面跟随重合成。
+                        child: RepaintBoundary(
+                          child: FeedProgressBar(
+                            slider: _slider,
+                            curTime: _curTime,
+                            totalTime: _totalTime,
+                            onChanged: _onSeekPreview,
+                            onChangeStart: (_) {
+                              _seeking = true;
+                            },
+                            onChangeEnd: (v) {
+                              // ignore: unawaited_futures
+                              _onSeekCommit(v);
+                            },
+                          ),
                         ),
                       ),
                     ),
@@ -2526,19 +2565,22 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     left: 0,
                     right: 0,
                     bottom: 0,
+                    // 同上：独立重绘图层。
                     child: SafeArea(
-                      child: FeedProgressBar(
-                        slider: _slider,
-                        curTime: _curTime,
-                        totalTime: _totalTime,
-                        onChanged: _onSeekPreview,
-                        onChangeStart: (_) {
-                          _seeking = true;
-                        },
-                        onChangeEnd: (v) {
-                          // ignore: unawaited_futures
-                          _onSeekCommit(v);
-                        },
+                      child: RepaintBoundary(
+                        child: FeedProgressBar(
+                          slider: _slider,
+                          curTime: _curTime,
+                          totalTime: _totalTime,
+                          onChanged: _onSeekPreview,
+                          onChangeStart: (_) {
+                            _seeking = true;
+                          },
+                          onChangeEnd: (v) {
+                            // ignore: unawaited_futures
+                            _onSeekCommit(v);
+                          },
+                        ),
                       ),
                     ),
                   ),

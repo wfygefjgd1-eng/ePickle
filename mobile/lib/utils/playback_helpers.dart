@@ -70,6 +70,17 @@ class PlaybackHelpers {
   /// Active player + 2 lookahead slots on mobile (was 3).
   static const preloadSlotCount = 2;
 
+  /// Rough bandwidth baseline (Kbps) for the given stream height — the
+  /// reference both feed screens use when normalizing the sampled download
+  /// speed into the "约 xxx Kbps" label (and video-feed stall baseline).
+  static int estimateBaseSpeed(int height) {
+    if (height >= 1080) return 4500;
+    if (height >= 720) return 2800;
+    if (height >= 480) return 1500;
+    if (height >= 360) return 900;
+    return 600;
+  }
+
 
   /// [skipIntro] with the user's settings (跳过片头折叠配置)。
   static Future<void> skipIntroFromSettings(

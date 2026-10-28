@@ -58,7 +58,11 @@ class StripchatLiveView extends StatelessWidget {
             handler();
           }
         case 'onLiveFailed':
-          final message = call.arguments as String? ?? '连接失败';
+          // 原生侧可能回传非 String（如内嵌对象），is-check 兜底防止
+          // cast 异常把整个 handler 挂掉。
+          final message = call.arguments is String
+              ? call.arguments as String
+              : '连接失败';
           for (final handler in List.of(_failureHandlers.values)) {
             handler(message);
           }

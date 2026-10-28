@@ -32,6 +32,190 @@ class GenericSiteApi {
   static const _searchResolveTimeout = Duration(seconds: 14);
   static const _detailResolveTimeout = Duration(seconds: 20);
 
+  // ---- 预编译正则（热路径提速）----
+  // 这些正则原本在各解析函数里逐调用/逐卡/逐 URL 现场构造，单页 feed 会
+  // 触发数百至上千次 RegExp 构造；提为 static final 一次编译常驻，行为
+  // 完全不变。命名前缀 _re。
+  static final _reJableVideo1 = RegExp(r'/videos?/[^/]+/?');
+  static final _reJableVideo2 = RegExp(r'/[a-z0-9]+-[a-z0-9-]+/?$');
+  static final _reMissavId = RegExp(r'/[a-z]{2,12}-?\d{2,5}');
+  static final _reMissavTail = RegExp(r'/(dm\d+/)?[a-z0-9-]+/?$');
+  static final _reJavFamily1 = RegExp(r'/(jav|video|movie|watch)/');
+  static final _reJavFamily2 = RegExp(r'/[a-z]{2,10}-?\d{2,5}');
+  static final _re7mmtvContent = RegExp(r'chinese_content/\d+/');
+  static final _re7mmtvHtml = RegExp(r'_\d+\.html');
+  static final _reSpankVideo1 = RegExp(r'/[a-z0-9-]+/video/');
+  static final _reSpankVideo2 = RegExp(r'/\d+/video/');
+  static final _reSpankPlay = RegExp(r'/[a-z0-9]{4,12}/play/');
+  static final _reYoupornId = RegExp(r'/\d{5,}');
+  static final _reRedtubeBare = RegExp(r'^/\d{6,}$');
+  static final _reRedtubeId = RegExp(r'/\d{6,}');
+  static final _reTnaflixPair = RegExp(r'/[^/]+/\d+');
+  static final _reFreepornVideo = RegExp(r'/video[s./]');
+  static final _reOur55Card = RegExp(r'/video/[a-f0-9]{32}\.html');
+  static final _reUsername = RegExp(r'^[a-zA-Z0-9_-]{3,60}$');
+  static final _reGenericV = RegExp(r'/v/\d');
+  static final _reGenericWatch = RegExp(r'/watch');
+  static final _reWatchSlash = RegExp(r'/watch/');
+  static final _reGenericViewVideo = RegExp(r'/view_video');
+  static final _reGenericEmbed = RegExp(r'/embed/');
+  static final _reGenericMoviesClips = RegExp(r'/(movies?|clips?)/');
+  static final _reGenericId4 = RegExp(r'/\d{4,}/');
+  static final _reGenericDashedId = RegExp(r'/[a-z]{2,10}-\d{2,5}');
+  static final _reGenericUncensored = RegExp(r'/(uncensored|censored)/');
+  static final _reLiveBarePath = RegExp(r'/[^/]{3,40}/?$');
+  static final _reXhamsterMovies = RegExp(r'/movies/\d+');
+  static final _reXnxxVideo = RegExp(r'/video-[a-z0-9]+/');
+  static final _reVideoPathSlash = RegExp(r'/video');
+  static final _reSlashEnd = RegExp(r'/$');
+  static final _reWhitespace = RegExp(r'\s+');
+  static final _reImageExt = RegExp(r'\.(?:jpg|jpeg|png|gif|webp|svg)(?:[?#]|$)');
+  static final _reThumbExt = RegExp(r'\.(?:jpg|jpeg|png|webp|gif)(?:[?#]|$)');
+  static final _reTeaser9s = RegExp(r'[_-](9|10|15)s[_.-]');
+  static final _reHeightToken = RegExp(r'(\d{3,4})p');
+  static final _reImgAlt = RegExp(
+    r'<img[^>]+alt\s*=\s*"([^"]{6,120})"',
+    caseSensitive: false,
+  );
+  static final _reSlugDash = RegExp(r'[-_]+');
+  static final _reListSplitDiv = RegExp(
+    r'(?=<div[^>]+class="[^"]*(?:video|thumb|item|card|post|movie|list-item)[^"]*")',
+    caseSensitive: false,
+  );
+  static final _reListSplitHref = RegExp(r'''(?=href=["'][^"']+["'])''');
+  static final _reTagOpen = RegExp(r'<a\s[^>]*>\s*$', caseSensitive: false);
+  static final _reTagText = RegExp(r'>\s*([^<>]{4,120})\s*<');
+  // ---- _extractStreams / MacCMS ----
+  static final _reHlsAbs = RegExp(
+    r'''["'](https?:\\?/\\?/[^"'\s]+\.m3u8[^"'\s]*)["']''',
+    caseSensitive: false,
+  );
+  static final _reHlsRel = RegExp(
+    r'''["']([^"'\s]+\.m3u8[^"'\s]*)["']''',
+    caseSensitive: false,
+  );
+  static final _reHlsPacked = RegExp(
+    r'(https?:\\?/\\?/[^\s"<>]+\.m3u8[^\s"<>]*)',
+    caseSensitive: false,
+  );
+  static final _reMp4Quoted = RegExp(
+    r'''["'](https?:[^"']+\.mp4[^"']*)["']''',
+    caseSensitive: false,
+  );
+  static final _reSourceSrc = RegExp(
+    r'''<source[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  static final _reVideoSrc = RegExp(
+    r'''<video[^>]+src=["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  static final _reXvHlsSingle = RegExp(r"setVideoHLS\('([^']+)'\)");
+  static final _reXvHlsDouble = RegExp(r'setVideoHLS\("([^"]+)"\)');
+  static final _reXvHigh = RegExp(r"setVideoUrlHigh\('([^']+)'\)");
+  static final _reXvLow = RegExp(r"setVideoUrlLow\('([^']+)'\)");
+  static final _reContentUrl = RegExp(r'"contentUrl"\s*:\s*"([^"]+)"');
+  static final _reContentUrlKey = RegExp(
+    r'''["']contentUrl["']\s*:''',
+    caseSensitive: false,
+  );
+  static final _reMediaKey = RegExp(
+    r'''["'](?:file|videoUrl|video_url|stream|streamUrl|playUrl|hls|hlsUrl|hls_url|m3u8)["']\s*:\s*["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  static final _reQualityMap = RegExp(
+    r'''["'](\d{3,4})p?["']\s*:\s*["'](https?[^"']+)["']''',
+  );
+  static final _reMacCmsUrlKey = RegExp(
+    r'''["']url["']\s*:\s*["']([^"']+)["']''',
+  );
+  static final _reMacCmsEncrypt = RegExp(r'''["']encrypt["']\s*:\s*["']?(\d+)''');
+  static final _reMacCmsDirectUrl = RegExp(
+    r'''["']url["']\s*:\s*["'](https?[^"']+\.(?:m3u8|mp4)[^"']*)["']''',
+    caseSensitive: false,
+  );
+  static final _reAggKvsMarker = RegExp(
+    r'kt_player|flashvars',
+    caseSensitive: false,
+  );
+  static final _reEpornerDetailUrl = RegExp(
+    r'https?://(?:www\.)?eporner\.com/(?:video-|hd-porn/)',
+  );
+  // ---- 时长解析链（_extractDurationLabel / _durationSecondsFromText）----
+  static final _reDurationAttr = RegExp(
+    r'''(?:data-|aria-)?(?:duration|length|time)\s*=\s*["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  static final _reExplicitHms = RegExp(
+    r'''(?<!\d)(\d{1,2}:\d{2}(?::\d{2})?)(?!\d)''',
+  );
+  static final _rePlainHms = RegExp(r'^\d{1,2}:\d{2}(?::\d{2})?$');
+  static final _reDurationWord = RegExp(
+    r'(?:\b(?:h|hr|hrs|hour|hours|min|mins|minute|minutes|sec|secs|second|seconds)\b)|(?:小时|分钟|秒|分)',
+  );
+  static final _reDurHms = RegExp(r'(?<!\d)(\d{1,2}):([0-5]\d):([0-5]\d)(?!\d)');
+  static final _reDurMs = RegExp(r'(?<!\d)(\d{1,3}):([0-5]\d)(?!\d)');
+  static final _reDurHoursMin = RegExp(
+    r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b(?:\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b)?(?!\s*(?:ago|前))',
+  );
+  static final _reDurMinutesOnly = RegExp(
+    r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b(?!\s*(?:ago|前))',
+  );
+  static final _reDurSecondsOnly = RegExp(
+    r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b(?!\s*(?:ago|前))',
+  );
+  // ---- 缩略图抽取（每卡最多 2 次）----
+  static final _thumbCandidates = <(RegExp, bool)>[
+    (
+      RegExp(
+        r'''(?:data-src|data-original|data-thumb|data-poster|data-lazy-src|data-image|data-sfwthumb|data-mzl|poster)\s*=\s*["']([^"']+)["']''',
+        caseSensitive: false,
+      ),
+      false,
+    ),
+    (
+      RegExp(
+        r'''(?:data-srcset|srcset)\s*=\s*["']([^"']+)["']''',
+        caseSensitive: false,
+      ),
+      true,
+    ),
+    (
+      RegExp(
+        r'''style\s*=\s*["'][^"']*background(?:-image)?\s*:\s*url\((?:'|")?([^"')]+)(?:'|")?\)[^"']*["']''',
+        caseSensitive: false,
+      ),
+      false,
+    ),
+    (
+      RegExp(
+        r'''(?:src)\s*=\s*["']([^"']+)["']''',
+        caseSensitive: false,
+      ),
+      false,
+    ),
+  ];
+  // ---- 聚合站解链/付费落地识别 ----
+  static final _rePromoSubdomain = RegExp(
+    r'^https?://(?:join|mbr|member|members|signup|billing)\.',
+    caseSensitive: false,
+  );
+  static final _reUrlHost = RegExp(r'^https?://([^/?]+)');
+  static final _reHostPrefix = RegExp(r'^(?:www|m)\.');
+  static final _reIxxxLParam = RegExp(r'[?&]l=([^&]+)');
+  static final _reNonB64 = RegExp(r'[^A-Za-z0-9+/=]');
+  static final _reHstUParam = RegExp(r'[?&]u=([^&\s<>"]+)');
+  static final _reHstPlainUrl = RegExp(r'^https?://[A-Za-z0-9.:-]+');
+  static final _reHstUrlCut = RegExp(r'[\s<>"{}|\\^`]+');
+  static final _reNaPlaceholder = RegExp(
+    r'''/(?:na|unavailable|not[-_]?found)\.mp4(?:[?#/]|$)''',
+  );
+  // ---- Cloudflare/拦截页标记（大小写不敏感组合扫描，免整页小写副本）----
+  static final _reBlockMarkers = RegExp(
+    r'just a moment|cf-browser-verification|attention required|cloudflare|服务暂不可用|正在跳转到发布页|已满18',
+    caseSensitive: false,
+  );
+
   GenericSiteApi({Dio? dio})
       : _dio = dio ??
             AppHttpClient.create(
@@ -65,8 +249,7 @@ class GenericSiteApi {
     }
   }
 
-  /// Per-site last working mirror index (in-memory).
-  final Map<String, int> _mirrorIndex = {};
+  /// Per-site mirror health (in-memory).
   final Map<String, Map<String, MirrorHealth>> _mirrorHealth = {};
   final Map<String, String> _liveStreamNames = {};
 
@@ -350,16 +533,21 @@ class GenericSiteApi {
     // never be treated as Cloudflare/age-gate blocking pages — doing so
     // wastes a WKWebView render slot on every API-style failure.
     if (trim.startsWith('{') || trim.startsWith('[')) return false;
-    final low = html.toLowerCase();
-    // 短响应本身不是拦截证据：重定向桩、纯文本 API 响应等合法短页会被
-    // 误判成 Cloudflare 拦截，把健康镜像永久降权并浪费原生渲染槽位。
-    // 只在同时含拦截标记时才按拦截页处理。
     if (html.length < 350) {
+      final low = html.toLowerCase();
+      // 短响应本身不是拦截证据：重定向桩、纯文本 API 响应等合法短页会被
+      // 误判成 Cloudflare 拦截，把健康镜像永久降权并浪费原生渲染槽位。
+      // 只在同时含拦截标记时才按拦截页处理。
       return low.contains('just a moment') ||
           low.contains('cf-browser-verification') ||
           low.contains('attention required') ||
           low.contains('cloudflare');
     }
+    // 整页 toLowerCase 是本函数最大的成本（200–800KB 页面每次全量副本，
+    // 镜像 failover 路径最多十几次）：先用一条大小写不敏感的组合正则在
+    // 原文上扫描（不分配副本），一个标记都没有就立即放行。
+    if (!_reBlockMarkers.hasMatch(html)) return false;
+    final low = html.toLowerCase();
     if (low.contains('just a moment') && low.contains('cloudflare')) {
       return true;
     }
@@ -374,7 +562,7 @@ class GenericSiteApi {
     if (low.contains('已满18') &&
         html.length < 8000 &&
         !low.contains('vod') &&
-        !RegExp(r'/video').hasMatch(low)) {
+        !_reVideoPathSlash.hasMatch(low)) {
       return true;
     }
     return false;
@@ -487,21 +675,20 @@ class GenericSiteApi {
     // 用户明确指定的优先）。已存在时不动，顺序交给排名。
     final manual = MirrorRanker.instance.manualBase(site.id);
     if (manual != null &&
-        !mirrors.any((m) => m.replaceAll(RegExp(r'/$'), '') == manual)) {
+        !mirrors.any((m) => m.replaceAll(_reSlashEnd, '') == manual)) {
       mirrors.insert(0, manual);
     }
     return mirrors;
   }
 
   /// Best-effort index of [baseRaw] within the site's mirror list, normalizing
-  /// trailing slashes on both sides so a ranker-stripped base always matches a
-  /// catalog entry (which may carry a '/'). Returns null when not found, so a
-  /// stale/mismatched base never stores a corrupt -1 index.
+  /// Trailing-slash-normalized base match against the site's mirror list.
+  /// Returns null when not found.
   int? _rankMirrorIndex(SiteDef site, String baseRaw) {
-    final target = baseRaw.replaceAll(RegExp(r'/$'), '');
+    final target = baseRaw.replaceAll(_reSlashEnd, '');
     final mirrors = _mirrorsFor(site);
     for (var i = 0; i < mirrors.length; i++) {
-      if (mirrors[i].replaceAll(RegExp(r'/$'), '') == target) return i;
+      if (mirrors[i].replaceAll(_reSlashEnd, '') == target) return i;
     }
     return null;
   }
@@ -545,7 +732,7 @@ class GenericSiteApi {
     final mirrors = _mirrorsFor(site);
 
     Future<_MirrorProbe> probe(int i, [CancelToken? cancelToken]) async {
-      final base = mirrors[i].replaceAll(RegExp(r'/$'), '');
+      final base = mirrors[i].replaceAll(_reSlashEnd, '');
       final watch = Stopwatch()..start();
       try {
         // Must stay inside the try: a throw from pathBuilder would surface as
@@ -575,6 +762,11 @@ class GenericSiteApi {
         );
         final staticBlocked = _isBlockedHtml(html);
         final staticRejected = accept != null && !accept(html, base);
+        // 原生渲染是最贵的操作（WebView 启动 + JS 质询自解 ≈ 5-10s）：
+        // 渲染前再查一次取消 epoch，用户已切换 feed 就直接作废本次 probe。
+        if (_cancelEpoch != cancelEpoch) {
+          throw _cancelError(url);
+        }
         if (staticBlocked || staticRejected) {
           final rendered = await _nativeRenderHtml(
             url,
@@ -683,7 +875,6 @@ class GenericSiteApi {
       // geo-blocked domain can never hold the whole request hostage.
       final first = await probe(ordered.first);
       if (first.page != null) {
-        _mirrorIndex[site.id] = first.index;
         return first.page!;
       }
       if (first.error != null) failures.add(first.error!);
@@ -697,7 +888,6 @@ class GenericSiteApi {
         if (rest.isNotEmpty) {
           final result = await race(rest);
           if (result != null && result.page != null) {
-            _mirrorIndex[site.id] = result.index;
             return result.page!;
           }
           if (result != null &&
@@ -920,7 +1110,7 @@ class GenericSiteApi {
     final epoch = _cancelEpoch;
     for (final baseRaw in ordered) {
       if (_cancelEpoch != epoch) throw _cancelError('');
-      final b = baseRaw.replaceAll(RegExp(r'/$'), '');
+      final b = baseRaw.replaceAll(_reSlashEnd, '');
       final watch = Stopwatch()..start();
       final url = '$b/api/v2/video/search/?query=${Uri.encodeQueryComponent(q)}'
           '&per_page=${limit.clamp(1, 60)}&page=$page&thumbsize=big'
@@ -964,8 +1154,6 @@ class GenericSiteApi {
             if (out.length >= limit) break;
           }
           if (out.isNotEmpty) {
-            final idx = _rankMirrorIndex(site, baseRaw);
-            if (idx != null) _mirrorIndex[site.id] = idx;
             return out;
           }
         } catch (_) {}
@@ -999,8 +1187,6 @@ class GenericSiteApi {
           if (out.length >= limit) break;
         }
         if (out.isNotEmpty) {
-          final idx = _rankMirrorIndex(site, baseRaw);
-          if (idx != null) _mirrorIndex[site.id] = idx;
           return out;
         }
       } catch (e) {
@@ -1454,6 +1640,13 @@ class GenericSiteApi {
       //（iXXX 族 = /out/?l= msgpack 帧；hot-sex-tube = /o.php?...&u= base64url）。
       final decoded =
           ptype == 'hotsextube' ? _decodeHotsextubeOutUrl(url) : _decodeIxxxOutUrl(url);
+      // 递归护栏：解链后的合作站页若又携带 /out|/o.php 视作坏链直接拒播，
+      // 防止构造 URL 触发无限递归（正常合作站详情页不会反向再包一层）。
+      if (decoded != null &&
+          _aggPromoLandpage(decoded) &&
+          (decoded.contains('/out/') || decoded.contains('/o.php?'))) {
+        throw PhubException('${site.name} 条目指向broken推广链，已移除');
+      }
       if (decoded != null) return getVideoDetail(site, decoded);
       // 付费站推广落地页守卫（列表阶段 _aggPromoLandpage 已滤过，这里挡
       // 旧缓存/转存条目）：直接拒播，别开 WebView 让用户看到"订阅解锁"页。
@@ -1469,10 +1662,10 @@ class GenericSiteApi {
     final suffix = parsed == null
         ? url
         : '${parsed.path}${parsed.hasQuery ? '?${parsed.query}' : ''}';
-    final candidates = <({String url, String base, int? mirrorIndex})>[];
+    final candidates = <({String url, String base})>[];
     final originalBase = _originOf(url);
     if (originalBase != null) {
-      candidates.add((url: url, base: originalBase, mirrorIndex: null));
+      candidates.add((url: url, base: originalBase));
     }
     final hubFragment = switch (ptype) {
       'fuq' => 'fuq.com',
@@ -1497,17 +1690,13 @@ class GenericSiteApi {
     // 合作站 URL（见上）：不加镜像候选。
     if (mirrors.isEmpty) ranked = const <String>[];
     for (final baseRaw in ranked) {
-      final base = baseRaw.replaceAll(RegExp(r'/$'), '');
+      final base = baseRaw.replaceAll(_reSlashEnd, '');
       final candidateUrl = _abs(
         base,
         suffix.startsWith('/') ? suffix : '/$suffix',
       );
       if (candidates.any((e) => e.url == candidateUrl)) continue;
-      candidates.add(
-        // 归一化匹配并容忍未命中（null），否则 -1 会被下游当作真实索引
-        // 写进 _mirrorIndex，静默顶掉学到的优选镜像。
-        (url: candidateUrl, base: base, mirrorIndex: _rankMirrorIndex(site, baseRaw)),
-      );
+      candidates.add((url: candidateUrl, base: base));
     }
 
     Object? lastError;
@@ -1525,6 +1714,7 @@ class GenericSiteApi {
           timeout: remaining < _requestTimeout ? remaining : _requestTimeout,
         );
         if (_isBlockedHtml(html)) {
+          if (_cancelEpoch != detailEpoch) throw _cancelError(candidate.url);
           final renderBudget = deadline.difference(DateTime.now());
           if (renderBudget.inMilliseconds > 0) {
             final rendered = await _nativeRenderHtml(
@@ -1555,6 +1745,7 @@ class GenericSiteApi {
           }
           final renderBudget = deadline.difference(DateTime.now());
           if (renderBudget.inMilliseconds <= 0) rethrow;
+          if (_cancelEpoch != detailEpoch) throw _cancelError(candidate.url);
           final rendered = await _nativeRenderHtml(
             candidate.url,
             origin: _originOf(candidate.url),
@@ -1571,9 +1762,6 @@ class GenericSiteApi {
             html,
             candidate.base,
           ).timeout(renderedParseBudget);
-        }
-        if (candidate.mirrorIndex != null) {
-          _mirrorIndex[site.id] = candidate.mirrorIndex!;
         }
         // Live-traffic feedback: detail fetches also feed the persistent
         // ranking, so the fastest mirror keeps winning for details too.
@@ -1709,8 +1897,7 @@ class GenericSiteApi {
             ptype == 'fuq' ||
             ptype == 'qorno' ||
             ptype == 'hotsextube') &&
-        RegExp(r'https?://(?:www\.)?eporner\.com/(?:video-|hd-porn/)')
-            .hasMatch(url)) {
+        _reEpornerDetailUrl.hasMatch(url)) {
       final ep = await _extractEpornerStreams(url, html, base);
       if (ep.isNotEmpty) {
         return VideoDetail(
@@ -1781,10 +1968,7 @@ class GenericSiteApi {
       // Current JAVMix pages expose a fresh signed JSON-LD contentUrl while
       // their player video_url may already be stale. Older KVS pages need the
       // embed page, so only prefer the main page when contentUrl is present.
-      final hasContentUrl = RegExp(
-        r'''["']contentUrl["']\s*:''',
-        caseSensitive: false,
-      ).hasMatch(html);
+      final hasContentUrl = _reContentUrlKey.hasMatch(html);
       streams = hasContentUrl
           ? _extractKvsStreams(html, url)
           : await _followEmbeds(html, url, url, depth: 2);
@@ -1807,7 +1991,7 @@ class GenericSiteApi {
             ptype == 'fuq' ||
             ptype == 'qorno' ||
             ptype == 'hotsextube') &&
-        RegExp(r'kt_player|flashvars', caseSensitive: false).hasMatch(html)) {
+        _reAggKvsMarker.hasMatch(html)) {
       streams = _extractKvsStreams(html, url);
     }
 
@@ -1862,7 +2046,7 @@ class GenericSiteApi {
     final parts = Uri.tryParse(url)?.pathSegments ?? const [];
     for (final p in parts.reversed) {
       if (p.isEmpty) continue;
-      if (RegExp(r'^[a-zA-Z0-9_-]{3,60}$').hasMatch(p)) return p;
+      if (_reUsername.hasMatch(p)) return p;
     }
     return null;
   }
@@ -2056,12 +2240,15 @@ class GenericSiteApi {
     String pageUrl,
     String base, {
     int depth = 1,
+    Set<String>? seen,
   }) async {
     if (depth <= 0) return const [];
     final re = RegExp(
       r'''<iframe[^>]+(?:src|data-src|data-lazy-src|data-embed)=["']([^"']+)["']''',
       caseSensitive: false,
     );
+    final visited = seen ?? <String>{};
+    var tried = 0;
     for (final emb in re.allMatches(html)) {
       try {
         final embUrl = _abs(pageUrl, emb.group(1)!);
@@ -2070,6 +2257,13 @@ class GenericSiteApi {
             embUrl.contains('twitter')) {
           continue;
         }
+        // 同一页里指向同一 embed 的 iframe（广告/多源标记）只取一次；
+        // 跨层重复不再回访，防止 A→B→A 循环拉取。
+        if (!visited.add(embUrl)) continue;
+        // 每层最多试 3 个 embed：列表页顶部广告 iframe 常有 5-10 个，
+        // 全试只会烧白名单外的三级域请求时间。
+        if (tried >= 3) break;
+        tried++;
         final embHtml = await _getHtml(
           embUrl,
           headers: {
@@ -2093,6 +2287,7 @@ class GenericSiteApi {
             embUrl,
             embUrl,
             depth: depth - 1,
+            seen: visited,
           );
         }
         streams = _filterPreviewStreams(streams);
@@ -2147,6 +2342,9 @@ class GenericSiteApi {
           referer: pageUrl,
         ),
       );
+      // 三个端点任一给出新流即可收工（补齐的都是同一视频的同一组流，
+      // 连打三个端点只多花两倍往返时间，加速 failover 链后续阶段）。
+      final before = out.length;
       for (final path in [
         '/api/v2/video/id/?id=$vid&format=json',
         '/xhr/video/$vid/',
@@ -2180,6 +2378,9 @@ class GenericSiteApi {
                 ),
               );
             }
+          }
+          if (out.length > before) {
+            break;
           }
         } catch (e) {
           if (e is DioException && CancelToken.isCancel(e)) rethrow;
@@ -2526,13 +2727,12 @@ class GenericSiteApi {
     if (low.contains('sample') && !low.contains('m3u8')) return true;
     if (low.contains('mediabook')) return true;
     if (low.contains('static.eporner.com/na.mp4')) return true;
-    if (RegExp(r'''/(?:na|unavailable|not[-_]?found)\.mp4(?:[?#/]|$)''')
-        .hasMatch(low)) {
+    if (_reNaPlaceholder.hasMatch(low)) {
       return true;
     }
     if (low.contains('/preview.')) return true;
     // MindGeek 9s teaser segments often under get_media with very short tokens
-    if (RegExp(r'[_-](9|10|15)s[_.-]').hasMatch(low)) return true;
+    if (_reTeaser9s.hasMatch(low)) return true;
     return false;
   }
 
@@ -2552,7 +2752,7 @@ class GenericSiteApi {
   /// 服务器独立跳转会落到首页，所以这里离线解 out 链接，指向真实播放页。
   String? _decodeIxxxOutUrl(String url) {
     final raw = url.replaceAll('&amp;', '&');
-    final m = RegExp(r'[?&]l=([^&]+)').firstMatch(raw);
+    final m = _reIxxxLParam.firstMatch(raw);
     if (m == null) return null;
     var token = m.group(1)!;
     if (token.contains('%')) {
@@ -2562,7 +2762,7 @@ class GenericSiteApi {
         // 个别坏转义：保留原始 token 继续参与 base64 过滤。
       }
     }
-    final b64 = token.replaceAll(RegExp(r'[^A-Za-z0-9+/=]'), '');
+    final b64 = token.replaceAll(_reNonB64, '');
     if (b64.length < 16) return null;
     final padded = b64 + '=' * ((4 - b64.length % 4) % 4);
     final List<int> bytes;
@@ -2581,7 +2781,7 @@ class GenericSiteApi {
   /// 直接离线解成真实播放页（hog.tv / icpvid / w4nkr / porndr / fhgte …）。
   String? _decodeHotsextubeOutUrl(String url) {
     final raw = url.replaceAll('&amp;', '&');
-    final m = RegExp(r'[?&]u=([^&\s<>"]+)').firstMatch(raw);
+    final m = _reHstUParam.firstMatch(raw);
     if (m == null) return null;
     var token = m.group(1)!.trim();
     if (token.length < 12) return null;
@@ -2595,8 +2795,8 @@ class GenericSiteApi {
     try {
       final bytes = base64.decode(padded);
       final text = utf8.decode(bytes, allowMalformed: true).trim();
-      if (!RegExp(r'^https?://[A-Za-z0-9.:-]+').hasMatch(text)) return null;
-      final cut = RegExp(r'[\s<>"{}|\\^`]+').firstMatch(text);
+      if (!_reHstPlainUrl.hasMatch(text)) return null;
+      final cut = _reHstUrlCut.firstMatch(text);
       final u = cut == null ? text : text.substring(0, cut.start);
       return u.length > 12 ? u : null;
     } on FormatException {
@@ -2633,10 +2833,7 @@ class GenericSiteApi {
     //  - nats= —— NATS 计费体系（vixen 及大量付费站联盟参数）
     //  - merchantpartnerid= —— reflectivedesire 自有域联盟参数
     //  - /lander、/tour/ —— 付费站订阅引导页路径
-    if (RegExp(
-          r'^https?://(?:join|mbr|member|members|signup|billing)\.',
-          caseSensitive: false,
-        ).hasMatch(u) ||
+    if (_rePromoSubdomain.hasMatch(u) ||
         u.contains('/track/') ||
         u.contains('video-click.php') ||
         u.contains('nats=') ||
@@ -2646,9 +2843,9 @@ class GenericSiteApi {
       return true;
     }
     // host 精确匹配（去掉 www./m. 前缀），不做子串匹配以免 query 参数误命中。
-    final m = RegExp(r'^https?://([^/?]+)').firstMatch(u);
+    final m = _reUrlHost.firstMatch(u);
     if (m == null) return false;
-    final host = m.group(1)!.replaceAll(RegExp(r'^(?:www|m)\.'), '');
+    final host = m.group(1)!.replaceAll(_reHostPrefix, '');
     for (final h in _aggPromoHosts) {
       if (host == h || host.endsWith('.$h')) return true;
     }
@@ -2826,7 +3023,7 @@ class GenericSiteApi {
     int limit = 40,
     Set<String>? exclude,
   }) async {
-    final base = baseUrl.replaceAll(RegExp(r'/$'), '');
+    final base = baseUrl.replaceAll(_reSlashEnd, '');
     final host = Uri.tryParse(base)?.host ?? base;
     final fake = SiteDef(
       id: 'custom_$host',
@@ -2860,7 +3057,10 @@ class GenericSiteApi {
   String? _originOf(String url) {
     final u = Uri.tryParse(url);
     if (u == null || u.host.isEmpty) return null;
-    return u.origin;
+    // Uri.origin 对非 http(s) scheme 会抛 StateError（如 content://、
+    // file:// 的内嵌页），且其内部构造较重；手工拼接无异常路径。
+    final scheme = u.scheme.isEmpty ? 'https' : u.scheme;
+    return '$scheme://${u.host}';
   }
 
   List<String Function(String base)> _listPaths(
@@ -3667,14 +3867,9 @@ class GenericSiteApi {
     );
 
     // Split into rough cards by common wrappers
-    var chunks = html.split(
-      RegExp(
-        r'(?=<div[^>]+class="[^"]*(?:video|thumb|item|card|post|movie|list-item)[^"]*")',
-        caseSensitive: false,
-      ),
-    );
+    var chunks = html.split(_reListSplitDiv);
     if (chunks.length < 3) {
-      chunks = html.split(RegExp(r'''(?=href=["'][^"']+["'])'''));
+      chunks = html.split(_reListSplitHref);
     }
 
     // 包裹式布局（<a href=…><div class=thumb>…）里，当前卡片的 href 在上
@@ -3704,8 +3899,7 @@ class GenericSiteApi {
             .where((m) => _looksLikeVideoPath(m.group(1)!, site))
             .toList();
         if (tailMatches.isNotEmpty) {
-          final openerAtEnd =
-              RegExp(r'<a\s[^>]*>\s*$', caseSensitive: false).hasMatch(tail);
+          final openerAtEnd = _reTagOpen.hasMatch(tail);
           if (openerAtEnd && tailMatches.length == 1) {
             nextPending = <String>[tailMatches.first.group(1)!];
           } else if (openerAtEnd) {
@@ -3763,7 +3957,7 @@ class GenericSiteApi {
         title = _cleanTitle(tm.group(1)!);
       }
       if (title == null || title.length < 2) {
-        final aText = RegExp(r'>\s*([^<>]{4,120})\s*<').firstMatch(chunk);
+        final aText = _reTagText.firstMatch(chunk);
         if (aText != null) title = _cleanTitle(aText.group(1)!);
       }
       // 新聚合站（pornkai/tubesafari/hotsextube）卡片没有 title 属性，
@@ -3772,10 +3966,7 @@ class GenericSiteApi {
           (ptype == 'pornkai' ||
               ptype == 'tubesafari' ||
               ptype == 'hotsextube')) {
-        final am = RegExp(
-          r'<img[^>]+alt\s*=\s*"([^"]{6,120})"',
-          caseSensitive: false,
-        ).firstMatch(chunk);
+        final am = _reImgAlt.firstMatch(chunk);
         if (am != null) title = _cleanTitle(am.group(1)!);
       }
       if (title == null || title.length < 2) {
@@ -3789,7 +3980,7 @@ class GenericSiteApi {
         } catch (_) {
           decoded = slug;
         }
-        title = decoded.replaceAll(RegExp(r'[-_]+'), ' ').trim();
+        title = decoded.replaceAll(_reSlugDash, ' ').trim();
       }
       if (title.length < 2) continue;
       if (_isJunkTitle(title)) continue;
@@ -3846,51 +4037,49 @@ class GenericSiteApi {
     // Site-specific positive rules
     switch (site.parserId ?? site.id) {
       case 'jable':
-        return RegExp(r'/videos?/[^/]+/?').hasMatch(h) ||
-            RegExp(r'/[a-z0-9]+-[a-z0-9-]+/?$').hasMatch(h);
+        return _reJableVideo1.hasMatch(h) || _reJableVideo2.hasMatch(h);
       case 'missav':
-        return RegExp(r'/[a-z]{2,12}-?\d{2,5}').hasMatch(h) ||
-            (RegExp(r'/(dm\d+/)?[a-z0-9-]+/?$').hasMatch(h) &&
+        return _reMissavId.hasMatch(h) ||
+            (_reMissavTail.hasMatch(h) &&
                 !h.contains('/dm') &&
                 h.split('/').where((e) => e.isNotEmpty).isNotEmpty);
       case 'javgg':
       case 'javmix':
       case 'bestjavporn':
-        return RegExp(r'/(jav|video|movie|watch)/').hasMatch(h) ||
-            RegExp(r'/[a-z]{2,10}-?\d{2,5}').hasMatch(h);
+        return _reJavFamily1.hasMatch(h) || _reJavFamily2.hasMatch(h);
       case '7mmtv':
         return h.contains('/content/') ||
             h.contains('_content/') ||
             h.contains('/cnplay/') ||
             h.contains('/enplay/') ||
-            RegExp(r'chinese_content/\d+/').hasMatch(h) ||
-            RegExp(r'_\d+\.html').hasMatch(h);
+            _re7mmtvContent.hasMatch(h) ||
+            _re7mmtvHtml.hasMatch(h);
       case 'av01':
         return h.contains('/v/') ||
             h.contains('/video/') ||
             h.contains('/watch/');
       case 'spankbang':
-        return RegExp(r'/[a-z0-9-]+/video/').hasMatch(h) ||
-            RegExp(r'/\d+/video/').hasMatch(h) ||
-            RegExp(r'/[a-z0-9]{4,12}/play/').hasMatch(h);
+        return _reSpankVideo1.hasMatch(h) ||
+            _reSpankVideo2.hasMatch(h) ||
+            _reSpankPlay.hasMatch(h);
       case 'youporn':
-        return RegExp(r'/watch/').hasMatch(h) ||
-            RegExp(r'/video\?id=').hasMatch(h) ||
-            RegExp(r'/\d{5,}').hasMatch(h);
+        return _reWatchSlash.hasMatch(h) ||
+            h.contains('/video?id=') ||
+            _reYoupornId.hasMatch(h);
       case 'redtube':
         // Paths are often bare numeric IDs: /251932341
-        return RegExp(r'^/\d{6,}$').hasMatch(h) ||
-            RegExp(r'/watch/').hasMatch(h) ||
-            RegExp(r'/video\?id=').hasMatch(h) ||
-            RegExp(r'/\d{6,}').hasMatch(h);
+        return _reRedtubeBare.hasMatch(h) ||
+            _reWatchSlash.hasMatch(h) ||
+            h.contains('/video?id=') ||
+            _reRedtubeId.hasMatch(h);
       case 'tnaflix':
         return h.contains('/video') ||
-            RegExp(r'/[^/]+/\d+').hasMatch(h) ||
-            RegExp(r'/view_video').hasMatch(h);
+            _reTnaflixPair.hasMatch(h) ||
+            _reGenericViewVideo.hasMatch(h);
       case 'eporner':
         return h.contains('/video-') ||
             h.contains('/hd-porn/') ||
-            h.contains('/embed/');
+            _reGenericEmbed.hasMatch(h);
       case 'freeporn':
         // Directory of external tubes — accept outbound video-site links.
         return h.contains('xvideos.com') ||
@@ -3900,15 +4089,15 @@ class GenericSiteApi {
             h.contains('redtube.com') ||
             h.contains('youporn.com') ||
             h.contains('spankbang.com') ||
-            RegExp(r'/video[s./]').hasMatch(h);
+            _reFreepornVideo.hasMatch(h);
       case 'our55':
       case 'xqq88':
         // /video/{32-hex}.html detail cards
-        return RegExp(r'/video/[a-f0-9]{32}\.html').hasMatch(h);
+        return _reOur55Card.hasMatch(h);
       case 'xhamster':
-        return h.contains('/videos/') || RegExp(r'/movies/\d+').hasMatch(h);
+        return h.contains('/videos/') || _reXhamsterMovies.hasMatch(h);
       case 'xnxx':
-        return RegExp(r'/video-[a-z0-9]+/').hasMatch(h);
+        return _reXnxxVideo.hasMatch(h);
       case 'ixxx':
         // 聚合站：所有视频卡都挂 /out/?l=<base64 混淆外链>，分类/榜单/搜索
         // 页里再无其它视频形态 href；/zh/c/ 等分类跳转被上面的通用排除挡掉。
@@ -3935,8 +4124,7 @@ class GenericSiteApi {
         // join/注册页必须在"裸用户名"规则之前排除：'/join' 本身恰好满足
         // 用户名正则，放在后面就永远轮不到。
         if (parts.contains('join')) return false;
-        if (parts.length == 1 &&
-            RegExp(r'^[a-zA-Z0-9_-]{3,60}$').hasMatch(parts.first)) {
+        if (parts.length == 1 && _reUsername.hasMatch(parts.first)) {
           return true;
         }
         return parts.isNotEmpty &&
@@ -3951,19 +4139,19 @@ class GenericSiteApi {
     }
 
     // Generic positive patterns
-    if (RegExp(r'/video[s./]').hasMatch(h)) return true;
-    if (RegExp(r'/v/\d').hasMatch(h)) return true;
-    if (RegExp(r'/watch').hasMatch(h)) return true;
-    if (RegExp(r'/view_video').hasMatch(h)) return true;
-    if (RegExp(r'/embed/').hasMatch(h)) return true;
-    if (RegExp(r'/(movies?|clips?)/').hasMatch(h)) return true;
-    if (RegExp(r'/\d{4,}/').hasMatch(h) && h.split('/').length >= 3) {
+    if (_reFreepornVideo.hasMatch(h)) return true;
+    if (_reGenericV.hasMatch(h)) return true;
+    if (_reGenericWatch.hasMatch(h)) return true;
+    if (_reGenericViewVideo.hasMatch(h)) return true;
+    if (_reGenericEmbed.hasMatch(h)) return true;
+    if (_reGenericMoviesClips.hasMatch(h)) return true;
+    if (_reGenericId4.hasMatch(h) && h.split('/').length >= 3) {
       return true;
     }
-    if (RegExp(r'/[a-z]{2,10}-\d{2,5}').hasMatch(h)) return true;
-    if (RegExp(r'/(uncensored|censored)/').hasMatch(h)) return true;
+    if (_reGenericDashedId.hasMatch(h)) return true;
+    if (_reGenericUncensored.hasMatch(h)) return true;
     if (site.kind == SiteKind.live) {
-      if (RegExp(r'/[^/]{3,40}/?$').hasMatch(h) && !h.contains('.')) {
+      if (_reLiveBarePath.hasMatch(h) && !h.contains('.')) {
         return true;
       }
     }
@@ -3976,7 +4164,7 @@ class GenericSiteApi {
         .replaceAll('&amp;', '&')
         .replaceAll('&quot;', '"')
         .replaceAll('&nbsp;', ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(_reWhitespace, ' ')
         .trim();
   }
 
@@ -4077,34 +4265,16 @@ class GenericSiteApi {
   }
 
   String? _extractThumbFromChunk(String chunk, String base) {
-    final candidates = <RegExp>[
-      RegExp(
-        r'''(?:data-src|data-original|data-thumb|data-poster|data-lazy-src|data-image|data-sfwthumb|data-mzl|poster)\s*=\s*["']([^"']+)["']''',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'''(?:data-srcset|srcset)\s*=\s*["']([^"']+)["']''',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'''style\s*=\s*["'][^"']*background(?:-image)?\s*:\s*url\((?:'|")?([^"')]+)(?:'|")?\)[^"']*["']''',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'''(?:src)\s*=\s*["']([^"']+)["']''',
-        caseSensitive: false,
-      ),
-    ];
-    for (final pattern in candidates) {
-      for (final match in pattern.allMatches(chunk)) {
+    for (final pattern in _thumbCandidates) {
+      for (final match in pattern.$1.allMatches(chunk)) {
         var raw = match.group(1)!.replaceAll(r'\/', '/').trim();
-        if (pattern.pattern.contains('srcset')) {
+        if (pattern.$2) {
           raw = raw.split(',').first.trim().split(' ').first.trim();
         }
         var thumb = _normalizeThumbUrl(raw, base);
         if (thumb == null) continue;
         final low = thumb.toLowerCase();
-        if (RegExp(r'\.(?:jpg|jpeg|png|webp|gif)(?:[?#]|$)').hasMatch(low) ||
+        if (_reThumbExt.hasMatch(low) ||
             low.contains('thumb') ||
             low.contains('thumbnail') ||
             low.contains('cover') ||
@@ -4123,17 +4293,12 @@ class GenericSiteApi {
   String? _extractDurationLabel(String html) {
     final raw = _durationSecondsFromText(html);
     if (raw != null && raw > 0) return _formatDurationLabel(raw);
-    final attr = RegExp(
-      r'''(?:data-|aria-)?(?:duration|length|time)\s*=\s*["']([^"']+)["']''',
-      caseSensitive: false,
-    ).firstMatch(html)?.group(1);
+    final attr = _reDurationAttr.firstMatch(html)?.group(1);
     if (attr != null) {
       final label = _normalizeDurationLabel(attr);
       if (label != null) return label;
     }
-    final explicit = RegExp(
-      r'''(?<!\d)(\d{1,2}:\d{2}(?::\d{2})?)(?!\d)''',
-    ).firstMatch(html)?.group(1);
+    final explicit = _reExplicitHms.firstMatch(html)?.group(1);
     if (explicit != null) return explicit;
     return null;
   }
@@ -4162,9 +4327,9 @@ class GenericSiteApi {
     if (seconds != null && seconds > 0) return _formatDurationLabel(seconds);
     final label = raw
         .replaceAll('&nbsp;', ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(_reWhitespace, ' ')
         .trim();
-    if (RegExp(r'^\d{1,2}:\d{2}(?::\d{2})?$').hasMatch(label)) return label;
+    if (_rePlainHms.hasMatch(label)) return label;
     return null;
   }
 
@@ -4173,13 +4338,15 @@ class GenericSiteApi {
         .replaceAll(r'\/', '/')
         .replaceAll('&amp;', '&')
         .replaceAll('&nbsp;', ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(_reWhitespace, ' ')
         .toLowerCase()
         .trim();
     if (text.isEmpty) return null;
+    // 前置短路：既无冒号（h:mm[:ss] 形态）也无时长词的文本不可能是时长，
+    // 省 5 条正则与逐词回溯（对标题类短文本命中率高）。
+    if (!text.contains(':') && !text.contains(_reDurationWord)) return null;
 
-    final hms = RegExp(r'(?<!\d)(\d{1,2}):([0-5]\d):([0-5]\d)(?!\d)')
-        .firstMatch(text);
+    final hms = _reDurHms.firstMatch(text);
     if (hms != null) {
       final hours = int.tryParse(hms.group(1) ?? '') ?? 0;
       final minutes = int.tryParse(hms.group(2) ?? '') ?? 0;
@@ -4187,7 +4354,7 @@ class GenericSiteApi {
       return hours * 3600 + minutes * 60 + seconds;
     }
 
-    final ms = RegExp(r'(?<!\d)(\d{1,3}):([0-5]\d)(?!\d)').firstMatch(text);
+    final ms = _reDurMs.firstMatch(text);
     if (ms != null) {
       final minutes = int.tryParse(ms.group(1) ?? '') ?? 0;
       final seconds = int.tryParse(ms.group(2) ?? '') ?? 0;
@@ -4196,26 +4363,20 @@ class GenericSiteApi {
 
     // (?!\s*(?:ago|前)):卡片里常见的发布时间"10 hours ago / 3 小时前"
     // 不是时长,必须拒收。
-    final hMin = RegExp(
-      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b(?:\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b)?(?!\s*(?:ago|前))',
-    ).firstMatch(text);
+    final hMin = _reDurHoursMin.firstMatch(text);
     if (hMin != null) {
       final hours = double.tryParse(hMin.group(1) ?? '') ?? 0;
       final minutes = double.tryParse(hMin.group(2) ?? '') ?? 0;
       return (hours * 3600 + minutes * 60).round();
     }
 
-    final minOnly = RegExp(
-      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b(?!\s*(?:ago|前))',
-    ).firstMatch(text);
+    final minOnly = _reDurMinutesOnly.firstMatch(text);
     if (minOnly != null) {
       final minutes = double.tryParse(minOnly.group(1) ?? '') ?? 0;
       return (minutes * 60).round();
     }
 
-    final secOnly = RegExp(
-      r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b(?!\s*(?:ago|前))',
-    ).firstMatch(text);
+    final secOnly = _reDurSecondsOnly.firstMatch(text);
     if (secOnly != null) {
       final seconds = double.tryParse(secOnly.group(1) ?? '') ?? 0;
       return seconds.round();
@@ -4261,16 +4422,16 @@ class GenericSiteApi {
       if (low.contains('.js') ||
           low.contains('.css') ||
           low.contains('favicon') ||
-          RegExp(r'\.(?:jpg|jpeg|png|gif|webp|svg)(?:[?#]|$)').hasMatch(low) ||
+          _reImageExt.hasMatch(low) ||
           (low.contains('trailer') && !low.contains('long_trailers')) ||
           low.contains('/preview') ||
           low.contains('mediabook') ||
-          RegExp(r'[_-](9|10|15)s[_.-]').hasMatch(low)) {
+          _reTeaser9s.hasMatch(low)) {
         return;
       }
       if (!seen.add(url)) return;
       if (h <= 0) {
-        final hm = RegExp(r'(\d{3,4})p').firstMatch(url);
+        final hm = _reHeightToken.firstMatch(url);
         if (hm != null) h = int.tryParse(hm.group(1)!) ?? 0;
       }
       if (h <= 0) {
@@ -4287,35 +4448,23 @@ class GenericSiteApi {
     }
 
     // HLS absolute
-    for (final m in RegExp(
-      r'''["'](https?:\\?/\\?/[^"'\s]+\.m3u8[^"'\s]*)["']''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reHlsAbs.allMatches(html)) {
       add(m.group(1)?.replaceAll(r'\/', '/'), h: 720);
     }
     // HLS relative / escaped
-    for (final m in RegExp(
-      r'''["']([^"'\s]+\.m3u8[^"'\s]*)["']''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reHlsRel.allMatches(html)) {
       final u = m.group(1);
       if (u != null && !u.startsWith('data:')) add(u, h: 720);
     }
     // m3u8 without quotes nearby (packed). Single raw string: the previous
     // multi-part literal mixed raw and non-raw segments (the non-raw `\\.`
     // collapsed to a regex `\.`), which read like a double-escape bug.
-    for (final m in RegExp(
-      r'(https?:\\?/\\?/[^\s"<>]+\.m3u8[^\s"<>]*)',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reHlsPacked.allMatches(html)) {
       add(m.group(1)?.replaceAll(r'\/', '/'), h: 720);
     }
 
     // mp4
-    for (final m in RegExp(
-      r'''["'](https?:[^"']+\.mp4[^"']*)["']''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reMp4Quoted.allMatches(html)) {
       add(m.group(1), h: 480);
     }
 
@@ -4325,41 +4474,29 @@ class GenericSiteApi {
       h: 720,
     );
 
-    for (final m in RegExp(
-      r'''<source[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+)["']''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reSourceSrc.allMatches(html)) {
       add(m.group(1), h: 480);
     }
-    for (final m in RegExp(
-      r'''<video[^>]+src=["']([^"']+)["']''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reVideoSrc.allMatches(html)) {
       add(m.group(1), h: 480);
     }
 
     // XVideos-style helpers
-    final hls = RegExp(r"setVideoHLS\('([^']+)'\)").firstMatch(html) ??
-        RegExp(r'setVideoHLS\("([^"]+)"\)').firstMatch(html);
+    final hls = _reXvHlsSingle.firstMatch(html) ?? _reXvHlsDouble.firstMatch(html);
     if (hls != null) add(hls.group(1), h: 720);
-    final high = RegExp(r"setVideoUrlHigh\('([^']+)'\)").firstMatch(html);
+    final high = _reXvHigh.firstMatch(html);
     if (high != null) add(high.group(1), h: 480);
-    final low = RegExp(r"setVideoUrlLow\('([^']+)'\)").firstMatch(html);
+    final low = _reXvLow.firstMatch(html);
     if (low != null) add(low.group(1), h: 240);
 
     // JSON-LD / common keys
-    for (final m in RegExp(r'"contentUrl"\s*:\s*"([^"]+)"').allMatches(html)) {
+    for (final m in _reContentUrl.allMatches(html)) {
       add(m.group(1), h: 720);
     }
-    for (final m in RegExp(
-      r'''["'](?:file|videoUrl|video_url|stream|streamUrl|playUrl|hls|hlsUrl|hls_url|m3u8)["']\s*:\s*["']([^"']+)["']''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reMediaKey.allMatches(html)) {
       add(m.group(1), h: 720);
     }
-    for (final m in RegExp(
-      r'''["'](\d{3,4})p?["']\s*:\s*["'](https?[^"']+)["']''',
-    ).allMatches(html)) {
+    for (final m in _reQualityMap.allMatches(html)) {
       final hh = int.tryParse(m.group(1)!) ?? 0;
       add(m.group(2), h: hh > 0 ? hh : 720);
     }
@@ -4368,25 +4505,17 @@ class GenericSiteApi {
     // resolved asynchronously by _resolveMacCmsPlayer.
     final blob = _macCmsPlayerBlob(html);
     if (blob != null) {
-      final um = RegExp(
-        r'''["']url["']\s*:\s*["']([^"']+)["']''',
-      ).firstMatch(blob);
+      final um = _reMacCmsUrlKey.firstMatch(blob);
       if (um != null) {
         final encrypt = int.tryParse(
-              RegExp(
-                    r'''["']encrypt["']\s*:\s*["']?(\d+)''',
-                  ).firstMatch(blob)?.group(1) ??
-                  '',
+              _reMacCmsEncrypt.firstMatch(blob)?.group(1) ?? '',
             ) ??
             0;
         final u = _decodeMacCmsUrl(um.group(1)!, encrypt);
         if (_looksLikeMediaUrl(u)) add(u, h: 720);
       }
     }
-    final urlM = RegExp(
-      r'''["']url["']\s*:\s*["'](https?[^"']+\.(?:m3u8|mp4)[^"']*)["']''',
-      caseSensitive: false,
-    ).firstMatch(html);
+    final urlM = _reMacCmsDirectUrl.firstMatch(html);
     if (urlM != null) add(urlM.group(1), h: 720);
 
     return streams;

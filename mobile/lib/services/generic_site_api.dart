@@ -1944,6 +1944,7 @@ class GenericSiteApi {
         site.id == 'javmix' ||
         site.id == 'javgg' ||
         site.id == 'jable' ||
+        site.id == '123av' ||
         site.id == '7mmtv') {
       final code = _javCodeFromUrl(url);
       if (code != null) {
@@ -1960,6 +1961,13 @@ class GenericSiteApi {
     // Resolve site-specific player formats before broad URL matching. This
     // avoids mistaking hover previews and ad assets for the full video.
     var streams = <StreamQuality>[];
+    // 金果短剧：/detail/{slug} 是剧集页，播放数据在 /play/{slug}/N 的
+    // dplayer data-url（相对 m3u8 → /api/h5/m3u8/ 同域代理）。专用链路
+    // 一次详情多打一页，失败时自然落通用链/WebView 兜底。
+    if (site.id == 'jinguodj') {
+      final jd = await _parseJinguodjDetail(site, url, html, base);
+      if (jd != null) return jd;
+    }
     // Our55 / 88XQQ: DES-encrypted player payload (video.id + data[]).
     if (site.id == 'our55' || site.id == 'xqq88') {
       streams = _extractEncryptedSiteStreams(html, url);
@@ -2011,7 +2019,7 @@ class GenericSiteApi {
       streams = _extractSpankbang(html, base);
     }
     // BestJAVPorn data-mediabook / encrypted player (best-effort)
-    if (streams.isEmpty && site.id == 'bestjavporn') {
+    if (streams.isEmpty && (site.id == 'bestjavporn' || site.id == 'pornbest')) {
       streams = _extractBestJav(html, base);
     }
 
@@ -2040,6 +2048,96 @@ class GenericSiteApi {
       thumb: thumb,
       streams: streams,
     );
+  }
+
+  /// 金果短剧专用：/detail/{slug}（剧集页）→ 取第一集 play 页（SSR
+  /// dplayer data-url，相对 m3u8）→ /api/h5/m3u8/ 同域代理真实 HLS。
+  /// 返回 null 时走通用链路（最终 WebView 浏览播放兜底）。
+  Future<VideoDetail?> _parseJinguodjDetail(
+    SiteDef site,
+    String url,
+    String html,
+    String base,
+  ) async {
+    var title = _extractTitle(html) ?? url;
+    final h1 = RegExp(r'<h1[^>]*>([^<]{2,120})<').firstMatch(html);
+    if (h1 != null) title = _cleanTitle(h1.group(1)!);
+    String playUrl = url;
+    if (!url.contains('/play')) {
+      // 剧集页：优先第一集（data-ep="1"），兜底任意 /play/ 链接。
+      final ep =
+          RegExp(
+            r'''href\s*=\s*["'](/play/[^"'?#]+)["'][^>]*data-ep\s*=\s*["']1["']''',
+            caseSensitive: false,
+          ).firstMatch(html) ??
+          RegExp(
+            r'''href\s*=\s*["'](/play/[^"'?#]+)["']''',
+            caseSensitive: false,
+          ).firstMatch(html);
+      if (ep == null) return null;
+      playUrl = _abs(base, ep.group(1)!);
+    }
+    try {
+      final playHtml = await _getHtml(
+        playUrl,
+        headers: AppHttpHeaders.forSite(base),
+        timeout: _requestTimeout,
+      );
+      final du =
+          RegExp(
+            r'''dplayer-video[^>]*data-url\s*=\s*["']([^"']+)["']''',
+            caseSensitive: false,
+          ).firstMatch(playHtml) ??
+          RegExp(
+            r'''data-url\s*=\s*["']([^"']+)["']''',
+            caseSensitive: false,
+          ).firstMatch(playHtml);
+      if (du == null) return null;
+      final streamUrl = _resolveJinguodjVideoUrl(du.group(1)!, playUrl);
+      if (!streamUrl.toLowerCase().contains('.m3u8')) return null;
+      final cover =
+          RegExp(
+            r'''data-play-cover\s*=\s*["']([^"']+)["']''',
+            caseSensitive: false,
+          ).firstMatch(playHtml) ??
+          RegExp(
+            r'''data-play-cover\s*=\s*["']([^"']+)["']''',
+          ).firstMatch(html);
+      final thumb = cover != null
+          ? _abs(base, cover.group(1)!)
+          : (_resolvedThumb(html, url) ?? _resolvedThumb(playHtml, playUrl));
+      return VideoDetail(
+        url: playUrl,
+        title: title,
+        durationSec: 0,
+        thumb: thumb,
+        streams: [
+          StreamQuality(
+            width: 1280,
+            height: 720,
+            url: streamUrl,
+            referer: playUrl,
+          ),
+        ],
+      );
+    } catch (_) {
+      // play 页拉取/解析失败：通用链路兜底（WebView 浏览播放）。
+      return null;
+    }
+  }
+
+  /// 金果 dplayer data-url（相对路径 + 签名 query）→ 同域代理真实地址。
+  String _resolveJinguodjVideoUrl(String raw, String pageUrl) {
+    var u = raw.trim().replaceAll('&amp;', '&');
+    if (u.startsWith('http://') || u.startsWith('https://')) return u;
+    final qIdx = u.indexOf('?');
+    final path = qIdx >= 0 ? u.substring(0, qIdx) : u;
+    final query = qIdx >= 0 ? u.substring(qIdx) : '';
+    var inner = path;
+    const tag = 'api/h5/m3u8/';
+    if (inner.startsWith(tag)) inner = inner.substring(tag.length);
+    final origin = _originOf(pageUrl) ?? '';
+    return '$origin/api/h5/m3u8/$inner$query';
   }
 
   String? _usernameFromUrl(String url) {
@@ -3222,6 +3320,57 @@ class GenericSiteApi {
           (b) => '$b/zh/page/$p/',
           (b) => '$b/page/$p/',
         ];
+      case 'supjav':
+        // 公开分类形态（未直连实证，2026-10-30）：/zh/category/{slug}/page/N。
+        // 中文/无码两个 slug 来自站点公开 SEO 页面；其余 tagId 落到通用
+        // category 形态，404 时由末位首页兜底。
+        return [
+          if (tagId == 'hot')(b) => '$b/zh/category/chinese-subtitles/page/$p',
+          if (tagId == 'new') (b) => '$b/zh/',
+          if (tagId == 'asian') (b) => '$b/zh/category/uncensored/page/$p',
+          if (tagId == 'best')(b) => '$b/zh/category/uncensored-leaked/page/$p',
+          (b) => '$b/zh/category/$tagId/page/$p',
+          (b) => '$b/zh/',
+        ];
+      case '123av':
+        // 2026-10-30 实证：/en/new?N、/en/hot、/en/censored、/en/uncensored、
+        // /en/uncensored-leaked、/en/tags/{slug}、/en/all?sort=…
+        return [
+          if (tagId == 'new') (b) => '$b/en/new?page=$p',
+          if (tagId == 'hot') (b) => '$b/en/hot?page=$p',
+          if (tagId == 'uncensored') (b) => '$b/en/uncensored?page=$p',
+          if (tagId == 'censored') (b) => '$b/en/censored?page=$p',
+          if (tagId == 'uncensored-leaked')
+            (b) => '$b/en/uncensored-leaked?page=$p',
+          if (tagId == 'asian') (b) => '$b/en/uncensored?page=$p',
+          if (tagId == 'best') (b) => '$b/en/all?sort=week',
+          (b) => '$b/en/tags/$tagId?page=$p',
+          (b) => '$b/en/new?page=$p',
+          (b) => '$b/',
+        ];
+      case 'pornbest':
+        // 按 BestJAVPorn 家族（WordPress JAV 模板）猜写（未实证）。
+        return [
+          if (p == 1) (b) => '$b/',
+          if (tagId == 'new') (b) => '$b/new/page/$p/',
+          if (tagId == 'asian') (b) => '$b/censored/page/$p/',
+          if (tagId == 'best') (b) => '$b/best/page/$p/',
+          if (tagId == 'hot') (b) => '$b/page/$p/',
+          (b) => '$b/page/$p/',
+        ];
+      case 'jinguodj':
+        // 2026-10-30 直连实证：/ai-short（分页 /ai-short/page/N）、
+        // /ai-series、/rank；首页 = hot。
+        return [
+          if (tagId == 'hot') (b) => '$b/',
+          if (tagId == 'short')
+            (b) => p == 1 ? '$b/ai-short' : '$b/ai-short/page/$p',
+          if (tagId == 'series')
+            (b) => p == 1 ? '$b/ai-series' : '$b/ai-series/page/$p',
+          if (tagId == 'rank') (b) => '$b/rank',
+          (b) => p == 1 ? '$b/ai-short' : '$b/ai-short/page/$p',
+          (b) => '$b/',
+        ];
       case 'av01':
         return [
           if (tagId == 'new')
@@ -3468,6 +3617,24 @@ class GenericSiteApi {
           (b) => '$b/zh/search?q=$enc&page=$p',
           (b) => '$b/zh/search/$enc/$p.html',
         ];
+      case 'supjav':
+        // 搜索形态未实证，多路径试探；空结果不致命。
+        return [
+          (b) => '$b/search?keywords=$enc',
+          (b) => '$b/?s=$enc',
+          (b) => '$b/zh/search/$enc',
+        ];
+      case '123av':
+        return [
+          (b) => '$b/en/search?q=$enc&page=$p',
+          (b) => '$b/search?q=$enc&page=$p',
+          (b) => '$b/en/tags/$enc',
+        ];
+      case 'pornbest':
+        return [(b) => '$b/page/$p/?s=$enc', (b) => '$b/?s=$enc&paged=$p'];
+      case 'jinguodj':
+        // 2026-10-30 实证：表单 action=/search，q= 关键词，page= 翻页。
+        return [(b) => '$b/search?q=$enc${p > 1 ? '&page=$p' : ''}'];
       case 'our55':
       case 'xqq88':
         return [
@@ -4116,6 +4283,17 @@ class GenericSiteApi {
       case 'hotsextube':
         // /o.php?cat=&id=&u=<base64url 合作站> 外链卡。
         return h.contains('/o.php?');
+      case 'supjav':
+        // 视频卡 = /{digits}.html（可能带 /zh 前缀目录）。
+        return h.endsWith('.html') && RegExp(r'^/[^/]*\d[^/]*\.html$').hasMatch(h);
+      case '123av':
+        // /en/v/{code} 详情卡；其余值链被通用排除挡掉。
+        return h.contains('/v/');
+      case 'pornbest':
+        return _reJavFamily1.hasMatch(h) || _reJavFamily2.hasMatch(h);
+      case 'jinguodj':
+        // /detail/{slug} 剧集卡（导航里无第二条 detail 形态）。
+        return h.startsWith('/detail/');
       case 'stripchat':
       case 'chaturbate':
         // room username path

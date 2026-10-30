@@ -5,7 +5,38 @@
 
 ---
 
----
+## [2.8.50] - 2026-10-30 - 新增六张站点卡片
+
+### ✨ 新增
+
+1. **恢复两张旧卡片**（解析分支一直保留，2026-10-30 按用户要求恢复入口）：
+   - `7MMTV`（7mmtv.sx，主色 0xFFBF360C，文字标"7"）；
+   - `BestJAVPorn`（bestjavporn.com，含 /zh 中字版，mirrors 已收录）。
+2. **新增 SupJav 卡片**（supjav.com）：本机网络到该站全断，`/zh/category/{slug}/page/N`
+   URL 族按公开 SEO 页面形态补写（chinese-subtitles 实证过搜索结果），详情走
+   通用宽匹配 + iframe 跟随（trembed 型播放器）。
+3. **新增 123AV 卡片**（123av.com）：2026-10-30 实证 feed 结构——
+   `/en/new?page=N`、`/en/hot`、`/en/censored`、`/en/uncensored`、
+   `/en/uncensored-leaked`、`/en/tags/{slug}`；卡 `/en/v/{code}`。
+   专属目录标签集（含无码/有码/未删减流出 + 259LUXU/200GANA 等系列号）。
+4. **新增 PornBest 卡片**（pornbest.org，同网络受限）：按 BestJAVPorn 家族
+   （WordPress JAV 模板）写尝试性分支；解析不准时回退通用宽匹配 +
+   WebView 浏览播放兜底。
+5. **新增禁果短剧卡片**（jinguodj.tv；`d33sfzc2eu7khe.cloudfront.net` 为同源
+   镜像壳）：列表 `/ai-short`、`/ai-series`、`/rank`（分页 `/ai-short/page/N`），
+   详情 `/detail/{slug}`；专用解析链：剧集页 → 第一集 play 页 →
+   `dplayer data-url`（相对 m3u8）→ `/api/h5/m3u8/` 同域代理（200 实证），
+   失败退 WebView 兜底。顶部标签：首页 / 短剧 / 系列 / 榜。
+
+### 🔧 解析增强
+
+6. `GenericSiteApi`：`_listPaths` / `_searchPaths` / `_looksLikeVideoPath`
+   新增 `supjav`、`123av`、`pornbest`、`jinguodj` 四个分支；
+   `_parseJinguodjDetail` + `_resolveJinguodjVideoUrl` 金果短剧专用链路；
+   `longFormPreviewSiteIds` 追加 `supjav`、`123av`、`pornbest`（长片源
+   预览片判定）；标题纠偏列表追加 `123av`（列表页 og:title 误植同 missav）。
+7. `SourceCatalog.all` 顺序：huangguo 后插 jinguodj；jable 后按
+   supjav → 123AV → 7MMTV → BestJAVPorn → PornBest 排列。
 
 ---
 

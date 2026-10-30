@@ -141,6 +141,9 @@ class SourceCatalog {
     'javmix',
     'javgg',
     'bestjavporn',
+    'supjav',
+    '123av',
+    'pornbest',
     'langmei',
     'yaofafa',
   };
@@ -1147,7 +1150,8 @@ class SourceCatalog {
 
   // Removed from catalog (unstable / blocked for most users):
   // eporner, freeporn, spankbang, youporn, redtube, javmix, javgg,
-  // av01, missav, 7mmtv, bestjavporn.
+  // av01, missav.
+  // 两站 7mmtv / bestjavporn 2026-10-30 按用户要求恢复（解析分支一直保留）。
 
   static const tnaflix = SiteDef(
     id: 'tnaflix',
@@ -1780,18 +1784,185 @@ class SourceCatalog {
     directoryTags: chaturbateDirectoryTags,
   );
 
+  /// SupJav（supjav.com）：JAV 聚合长片站。本机到 supjav.com 网络全断
+  /// （2026-10-30 实测），URL 族仅按公开分类形态补写
+  /// （/zh/category/{slug}/page/N，tag 页 /tag/{slug}）：
+  /// 详情走通用宽匹配 + iframe 跟随（trembed 型播放器）。
+  static const supjav = SiteDef(
+    id: 'supjav',
+    name: 'SupJav',
+    kind: SiteKind.video,
+    color: 0xFFFF6F00,
+    letter: 'S',
+    ready: true,
+    mirrors: [
+      'https://supjav.com',
+      'https://www.supjav.com',
+    ],
+    tags: vodTags,
+    directoryTags: vodDirectoryTags,
+  );
+
+  /// 123AV（123av.com）：SSR JAV 站。2026-10-30 实证 feed 结构：
+  /// /en/new?page=N、/en/hot、/en/censored、/en/uncensored、
+  /// /en/uncensored-leaked、/en/all?sort=today|week|month、
+  /// /en/tags/{slug}；卡 /en/v/{slug}（code 含 uncensored-leaked 后缀）。
+  static const av123GenresTags = <SiteTag>[
+    SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
+    SiteTag(id: 'hot', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
+    SiteTag(id: 'censored', label: '\u6709\u7801', icon: Icons.hd_outlined, iconSelected: Icons.hd),
+    SiteTag(id: 'uncensored', label: '\u65e0\u7801', icon: Icons.visibility_off_outlined, iconSelected: Icons.visibility_off),
+    SiteTag(id: 'uncensored-leaked', label: '\u65e0\u7801\u6d41\u51fa', icon: Icons.lock_open_outlined, iconSelected: Icons.lock_open),
+    SiteTag(id: '259luxu', label: '259LUXU', icon: Icons.movie_outlined, iconSelected: Icons.movie),
+    SiteTag(id: '200gana', label: '200GANA', icon: Icons.movie_outlined, iconSelected: Icons.movie),
+    SiteTag(id: '230oreco', label: '230ORECO', icon: Icons.movie_outlined, iconSelected: Icons.movie),
+    SiteTag(id: '390jac', label: '390JAC', icon: Icons.movie_outlined, iconSelected: Icons.movie),
+    SiteTag(id: 'siro', label: 'SIRO', icon: Icons.movie_outlined, iconSelected: Icons.movie),
+    SiteTag(id: 'prestige-premium', label: 'Prestige', icon: Icons.star_outline, iconSelected: Icons.star),
+  ];
+
+  static const av123 = SiteDef(
+    id: '123av',
+    name: '123AV',
+    kind: SiteKind.video,
+    color: 0xFF37474F,
+    letter: '1',
+    ready: true,
+    mirrors: [
+      'https://123av.com',
+    ],
+    tags: vodTags,
+    directoryTags: av123GenresTags,
+  );
+
+  /// 7MMTV（7mmtv.sx）：日本系长片源。旧卡片曾被移出目录
+  /// （unstable / blocked for most users），解析分支在 GenericSiteApi
+  /// 一直保留，2026-10-30 按用户要求恢复入口。
+  static const mmtv7 = SiteDef(
+    id: '7mmtv',
+    name: '7MMTV',
+    kind: SiteKind.video,
+    color: 0xFFBF360C,
+    letter: '7',
+    ready: true,
+    mirrors: [
+      'https://7mmtv.sx',
+      'https://www.7mmtv.sx',
+      'https://7mmtv.tv',
+      'https://7mmtv.com',
+      'https://www.7mmtv.me',
+    ],
+    tags: vodTags,
+    directoryTags: vodDirectoryTags,
+  );
+
+  /// BestJAVPorn（bestjavporn.com，中字版 /zh）：同上恢复入口。
+  static const bestjavporn = SiteDef(
+    id: 'bestjavporn',
+    name: 'BestJAVPorn',
+    kind: SiteKind.video,
+    color: 0xFF33691E,
+    letter: 'B',
+    ready: true,
+    mirrors: [
+      'https://www.bestjavporn.com',
+      'https://bestjavporn.com',
+      'https://www.bestjavporn.com/zh',
+    ],
+    tags: vodTags,
+    directoryTags: vodDirectoryTags,
+  );
+
+  /// PornBest（pornbest.org）：本机网络同样无法直连（2026-10-30 实测），
+  /// 按 BestJAVPorn 家族（WordPress JAV 模板）写尝试性分支；解析不准时
+  /// 回退通用宽匹配 + WebView 浏览播放。
+  static const pornbest = SiteDef(
+    id: 'pornbest',
+    name: 'PornBest',
+    kind: SiteKind.video,
+    color: 0xFF00838F,
+    letter: 'P',
+    ready: true,
+    mirrors: [
+      'https://www.pornbest.org',
+      'https://pornbest.org',
+    ],
+    tags: vodTags,
+    directoryTags: vodDirectoryTags,
+  );
+
+  /// 金果短剧（jinguodj.tv；d33sfzc2eu7khe.cloudfront.net 为同源镜像壳）。
+  /// 2026-10-30 直连实证：列表 /ai-short、/ai-series、/rank（分页
+  /// /ai-short/page/N）；详情 /detail/{slug} → 播放页 /play/{slug}/N 的
+  /// dplayer data-url（相对 m3u8）→ /api/h5/m3u8/ 同域代理 200。
+  /// 免费集才可取流；付费集 data-coin-dialog-open 只给 WebView 兜底。
+  static const jinguodjTags = <SiteTag>[
+    SiteTag(
+      id: 'hot',
+      label: '\u9996\u9875',
+      icon: Icons.home_outlined,
+      iconSelected: Icons.home,
+    ),
+    SiteTag(
+      id: 'short',
+      label: '\u77ed\u5267',
+      icon: Icons.movie_outlined,
+      iconSelected: Icons.movie,
+    ),
+    SiteTag(
+      id: 'series',
+      label: '\u7cfb\u5217',
+      icon: Icons.video_library_outlined,
+      iconSelected: Icons.video_library,
+    ),
+    SiteTag(
+      id: 'rank',
+      label: '\u699c',
+      icon: Icons.emoji_events_outlined,
+      iconSelected: Icons.emoji_events,
+    ),
+  ];
+
+  static const jinguodjDirectoryTags = <SiteTag>[
+    SiteTag(id: 'hot', label: '\u9996\u9875', icon: Icons.home_outlined, iconSelected: Icons.home),
+    SiteTag(id: 'short', label: 'AI\u77ed\u5267', icon: Icons.movie_outlined, iconSelected: Icons.movie),
+    SiteTag(id: 'series', label: 'AI\u7cfb\u5217', icon: Icons.video_library_outlined, iconSelected: Icons.video_library),
+    SiteTag(id: 'rank', label: '\u6392\u884c', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
+  ];
+
+  static const jinguodj = SiteDef(
+    id: 'jinguodj',
+    name: '\u7981\u679c\u77ed\u5267',
+    kind: SiteKind.video,
+    color: 0xFFE64A19,
+    letter: 'J',
+    ready: true,
+    mirrors: [
+      'https://d33sfzc2eu7khe.cloudfront.net',
+      'https://jinguodj.tv',
+    ],
+    tags: jinguodjTags,
+    directoryTags: jinguodjDirectoryTags,
+  );
+
   static const all = <SiteDef>[
     pornhub,
     xvideos,
     // mitao 已按用户要求从卡片列表移除（2026-09）：SiteDef 保留供
     // customFromUrl 的 'mitao' 解析器复用，但不再出现在任何卡片里。
     huangguo,
+    jinguodj,
     langmei,
     yaofafa,
     xnxx,
     xhamster,
     tnaflix,
     jable,
+    supjav,
+    av123,
+    mmtv7,
+    bestjavporn,
+    pornbest,
     ixxx,
     fuq,
     qorno,

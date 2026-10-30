@@ -725,6 +725,14 @@ void main() {
       'xhamster',
       'tnaflix',
       'jable',
+      // 7mmtv / bestjavporn：2026-10-30 按用户要求恢复卡片（解析分支
+      // 一直保留），必须回到默认启用列表。
+      '7mmtv',
+      'bestjavporn',
+      'supjav',
+      '123av',
+      'pornbest',
+      'jinguodj',
       'ixxx',
       'fuq',
       'qorno',
@@ -744,8 +752,6 @@ void main() {
       'javgg',
       'av01',
       'missav',
-      '7mmtv',
-      'bestjavporn',
       'our55',
       'xqq88',
     ]) {

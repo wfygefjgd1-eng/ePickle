@@ -37,6 +37,8 @@
    预览片判定）；标题纠偏列表追加 `123av`（列表页 og:title 误植同 missav）。
 7. `SourceCatalog.all` 顺序：huangguo 后插 jinguodj；jable 后按
    supjav → 123AV → 7MMTV → BestJAVPorn → PornBest 排列。
+8. 首页点播卡片默认只直出前 8 个，其余折叠进「展开更多点播站点」行，
+   点击展开/收起（不足 8 个时不渲染折叠行；直播区不变）。
 
 ---
 

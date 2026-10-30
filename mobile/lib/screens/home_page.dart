@@ -48,6 +48,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// 抓取同一批列表/详情。
   int _prewarmRun = 0;
 
+  /// 点播卡片默认只直出前 8 个，其余折叠进「展开更多」（会话内记忆，
+  /// 不持久化——每次进首页回到默认收起态）。
+  static const int _videoPreviewCount = 8;
+  bool _videoExpanded = false;
+
   @override
   void initState() {
     super.initState();
@@ -372,6 +377,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final sites = layout.enabledVideoSites;
     final lives = layout.enabledLiveSites;
     final live = layout.liveSite ?? SourceCatalog.chaturbate;
+    // 点播区默认直出前 8 个，其余折进展开行；不足 8 个时不渲染折叠行。
+    final videoCanFold = sites.length > _videoPreviewCount;
+    final videoSites = (videoCanFold && !_videoExpanded)
+        ? sites.take(_videoPreviewCount)
+        : sites;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -406,7 +416,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   builder: (context, _, __) => ListView(
                     padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
                     children: [
-                      for (final s in sites)
+                      for (final s in videoSites)
                         _SwipeSiteTile(
                           site: s,
                           onTap: () => _openSite(s),
@@ -418,6 +428,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     : null),
                           down: MirrorRanker.instance.isSiteDown(s),
                           onLongPress: () => _showMirrorOverrideDialog(s),
+                        ),
+                      if (videoCanFold)
+                        _SiteFoldTile(
+                          expanded: _videoExpanded,
+                          restCount: sites.length - _videoPreviewCount,
+                          onTap: () =>
+                              setState(() => _videoExpanded = !_videoExpanded),
                         ),
                       if (lives.isNotEmpty) ...[
                         const Padding(
@@ -747,6 +764,58 @@ class _SwipeSiteTile extends StatelessWidget {
       },
       onDismissed: (_) => onDelete(),
       child: tile,
+    );
+  }
+}
+
+/// 点播区的「展开更多 / 收起」行：与站点卡同一圆角卡片风，但更矮，
+/// 居中一行文字 + 展开箭头；不足或已展开到底时由调用方决定是否渲染。
+class _SiteFoldTile extends StatelessWidget {
+  const _SiteFoldTile({
+    required this.expanded,
+    required this.restCount,
+    required this.onTap,
+  });
+
+  final bool expanded;
+  final int restCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: const Color(0xFF2A2A2A),
+      margin: const EdgeInsets.only(bottom: 6),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: SizedBox(
+        height: 44,
+        child: Center(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    expanded
+                        ? '收起点播站点'
+                        : '展开更多点播站点（还有 $restCount 个）',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(
+                    expanded ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.white54,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -42,6 +42,10 @@ class GenericSiteApi {
   static final _reMissavTail = RegExp(r'/(dm\d+/)?[a-z0-9-]+/?$');
   static final _reJavFamily1 = RegExp(r'/(jav|video|movie|watch)/');
   static final _reJavFamily2 = RegExp(r'/[a-z]{2,10}-?\d{2,5}');
+  // PornBest 分类标签 id（'c23' / 'c9' …）→ 路径 /c/{id}?page=N。
+  static final _rePbCategory = RegExp(r'^c\d+$');
+  // PornBest 视频卡 = /{纯数字别名}（2026-10-30 实证 /793507 等 47 卡）。
+  static final _rePbVideoPath = RegExp(r'^/\d{4,7}$');
   static final _re7mmtvContent = RegExp(r'chinese_content/\d+/');
   static final _re7mmtvHtml = RegExp(r'_\d+\.html');
   static final _reSpankVideo1 = RegExp(r'/[a-z0-9-]+/video/');
@@ -3321,15 +3325,11 @@ class GenericSiteApi {
           (b) => '$b/page/$p/',
         ];
       case 'supjav':
-        // 公开分类形态（未直连实证，2026-10-30）：/zh/category/{slug}/page/N。
-        // 中文/无码两个 slug 来自站点公开 SEO 页面；其余 tagId 落到通用
-        // category 形态，404 时由末位首页兜底。
+        // CF JS 挑战站：每个候选失败都会触发一次 WebView 渲染（约
+        // 5-10s），候选必须压到最少——失败一次就退 /zh/ 首页兜底。
         return [
-          if (tagId == 'hot')(b) => '$b/zh/category/chinese-subtitles/page/$p',
-          if (tagId == 'new') (b) => '$b/zh/',
-          if (tagId == 'asian') (b) => '$b/zh/category/uncensored/page/$p',
-          if (tagId == 'best')(b) => '$b/zh/category/uncensored-leaked/page/$p',
-          (b) => '$b/zh/category/$tagId/page/$p',
+          if (tagId == 'hot')
+            (b) => '$b/zh/category/chinese-subtitles/page/$p',
           (b) => '$b/zh/',
         ];
       case '123av':
@@ -3349,14 +3349,16 @@ class GenericSiteApi {
           (b) => '$b/',
         ];
       case 'pornbest':
-        // 按 BestJAVPorn 家族（WordPress JAV 模板）猜写（未实证）。
+        // 2026-10-30 实证（SSR、pttptt Vue 家族）：列表 /?page=N、
+        // 排序 ?sort=hits、分类 /c/{id}?page=N（可再叠 &sort=hits）。
+        // 旧按 JAV 家族猜的 /new /censored /best/page/N 全是 404。
         return [
-          if (p == 1) (b) => '$b/',
-          if (tagId == 'new') (b) => '$b/new/page/$p/',
-          if (tagId == 'asian') (b) => '$b/censored/page/$p/',
-          if (tagId == 'best') (b) => '$b/best/page/$p/',
-          if (tagId == 'hot') (b) => '$b/page/$p/',
-          (b) => '$b/page/$p/',
+          if (tagId == 'hot' || tagId == 'best')
+            (b) => '$b/?page=$p&sort=hits',
+          if (tagId == 'new') (b) => '$b/?page=$p',
+          if (tagId == 'asian') (b) => '$b/c/23?page=$p',
+          if (_rePbCategory.hasMatch(tagId)) (b) => '$b/$tagId?page=$p',
+          (b) => '$b/?page=$p',
         ];
       case 'jinguodj':
         // 2026-10-30 直连实证：/ai-short（分页 /ai-short/page/N）、
@@ -3618,12 +3620,8 @@ class GenericSiteApi {
           (b) => '$b/zh/search/$enc/$p.html',
         ];
       case 'supjav':
-        // 搜索形态未实证，多路径试探；空结果不致命。
-        return [
-          (b) => '$b/search?keywords=$enc',
-          (b) => '$b/?s=$enc',
-          (b) => '$b/zh/search/$enc',
-        ];
+        // 搜索形态未实证，双路径试探；页面是 CF 挑战时走 WebView 兜底。
+        return [(b) => '$b/search?keywords=$enc', (b) => '$b/?s=$enc'];
       case '123av':
         return [
           (b) => '$b/en/search?q=$enc&page=$p',
@@ -3631,7 +3629,9 @@ class GenericSiteApi {
           (b) => '$b/en/tags/$enc',
         ];
       case 'pornbest':
-        return [(b) => '$b/page/$p/?s=$enc', (b) => '$b/?s=$enc&paged=$p'];
+        // 2026-10-30 实证：表单 action=/node/search，title= 关键词。
+        // 搜索页无静态卡（Vue 水合），静态解析失败会走 WebView 渲染兜底。
+        return [(b) => '$b/node/search?title=$enc'];
       case 'jinguodj':
         // 2026-10-30 实证：表单 action=/search，q= 关键词，page= 翻页。
         return [(b) => '$b/search?q=$enc${p > 1 ? '&page=$p' : ''}'];
@@ -4290,7 +4290,9 @@ class GenericSiteApi {
         // /en/v/{code} 详情卡；其余值链被通用排除挡掉。
         return h.contains('/v/');
       case 'pornbest':
-        return _reJavFamily1.hasMatch(h) || _reJavFamily2.hasMatch(h);
+        // 2026-10-30 实证：卡是 /{纯数字}（/793507…）；旧 JAV 家族正则
+        // (jav|video|movie|watch)+/xx-123 全不匹配真实卡 → 只剩一张杂链。
+        return _rePbVideoPath.hasMatch(h);
       case 'jinguodj':
         // /detail/{slug} 剧集卡（导航里无第二条 detail 形态）。
         return h.startsWith('/detail/');

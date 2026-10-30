@@ -1784,10 +1784,12 @@ class SourceCatalog {
     directoryTags: chaturbateDirectoryTags,
   );
 
-  /// SupJav（supjav.com）：JAV 聚合长片站。本机到 supjav.com 网络全断
-  /// （2026-10-30 实测），URL 族仅按公开分类形态补写
-  /// （/zh/category/{slug}/page/N，tag 页 /tag/{slug}）：
-  /// 详情走通用宽匹配 + iframe 跟随（trembed 型播放器）。
+  /// SupJav（supjav.com）：JAV 聚合长片站。本机到 supjav.com 走 GFW
+  /// DNS 污染，代理实测为 Cloudflare JS 挑战（curl 可达 403 壳），
+  /// 页面本体只能靠 App 的 WebView 渲染链路（nativeRender）取得。
+  /// 公开 SEO 实证的 URL 族：/zh/、/zh/category/{slug}/page/N（其中
+  /// chinese-subtitles 见于搜索结果）。标签按可辩护最小集收录，
+  /// 路径候选越少，16s feed 预算越配得起 CF 挑战的两次渲染。
   static const supjav = SiteDef(
     id: 'supjav',
     name: 'SupJav',
@@ -1800,7 +1802,26 @@ class SourceCatalog {
       'https://www.supjav.com',
     ],
     tags: vodTags,
-    directoryTags: vodDirectoryTags,
+    directoryTags: <SiteTag>[
+      SiteTag(
+        id: 'new',
+        label: '\u6700\u65b0',
+        icon: Icons.fiber_new_outlined,
+        iconSelected: Icons.fiber_new,
+      ),
+      SiteTag(
+        id: 'hot',
+        label: '\u4e2d\u5b57',
+        icon: Icons.subtitles_outlined,
+        iconSelected: Icons.subtitles,
+      ),
+      SiteTag(
+        id: 'uncensored',
+        label: '\u65e0\u7801',
+        icon: Icons.hd_outlined,
+        iconSelected: Icons.hd,
+      ),
+    ],
   );
 
   /// 123AV（123av.com）：SSR JAV 站。2026-10-30 实证 feed 结构：
@@ -1873,9 +1894,79 @@ class SourceCatalog {
     directoryTags: vodDirectoryTags,
   );
 
-  /// PornBest（pornbest.org）：本机网络同样无法直连（2026-10-30 实测），
-  /// 按 BestJAVPorn 家族（WordPress JAV 模板）写尝试性分支；解析不准时
-  /// 回退通用宽匹配 + WebView 浏览播放。
+  /// PornBest（pornbest.org）：2026-10-30 经代理+PoW 实证（SSR 站、
+  /// pttptt 家族 Vue 模板）：列表 /?page=N（排序 ?sort=hits）、分类
+  /// /c/{id}?page=N、搜索 /node/search?title=、卡 /{纯数字}（→ 详情页
+  /// JSON-LD contentUrl 直接给 m3u8）。域名于本机被 SNI 阻断，以下为
+  /// 真站实抓校准而非猜测。
+  static const pornbestTags = <SiteTag>[
+    SiteTag(
+      id: 'hot',
+      label: '\u70ed',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: 'new',
+      label: '\u65b0',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'c23',
+      label: '\u7121\u78bc',
+      icon: Icons.movie_filter_outlined,
+      iconSelected: Icons.movie_filter,
+    ),
+    SiteTag(
+      id: 'c9',
+      label: '\u4e2d\u5b57',
+      icon: Icons.subtitles_outlined,
+      iconSelected: Icons.subtitles,
+    ),
+    SiteTag(
+      id: 'c25',
+      label: '\u6b50\u7f8e',
+      icon: Icons.public_outlined,
+      iconSelected: Icons.public,
+    ),
+    SiteTag(
+      id: 'c64',
+      label: '\u5de8\u4e73',
+      icon: Icons.favorite_border,
+      iconSelected: Icons.favorite,
+    ),
+    SiteTag(
+      id: 'c113',
+      label: '\u5c08\u533a',
+      icon: Icons.hd_outlined,
+      iconSelected: Icons.hd,
+    ),
+    SiteTag(
+      id: 'c78',
+      label: '\u5973\u4f18',
+      icon: Icons.face_outlined,
+      iconSelected: Icons.face,
+    ),
+  ];
+
+  static const pornbestDirectoryTags = <SiteTag>[
+    SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
+    SiteTag(id: 'hot', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
+    SiteTag(id: 'c23', label: '\u65e5\u672c\u7121\u78bc', icon: Icons.movie_filter_outlined, iconSelected: Icons.movie_filter),
+    SiteTag(id: 'c9', label: '\u4e2d\u6587\u5b57\u5e55', icon: Icons.subtitles_outlined, iconSelected: Icons.subtitles),
+    SiteTag(id: 'c25', label: '\u6b50\u7f8e\u7cbe\u54c1', icon: Icons.public_outlined, iconSelected: Icons.public),
+    SiteTag(id: 'c82', label: '\u65e5\u97d3\u7121\u78bc', icon: Icons.travel_explore_outlined, iconSelected: Icons.travel_explore),
+    SiteTag(id: 'c78', label: 'AV\u660e\u661f', icon: Icons.face_outlined, iconSelected: Icons.face),
+    SiteTag(id: 'c31', label: '\u5236\u670d\u8a98\u60d1', icon: Icons.style_outlined, iconSelected: Icons.style),
+    SiteTag(id: 'c113', label: '\u7121\u78bc\u5c08\u5340', icon: Icons.hd_outlined, iconSelected: Icons.hd),
+    SiteTag(id: 'c64', label: '\u5de8\u4e73\u7f8e\u4e73', icon: Icons.favorite_border, iconSelected: Icons.favorite),
+    SiteTag(id: 'c24', label: '\u65e5\u672c\u6709\u78bc', icon: Icons.videocam_outlined, iconSelected: Icons.videocam),
+    SiteTag(id: 'c8', label: '\u9ad8\u6e05\u7121\u78bc', icon: Icons.tv_outlined, iconSelected: Icons.tv),
+    SiteTag(id: 'c440', label: '\u7121\u78bc\u6d41\u51fa', icon: Icons.lock_open_outlined, iconSelected: Icons.lock_open),
+    SiteTag(id: 'c100', label: 'SWAG', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+  ];
+
   static const pornbest = SiteDef(
     id: 'pornbest',
     name: 'PornBest',
@@ -1887,8 +1978,8 @@ class SourceCatalog {
       'https://www.pornbest.org',
       'https://pornbest.org',
     ],
-    tags: vodTags,
-    directoryTags: vodDirectoryTags,
+    tags: pornbestTags,
+    directoryTags: pornbestDirectoryTags,
   );
 
   /// 金果短剧（jinguodj.tv；d33sfzc2eu7khe.cloudfront.net 为同源镜像壳）。

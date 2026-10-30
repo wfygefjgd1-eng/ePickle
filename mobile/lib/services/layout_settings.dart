@@ -23,7 +23,10 @@ class LayoutSettings extends ChangeNotifier {
   // v18（2026-10-28）：修复 FuQ / Qorno 标签隧道错用 iXXX 的 /zh/c/ 路径
   // （所有标签回跳首页同内容）→ 独立 /category/{slug} 路径 + 各自全新标签
   // 集聚合站推广卡过滤（iXXX 付费站落地页不再进货架）。
-  static const _catalogVer = 18;
+  // v19（2026-10-30）：新增六张卡片（禁果短剧 / SupJav / 123AV / PornBest /
+  // 7MMTV 恢复 / BestJAVPorn 恢复）。2.8.50 发版时漏了这次迁移——老设备
+  // 沿用旧启用列表，新卡全部被挡、手动"恢复默认布局"才肯出来。
+  static const _catalogVer = 19;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);

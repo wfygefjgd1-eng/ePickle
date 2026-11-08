@@ -289,7 +289,7 @@ jobs:
 
           ## 更新说明 (v${VER})
 
-          请参阅仓库 CHANGELOG.md 与 RELEASE_NOTES 获取本次更新内容。
+          请参阅仓库 CHANGELOG.md 获取本次更新内容。
 
           ## 使用
           - 需系统 VPN 访问源站

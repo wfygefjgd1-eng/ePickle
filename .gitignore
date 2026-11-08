@@ -29,3 +29,11 @@ mobile/ios/Flutter/Generated.xcconfig
 mobile/ios/Flutter/ephemeral/
 
 mobile/android/build/
+
+# 一次性构建产物 / 本地试验资料
+build_output/
+vadtest/
+backups/
+*.ipa
+mobile/room.html
+mobile/roomlist.json

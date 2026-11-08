@@ -5,6 +5,22 @@
 
 ---
 
+## [2.8.53] - 2026-11-08 - 仓库/依赖瘦身（无功能变化）
+
+### 🧹 瘦身
+
+1. **移除未使用依赖**：`url_launcher`、`share_plus` 代码中零引用，删除后减小
+   插件原生代码与 AndroidX 依赖体积，APK/IPA 相应瘦身。
+2. **仓库清理**：删除旧 IPA 产物（根目录与 `build_output/`）、一次性报告文档
+   （`RELEASE_NOTES_v*`、`FINAL_REPORT`、`PUBLISH_STATUS` 等）、老桌面脚本
+   （`phub_gui.py`/`phub_gui_v1.py`，入口仍为 `phub_gui_v2.py`）、重复的
+   iOS 临时构建 workflow（功能由 `release-build.yml` 全量覆盖）。
+3. **功能零删减**：站点、播放器、字幕翻译、下载管理、布局等所有能力保持不变；
+   Android 端 R8/资源收缩、iOS 端 arm64 瘦身与既有稳定配置（关闭 Impeller）
+   保持原样，流畅度不受影响。
+
+---
+
 ## [2.8.52] - 2026-11-08 - 黄果迁移修复 + 禁果专用短剧页
 
 ### 🐛 修复

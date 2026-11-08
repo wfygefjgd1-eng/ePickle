@@ -94,7 +94,9 @@ jobs:
   ios:
     needs: quality
     if: ${{ github.event_name == 'push' || github.event.inputs.platforms != 'android' }}
-    runs-on: macos-14
+    # macos-14（ARM64）已被 GitHub 于 2026-11-02 全面下线，改用受支持的
+    # macos-15（ARM64，Xcode 16）镜像。
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7

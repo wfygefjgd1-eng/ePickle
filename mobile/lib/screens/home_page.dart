@@ -124,8 +124,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (_navLock) return;
     _navLock = true;
     try {
-      if (site.id == 'huangguo' || site.id == 'jinguodj') {
-        // 黄果/禁果站内入口：网页版卡片网格页（无底部 Tab），点卡片进播放器。
+      if (site.id == 'huangguo') {
+        // 黄果站内入口：网页版卡片网格页（无底部 Tab），点卡片进播放器。
         await Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => HuangGuoWebPage(site: site)),
         );
@@ -289,11 +289,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final low = item.url.toLowerCase();
     try {
       final Future<VideoDetail> fetch;
-      if (low.contains('huangguoai') ||
-          low.contains('gitiecgad.cc') ||
-          low.contains('jinguodj') ||
-          low.contains('d33sfzc2eu7khe')) {
-        // 黄果/禁果 detail/episode flow lives in HuangGuoWebPage — skip.
+      if (low.contains('huangguoai') || low.contains('gitiecgad.cc')) {
+        // 黄果 detail/episode flow lives in HuangGuoWebPage — skip.
         return null;
       } else if (low.contains('xvideos.com') || low.contains('xvideos.es')) {
         fetch = context.read<XvideosApi>().getVideoDetail(item.url);
@@ -356,8 +353,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       case 'mitao':
         return context.read<MitaoApi>().fetchZhong(limit: 12, maxPages: 2);
       case 'huangguo':
-      case 'jinguodj':
-        // 黄果/禁果 opens HuangGuoWebPage, which does not consume
+        // 黄果 opens HuangGuoWebPage, which does not consume
         // FeedListCache — skip prewarm so we never spend network on a cache
         // nobody reads.
         return Future.value(const <VideoItem>[]);

@@ -26,6 +26,9 @@ class LayoutSettings extends ChangeNotifier {
   // v19（2026-10-30）：新增六张卡片（禁果短剧 / SupJav / 123AV / PornBest /
   // 7MMTV 恢复 / BestJAVPorn 恢复）。2.8.50 发版时漏了这次迁移——老设备
   // 沿用旧启用列表，新卡全部被挡、手动"恢复默认布局"才肯出来。
+  // 禁果短剧已按用户要求移除（2026-11，金币墙内容过多）：不需要 catalogVer
+  // 迁移，load() 里启用列表按 byId 过滤，旧安装残留的 'jinguodj' 会被自然
+  // 丢弃；卡片从目录消失（未 bump 版本号，避免重置用户自定义布局）。
   static const _catalogVer = 19;
 
   List<String> _enabledVideoIds =

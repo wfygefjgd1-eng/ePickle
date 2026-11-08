@@ -12,7 +12,6 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/video_item.dart';
 import '../services/generic_site_api.dart';
 import '../services/huangguo_api.dart';
-import '../services/jinguo_api.dart';
 import '../services/langmei_api.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
@@ -31,12 +30,11 @@ import '../widgets/player_settings_sheet.dart';
 import '../widgets/stripchat_live_view.dart';
 
 /// Which backend to use for detail / headers.
-enum SearchSource { ph, x, zhong, huangguo, jinguodj, langmei, generic }
+enum SearchSource { ph, x, zhong, huangguo, langmei, generic }
 
 extension ShortDramaSource on SearchSource {
-  /// 黄果/禁果都是「整部剧卡片 → 选集连播」的短剧源。
-  bool get isShortDrama =>
-      this == SearchSource.huangguo || this == SearchSource.jinguodj;
+  /// 黄果是「整部剧卡片 → 选集连播」的短剧源。
+  bool get isShortDrama => this == SearchSource.huangguo;
 }
 
 /// Vertical swipe player for search results.
@@ -202,15 +200,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           pageUrl: 'https://www.pornhub.com',
         );
       case SearchSource.huangguo:
-      case SearchSource.jinguodj:
         final s = widget.site;
-        final base = widget.source == SearchSource.huangguo
-            ? (_settings?.huangguoDomain ??
-                    s?.primaryHost ??
-                    HuangGuoApi.defaultBase)
-                .replaceAll(RegExp(r'/$'), '')
-            : (s?.primaryHost ?? JinGuoApi.defaultBase)
-                .replaceAll(RegExp(r'/$'), '');
+        final base = (_settings?.huangguoDomain ??
+                s?.primaryHost ??
+                HuangGuoApi.defaultBase)
+            .replaceAll(RegExp(r'/$'), '');
         return {
           ...AppHttpHeaders.forMediaUrl(null, pageUrl: base),
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
@@ -752,7 +746,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       case SearchSource.zhong:
         return context.read<MitaoApi>().getVideoDetail(url);
       case SearchSource.huangguo:
-      case SearchSource.jinguodj:
         // 剧集条目已带直接播放地址，跳过详情抓取。
         final direct = item?.directUrl;
         if (direct != null && direct.isNotEmpty) {
@@ -773,9 +766,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
             ),
           );
         }
-        return widget.source == SearchSource.jinguodj
-            ? context.read<JinGuoApi>().getVideoDetail(url)
-            : context.read<HuangGuoApi>().getVideoDetail(url);
+        return context.read<HuangGuoApi>().getVideoDetail(url);
       case SearchSource.langmei:
         // 条目已带直接播放地址时跳过详情（与黄果同款快路径）。
         final lmDirect = item?.directUrl;
@@ -1477,7 +1468,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
   }
 
-  /// 黄果/禁果短剧是“整部剧”而非单个视频：详情抓取到集列表后，
+  /// 黄果短剧是"整部剧"而非单个视频：详情抓取到集列表后，
   /// 把 2..N 集插入当前条目之后，使上滑按 1,2,3… 顺序播放。
   void _maybeExpandSeries(VideoItem item, int index) {
     if (!widget.source.isShortDrama) return;
@@ -1485,9 +1476,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (index < 0 || index >= _items.length) return;
     if (_items[index].url != item.url) return;
     if (!_expandedSeries.add(item.url)) return;
-    final episodes = widget.source == SearchSource.jinguodj
-        ? context.read<JinGuoApi>().episodesFor(item.url)
-        : context.read<HuangGuoApi>().episodesFor(item.url);
+    final episodes = context.read<HuangGuoApi>().episodesFor(item.url);
     if (episodes == null || episodes.length < 2) {
       _expandedSeries.remove(item.url);
       return;

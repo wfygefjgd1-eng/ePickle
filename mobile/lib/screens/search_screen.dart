@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import '../models/video_item.dart';
 import '../services/generic_site_api.dart';
 import '../services/huangguo_api.dart';
-import '../services/jinguo_api.dart';
 import '../services/langmei_api.dart';
 import '../services/layout_settings.dart';
 import '../services/mitao_api.dart';
@@ -121,7 +120,6 @@ class _SearchScreenState extends State<SearchScreen> {
     for (final site in sites) {
       final query = (site.id == 'mitao' ||
               site.id == 'huangguo' ||
-              site.id == 'jinguodj' ||
               site.id == 'langmei' ||
               site.id == 'yaofafa')
           ? q
@@ -143,9 +141,6 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     if (site.id == 'huangguo') {
       return context.read<HuangGuoApi>().search(query, page: page);
-    }
-    if (site.id == 'jinguodj') {
-      return context.read<JinGuoApi>().search(query, page: page);
     }
     if (site.isLangmeiParser) {
       return context.read<LangmeiApi>().search(site, query, page: page);
@@ -208,8 +203,8 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_hasMore[id] == false) return;
     final next = (_page[id] ?? 1) + 1;
     final q = site.id == 'mitao' ? _lastQuery : (_enQuery ?? _lastQuery);
-    if (site.id == 'huangguo' || site.id == 'jinguodj') {
-      // 黄果/禁果为中文站，搜索词保持原样。
+    if (site.id == 'huangguo') {
+      // 黄果为中文站，搜索词保持原样。
       await _searchOne(site, _lastQuery, next, replace: false, gen: _searchGen);
       return;
     }
@@ -230,7 +225,6 @@ class _SearchScreenState extends State<SearchScreen> {
             'mitao' => SearchSource.zhong,
             'pornhub' => SearchSource.ph,
             'huangguo' => SearchSource.huangguo,
-            'jinguodj' => SearchSource.jinguodj,
             _ => SearchSource.generic,
           };
     _navLock = true;
@@ -542,9 +536,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   backgroundColor: const Color(0xFFFF6B35),
                 ),
                 onPressed: () {
-                  final q = (site.id == 'mitao' ||
-                          site.id == 'huangguo' ||
-                          site.id == 'jinguodj')
+                  final q = (site.id == 'mitao' || site.id == 'huangguo')
                       ? _lastQuery
                       : (_enQuery ?? _lastQuery);
                   if (q.isEmpty) {

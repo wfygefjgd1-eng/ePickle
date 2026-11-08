@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 
 import '../models/video_item.dart';
 import '../services/huangguo_api.dart';
-import '../services/jinguo_api.dart';
 import '../services/short_drama_api.dart';
 import '../services/source_catalog.dart';
 import '../utils/hg_cover_log.dart';
@@ -15,9 +14,9 @@ import '../utils/native_browser_http.dart';
 import '../utils/playback_helpers.dart';
 import 'search_feed_screen.dart';
 
-/// 短剧站内入口（黄果/禁果共用）：仿站点 web 移动端样式
+/// 黄果短剧站内入口：仿站点 web 移动端样式
 /// （卡片网格 + 频道导航 + 分页），无底部 Tab 栏，点卡片进入既有播放器；
-/// [topicPath] 非空时直接进入专题/分类列表页。
+/// [topicPath] 非空时直接进入专题列表页。
 class HuangGuoWebPage extends StatefulWidget {
   const HuangGuoWebPage({
     super.key,
@@ -51,21 +50,11 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     ('topics', '专题'),
     ('rank', '排行榜'),
   ];
-  static const _jinguoChannels = <(String, String)>[
-    ('hot', '首页'),
-    ('short', '短剧'),
-    ('series', '系列'),
-    ('rank', '榜'),
-  ];
 
-  bool get _isJinGuo => widget.site.id == 'jinguodj';
-  Color get _primary =>
-      _isJinGuo ? const Color(0xFFE64A19) : const Color(0xFFFFD21C);
-  List<(String, String)> get _channels =>
-      _isJinGuo ? _jinguoChannels : _huangguoChannels;
-  String get _siteTitle => _isJinGuo ? '禁果短剧' : '黄果短剧';
-  ShortDramaApi get _api =>
-      _isJinGuo ? context.read<JinGuoApi>() : context.read<HuangGuoApi>();
+  Color get _primary => const Color(0xFFFFD21C);
+  List<(String, String)> get _channels => _huangguoChannels;
+  String get _siteTitle => '黄果短剧';
+  ShortDramaApi get _api => context.read<HuangGuoApi>();
 
   final _scroll = ScrollController();
   final _searchCtrl = TextEditingController();
@@ -94,7 +83,6 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
-    if (_isJinGuo) _channel = 'hot';
     _topicPath = widget.topicPath;
     _topicTitle = widget.topicTitle;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -300,9 +288,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
         MaterialPageRoute(
           builder: (_) => SearchFeedScreen(
             items: items,
-            source: _isJinGuo
-                ? SearchSource.jinguodj
-                : SearchSource.huangguo,
+            source: SearchSource.huangguo,
             site: widget.site,
             title: title,
             initialIndex: index,
@@ -580,7 +566,6 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     return _HgCover(
       key: ValueKey(thumb),
       url: thumb,
-      decrypt: !_isJinGuo,
     );
   }
 
@@ -637,11 +622,8 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
 /// 黄果封面加载器：优先走原生 URLSession（部分 CDN 拒绝 Dart HttpClient 的 TLS
 /// 指纹，webview 能显示而 Flutter 直连失败）；失败时记录日志并回退 dart:io 直连。
 class _HgCover extends StatefulWidget {
-  const _HgCover({super.key, required this.url, this.decrypt = true});
+  const _HgCover({super.key, required this.url});
   final String url;
-
-  /// 黄果封面是 AES 密文；禁果等普通站点直接按原图字节显示。
-  final bool decrypt;
 
   @override
   State<_HgCover> createState() => _HgCoverState();
@@ -655,9 +637,7 @@ class _HgCoverState extends State<_HgCover> {
   Uint8List? _bytes;
   bool _loading = false;
 
-  /// 黄果密文封面与禁果明文封面共用同一页时，同一 URL 的缓存字节也
-  /// 必须按解密方式区分，否则一边会显示另一边的密文/明文。
-  String get _cacheKey => '${widget.decrypt}|${widget.url}';
+  String get _cacheKey => widget.url;
 
   @override
   void initState() {
@@ -694,8 +674,8 @@ class _HgCoverState extends State<_HgCover> {
         widget.url,
         headers: AppHttpHeaders.forMediaUrl(widget.url),
         timeout: const Duration(seconds: 8),
-        aesKeyHex: widget.decrypt ? HuangGuoApi.mediaAesKey : null,
-        aesIvHex: widget.decrypt ? HuangGuoApi.mediaAesIv : null,
+        aesKeyHex: HuangGuoApi.mediaAesKey,
+        aesIvHex: HuangGuoApi.mediaAesIv,
       );
       if (!mounted) return;
       if (bytes != null && bytes.isNotEmpty) {

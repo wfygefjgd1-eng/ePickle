@@ -1,7 +1,8 @@
 import '../models/video_item.dart';
 
-/// 短剧站适配器统一接口：黄果/禁果等「整部剧卡片 + 选集播放」站点共用
-/// [HuangGuoWebPage] 的卡片网格页。各站只负责列表/搜索/详情/选集解析。
+/// 短剧站适配器统一接口：「整部剧卡片 + 选集播放」站点共用
+/// [HuangGuoWebPage] 的卡片网格页。实现：黄果（HuangGuoApi）。
+/// 各站只负责列表/搜索/详情/选集解析。
 abstract class ShortDramaApi {
   Future<List<VideoItem>> fetchFeed({
     String tagId = 'duanju',

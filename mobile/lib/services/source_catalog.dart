@@ -1986,67 +1986,12 @@ class SourceCatalog {
     directoryTags: pornbestDirectoryTags,
   );
 
-  /// 金果短剧（jinguodj.tv；d33sfzc2eu7khe.cloudfront.net 为同源镜像壳）。
-  /// 2026-10-30 直连实证：列表 /ai-short、/ai-series、/rank（分页
-  /// /ai-short/page/N）；详情 /detail/{slug} → 播放页 /play/{slug}/N 的
-  /// dplayer data-url（相对 m3u8）→ /api/h5/m3u8/ 同域代理 200。
-  /// 免费集才可取流；付费集 data-coin-dialog-open 只给 WebView 兜底。
-  static const jinguodjTags = <SiteTag>[
-    SiteTag(
-      id: 'hot',
-      label: '\u9996\u9875',
-      icon: Icons.home_outlined,
-      iconSelected: Icons.home,
-    ),
-    SiteTag(
-      id: 'short',
-      label: '\u77ed\u5267',
-      icon: Icons.movie_outlined,
-      iconSelected: Icons.movie,
-    ),
-    SiteTag(
-      id: 'series',
-      label: '\u7cfb\u5217',
-      icon: Icons.video_library_outlined,
-      iconSelected: Icons.video_library,
-    ),
-    SiteTag(
-      id: 'rank',
-      label: '\u699c',
-      icon: Icons.emoji_events_outlined,
-      iconSelected: Icons.emoji_events,
-    ),
-  ];
-
-  static const jinguodjDirectoryTags = <SiteTag>[
-    SiteTag(id: 'hot', label: '\u9996\u9875', icon: Icons.home_outlined, iconSelected: Icons.home),
-    SiteTag(id: 'short', label: 'AI\u77ed\u5267', icon: Icons.movie_outlined, iconSelected: Icons.movie),
-    SiteTag(id: 'series', label: 'AI\u7cfb\u5217', icon: Icons.video_library_outlined, iconSelected: Icons.video_library),
-    SiteTag(id: 'rank', label: '\u6392\u884c', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
-  ];
-
-  static const jinguodj = SiteDef(
-    id: 'jinguodj',
-    name: '\u7981\u679c\u77ed\u5267',
-    kind: SiteKind.video,
-    color: 0xFFE64A19,
-    letter: 'J',
-    ready: true,
-    mirrors: [
-      'https://d33sfzc2eu7khe.cloudfront.net',
-      'https://jinguodj.tv',
-    ],
-    tags: jinguodjTags,
-    directoryTags: jinguodjDirectoryTags,
-  );
-
   static const all = <SiteDef>[
     pornhub,
     xvideos,
     // mitao 已按用户要求从卡片列表移除（2026-09）：SiteDef 保留供
     // customFromUrl 的 'mitao' 解析器复用，但不再出现在任何卡片里。
     huangguo,
-    jinguodj,
     langmei,
     yaofafa,
     xnxx,

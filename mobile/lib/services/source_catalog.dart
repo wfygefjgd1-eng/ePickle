@@ -989,7 +989,8 @@ class SourceCatalog {
     directoryTags: xvideosDirectoryTags,
   );
 
-  /// 黄果短剧 (huangguoai.com) — 内置规则站，主域名可在设置(黄果规则)修改。
+  /// 黄果短剧 (huangguoai.io) — 内置规则站，主域名可在设置(黄果规则)修改。
+  /// 2026-11 换站后旧 huangguoai.com/.ai 失效，以下是实测可用的现行镜像。
   static const huangguoTags = <SiteTag>[
     SiteTag(
       id: 'duanju',
@@ -1038,7 +1039,10 @@ class SourceCatalog {
     color: 0xFFFFD21C,
     letter: 'H',
     mirrors: [
-      'https://huangguoai.com',
+      'https://huangguoai.io',
+      'https://v1hy.gitiecgad.cc',
+      'https://kzrp.gitiecgad.cc',
+      'https://26d.gitiecgad.cc',
     ],
     tags: huangguoTags,
     directoryTags: huangguoDirectoryTags,

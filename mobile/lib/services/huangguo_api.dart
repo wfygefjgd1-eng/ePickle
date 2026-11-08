@@ -10,6 +10,7 @@ import '../utils/http_headers.dart';
 import 'app_settings.dart';
 import 'mirror_ranker.dart';
 import 'scrape_exception.dart';
+import 'short_drama_api.dart';
 import 'source_catalog.dart';
 
 /// huangguoai.com (黄果短剧) — 内置规则适配器。
@@ -22,8 +23,8 @@ import 'source_catalog.dart';
 ///               <script id="videoInitialData" type="application/json">
 ///               含 epPlaySrcs {集数: m3u8} / videoSrc / videoType / title /
 ///               coverSrc / description。
-class HuangGuoApi {
-  static const String defaultBase = 'https://huangguoai.com';
+class HuangGuoApi implements ShortDramaApi {
+  static const String defaultBase = 'https://huangguoai.io';
 
   /// 封面/图片 AES-128-CBC(NoPadding) 密钥与 IV（站点 crypto-worker.js 内嵌，
   /// 实图 = 对 URL 返回的密文做 CBC 解密；浏览器内由 Worker 完成）。
@@ -55,18 +56,23 @@ class HuangGuoApi {
   final Map<String, List<VideoItem>> _episodesCache = {};
 
   /// 已展开过的剧集 key（播放器侧还会再过滤一次，这里仅作为 API 层快取）。
-  List<VideoItem>? episodesFor(String url) => _episodesCache[url];
+  @override
+  List<VideoItem>? episodesFor(String url) =>
+      _episodesCache[_seriesKeyFor(url)];
 
   /// 主域名（黄果规则），设置里可改；运行时读取，改完即时生效。
-  /// 未设置时自动使用最快镜像（目录顺序兜底）。
+  /// 未设置（或仍是默认域名）时自动使用最快镜像，换域名无需重装。
   String get base {
     final custom = _settings?.huangguoDomain.trim();
-    if (custom != null && custom.isNotEmpty) {
+    if (custom != null &&
+        custom.isNotEmpty &&
+        custom != AppSettings.huangguoDefaultDomain) {
       return custom.replaceAll(RegExp(r'/$'), '');
     }
     return MirrorRanker.instance.preferredBase(SourceCatalog.huangguo);
   }
 
+  @override
   void cancelRequests([String reason = 'cancelled']) {
     final token = _cancelToken;
     _cancelToken = CancelToken();
@@ -176,6 +182,7 @@ class HuangGuoApi {
   }
 
   /// Feed list for a channel tag.
+  @override
   Future<List<VideoItem>> fetchFeed({
     String tagId = 'duanju',
     int page = 1,
@@ -221,6 +228,7 @@ class HuangGuoApi {
   }
 
   /// Site search（中文关键词原样保留）。
+  @override
   Future<List<VideoItem>> search(String query, {int page = 1}) async {
     final q = Uri.encodeComponent(query.trim());
     if (q.isEmpty) return [];
@@ -297,7 +305,7 @@ class HuangGuoApi {
       ).firstMatch(ctx)?.group(1)?.trim();
 
       out.add(VideoItem(
-        url: '$base/detail/$id/',
+        url: '$base/video/$id/',
         title: title,
         duration: '-',
         thumb: thumb == null ? null : _abs(thumb),
@@ -308,7 +316,7 @@ class HuangGuoApi {
 
     // 首页“为你推荐”分类条目。
     final catRe = RegExp(
-      r'''<a class="hg-category-item" href="/detail/(\d+)/"[\s\S]*?</a>''',
+      r'''<a class="hg-category-item" href="/(?:detail|video)/(\d+)/"[\s\S]*?</a>''',
     );
     for (final m in catRe.allMatches(html)) {
       final id = m.group(1)!;
@@ -332,7 +340,7 @@ class HuangGuoApi {
         break;
       }
       out.add(VideoItem(
-        url: '$base/detail/$id/',
+        url: '$base/video/$id/',
         title: title,
         duration: '-',
         thumb: thumb == null ? null : _abs(thumb),
@@ -390,7 +398,7 @@ class HuangGuoApi {
       ).firstMatch(ctx)?.group(1)?.trim();
 
       out.add(VideoItem(
-        url: '$base/detail/$id/',
+        url: '$base/video/$id/',
         title: title,
         duration: '-',
         thumb: thumb == null ? null : _abs(thumb),
@@ -436,6 +444,7 @@ class HuangGuoApi {
   }
 
   /// 专题列表页（/topics/slug/），结构与频道页一致：卡片网格 + 分页。
+  @override
   Future<List<VideoItem>> fetchTopicList(String path, {int page = 1}) async {
     var url = path.startsWith('http://') || path.startsWith('https://')
         ? path
@@ -450,7 +459,8 @@ class HuangGuoApi {
     final thumbs = <String, String>{};
     final scores = <String, String>{};
     final badges = <String, String>{};
-    final hrefRe = RegExp(r'''href\s*=\s*["'](/detail/(\d+)/?)["']''');
+    final hrefRe =
+        RegExp(r'''href\s*=\s*["'](/(?:detail|video)/(\d+)/?)["']''');
     for (final m in hrefRe.allMatches(html)) {
       final id = m.group(2)!;
       if (thumbs.containsKey(id) &&
@@ -491,7 +501,7 @@ class HuangGuoApi {
     void addItem(String id, String name) {
       if (!seen.add(id)) return;
       out.add(VideoItem(
-        url: '$base/detail/$id/',
+        url: '$base/video/$id/',
         title: name,
         duration: '-',
         thumb: thumbs[id] == null ? null : _abs(thumbs[id]!),
@@ -564,30 +574,34 @@ class HuangGuoApi {
     return out;
   }
 
+  @override
   Future<VideoDetail> getVideoDetail(String url) async {
-    var pageUrl = url;
+    final idm = RegExp(r'/(?:detail|video)/(\d+)').firstMatch(url);
+    final seriesId = idm?.group(1);
+    final epFromUrl = _epFromUrl(url);
+    // 新站规范地址是 /video/ID/ 与 /video/ID/ep-N/；旧 /detail/ID/ 仍兼容。
+    var pageUrl = seriesId == null
+        ? url
+        : (epFromUrl != null
+            ? '$base/video/$seriesId/ep-$epFromUrl/'
+            : '$base/video/$seriesId/');
     String html;
     try {
       html = await _getHtml(pageUrl, timeout: _singleRequestTimeout);
     } catch (e) {
       if (e is DioException && CancelToken.isCancel(e)) rethrow;
-      // 卡片通常指到 /detail/ID/，直接换 /video/ID/ 更可靠。
-      final idm = RegExp(r'/(?:detail|video)/(\d+)').firstMatch(url);
-      if (idm != null) {
-        pageUrl = '$base/video/${idm.group(1)}/';
-        html = await _getHtml(pageUrl);
-      } else {
-        rethrow;
-      }
+      if (seriesId == null) rethrow;
+      // 选集地址异常时退回第 1 集页面，至少能拿到整剧信息。
+      pageUrl = '$base/video/$seriesId/';
+      html = await _getHtml(pageUrl);
     }
 
     var data = _videoData(html);
-    if (data == null) {
-      final idm = RegExp(r'/(?:detail|video)/(\d+)').firstMatch(pageUrl);
-      final next = idm == null ? null : '$base/video/${idm.group(1)}/';
-      // pageUrl 已经是 /video/ID/ 时不再重抓同一个 URL(catch 分支已换过
-      // 一次地址),避免失败路径上多一次纯冗余请求。
-      if (next != null && next != pageUrl) {
+    if (data == null && seriesId != null) {
+      final next = '$base/video/$seriesId/';
+      // pageUrl 已经是 /video/ID/ 时不再重抓同一个 URL，避免失败路径上
+      // 多一次纯冗余请求。
+      if (next != pageUrl) {
         pageUrl = next;
         html = await _getHtml(pageUrl);
         data = _videoData(html);
@@ -597,18 +611,31 @@ class HuangGuoApi {
       throw PhubException('无法解析播放数据（页面结构可能已改版）');
     }
 
+    var ep = _dataEp(data);
+    if (ep <= 0) ep = epFromUrl ?? 1;
+
+    // 旧版页面把 m3u8 内嵌在 videoSrc / epPlaySrcs 中；新版页面只留
+    // tracking 元数据，播放地址必须 POST 到剧目分集接口换取。
     var videoSrc = (data['videoSrc'] ?? '').toString().trim();
     final epPlaySrcs = data['epPlaySrcs'];
-    final eps = <String>[];
+    final epByNum = <int, String>{};
     if (epPlaySrcs is Map) {
-      final entries = epPlaySrcs.entries.toList()
-        ..sort((a, b) => _epNum(a.key).compareTo(_epNum(b.key)));
-      for (final e in entries) {
+      for (final e in epPlaySrcs.entries) {
         final v = e.value.toString().trim();
-        if (v.isNotEmpty && !eps.contains(v)) eps.add(v);
+        if (v.isNotEmpty) epByNum[_epNum(e.key)] = _abs(v);
       }
     }
-    if (videoSrc.isEmpty && eps.isNotEmpty) videoSrc = eps.first;
+    if (videoSrc.isEmpty && epByNum.isNotEmpty) {
+      videoSrc = epByNum[ep] ?? epByNum.values.first;
+    }
+    var streamHeaders = const <String, String>{};
+    if (videoSrc.isEmpty && seriesId != null) {
+      final playback = await _fetchPlayback(seriesId, ep, pageUrl);
+      if (playback != null) {
+        videoSrc = playback.$1;
+        streamHeaders = playback.$2;
+      }
+    }
     if (videoSrc.isEmpty) {
       throw PhubException('播放地址为空');
     }
@@ -619,33 +646,19 @@ class HuangGuoApi {
     final desc = (data['description'] ?? '').toString().trim();
 
     // 缓存整部剧的集列表：连续翻页播放 1,2,3…N 集。
-    // 站点每页只内嵌“当前+下一集”的直链（epPlaySrcs ≈ 2 条），整剧集数取自
-    // 选集链接（data-ep-id 与 /video/{id}/ep-N/）。补齐 N 集；缺直链的集
-    // 各自动抓 /video/{id}/ep-N/ 详情页取真实播放地址。
-    final seriesKey = url;
+    // 新站每页只内嵌当前集的 trackingEpisodes 元数据，选集数取
+    // tracking.total_episode；缺直链的集在滑到该集时再请求 playback 接口。
+    final seriesKey = _seriesKeyFor(url);
     _episodesCache.remove(seriesKey);
-    final idm = RegExp(r'/(?:detail|video)/(\d+)').firstMatch(pageUrl);
-    final seriesId = idm?.group(1);
-    var total = eps.length;
-    if (seriesId != null) {
-      final n = _maxEpisodeFromHtml(html);
-      if (n > total) total = n;
-    }
+    var total = _totalEpisodes(data, html);
     if (total < 1) total = 1;
-    final epByNum = <int, String>{};
-    if (epPlaySrcs is Map) {
-      for (final e in epPlaySrcs.entries) {
-        final v = e.value.toString().trim();
-        if (v.isNotEmpty) epByNum[_epNum(e.key)] = _abs(v);
-      }
-    }
     final episodeItems = <VideoItem>[];
     final seriesTitle = title.isEmpty ? pageUrl : title;
     for (var i = 1; i <= total; i++) {
       final episodeUrl = seriesId == null
-          ? seriesKey
+          ? pageUrl
           : '$base/video/$seriesId/${i > 1 ? 'ep-$i/' : ''}';
-      final directUrl = epByNum[i];
+      final directUrl = i == ep ? videoSrc : epByNum[i];
       episodeItems.add(VideoItem(
         url: episodeUrl,
         title: '$seriesTitle 第$i集',
@@ -667,8 +680,8 @@ class HuangGuoApi {
       }
     }
 
-    var durationSec = 0;
-    if (videoSrc.toLowerCase().contains('.m3u8')) {
+    var durationSec = _trackingDuration(data, ep);
+    if (durationSec <= 0 && videoSrc.toLowerCase().contains('.m3u8')) {
       durationSec = await _durationFromM3u8(videoSrc, pageUrl);
     }
 
@@ -684,9 +697,158 @@ class HuangGuoApi {
           height: 720,
           url: videoSrc,
           referer: pageUrl,
+          headers: streamHeaders,
         ),
       ],
     );
+  }
+
+  /// 新版黄果播放接口：
+  /// POST /api/videos/{id}/episodes/{ep}/playback  body `{}`
+  /// → data.streams.main（m3u8，含签名），data.cdn 给出可选 CDN 鉴权头。
+  Future<(String, Map<String, String>)?> _fetchPlayback(
+    String dramaId,
+    int ep,
+    String pageUrl,
+  ) async {
+    final url = '$base/api/videos/$dramaId/episodes/$ep/playback';
+    final token = CancelToken();
+    if (_cancelToken.isCancelled) {
+      token.cancel();
+    } else {
+      // ignore: discarded_futures
+      _cancelToken.whenCancel.then((_) {
+        if (!token.isCancelled) token.cancel();
+      });
+    }
+    try {
+      final res = await _dio
+          .post<String>(
+            url,
+            data: const <String, dynamic>{},
+            cancelToken: token,
+            options: Options(
+              responseType: ResponseType.plain,
+              headers: {
+                ...AppHttpHeaders.browser,
+                'Accept': 'application/json, text/plain, */*',
+                'Content-Type': 'application/json',
+                'Referer': pageUrl,
+                'Origin': _originOf(pageUrl) ?? base,
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              validateStatus: (s) => s != null && s < 500,
+            ),
+          )
+          .timeout(_singleRequestTimeout);
+      if ((res.statusCode ?? 0) != 200 || (res.data ?? '').isEmpty) {
+        return null;
+      }
+      final decoded = jsonDecode(res.data!);
+      if (decoded is! Map) return null;
+      final status = decoded['status'];
+      if (status != null && status != 1 && status != 200) return null;
+      final data = decoded['data'];
+      if (data is! Map) return null;
+
+      String? stream;
+      final streams = data['streams'];
+      if (streams is Map) {
+        for (final key in const ['main', 'preview', 'hevc']) {
+          final v = streams[key]?.toString().trim() ?? '';
+          if (v.isNotEmpty) {
+            stream = v;
+            break;
+          }
+        }
+        if (stream == null) {
+          for (final v in streams.values) {
+            final s = v?.toString().trim() ?? '';
+            if (s.isNotEmpty) {
+              stream = s;
+              break;
+            }
+          }
+        }
+      }
+      if (stream == null || stream.isEmpty) return null;
+
+      final headers = <String, String>{};
+      final cdn = data['cdn'];
+      if (cdn is Map) {
+        final key = cdn['authKey']?.toString().trim() ?? '';
+        final value = cdn['authValue']?.toString().trim() ?? '';
+        if (key.isNotEmpty && value.isNotEmpty) headers[key] = value;
+        final app = cdn['app']?.toString().trim() ?? '';
+        if (app.isNotEmpty) headers['x-cdn-app'] = app;
+      }
+      return (stream, headers);
+    } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) rethrow;
+      return null;
+    }
+  }
+
+  int _dataEp(Map data) {
+    final tracking = data['tracking'];
+    if (tracking is Map) {
+      final n = int.tryParse('${tracking['episode'] ?? ''}');
+      if (n != null && n > 0) return n;
+    }
+    return int.tryParse('${data['ep'] ?? ''}') ?? 0;
+  }
+
+  int _totalEpisodes(Map data, String html) {
+    var total = 0;
+    void consider(dynamic value) {
+      final s = value?.toString().trim() ?? '';
+      if (s.isEmpty) return;
+      final n = int.tryParse(s);
+      if (n != null && n > total) total = n;
+    }
+
+    final tracking = data['tracking'];
+    if (tracking is Map) consider(tracking['total_episode']);
+    final trackingEpisodes = data['trackingEpisodes'];
+    if (trackingEpisodes is Map) {
+      for (final key in trackingEpisodes.keys) {
+        consider(key);
+      }
+    }
+    final epPlaySrcs = data['epPlaySrcs'];
+    if (epPlaySrcs is Map) {
+      for (final key in epPlaySrcs.keys) {
+        consider(key);
+      }
+    }
+    final n = _maxEpisodeFromHtml(html);
+    if (n > total) total = n;
+    return total;
+  }
+
+  int _trackingDuration(Map data, int ep) {
+    final trackingEpisodes = data['trackingEpisodes'];
+    if (trackingEpisodes is Map) {
+      final entry = trackingEpisodes['$ep'];
+      if (entry is Map) {
+        return int.tryParse('${entry['drama_duration'] ?? ''}') ?? 0;
+      }
+    }
+    final tracking = data['tracking'];
+    if (tracking is Map) {
+      return int.tryParse('${tracking['drama_duration'] ?? ''}') ?? 0;
+    }
+    return 0;
+  }
+
+  int? _epFromUrl(String url) {
+    final m = RegExp(r'/ep-(\d+)/?').firstMatch(url);
+    return m == null ? null : int.tryParse(m.group(1)!);
+  }
+
+  String _seriesKeyFor(String url) {
+    final idm = RegExp(r'/(?:detail|video)/(\d+)').firstMatch(url);
+    return idm == null ? url : 'video:${idm.group(1)}';
   }
 
   /// 提取 <script id="videoInitialData"> 里的 JSON。

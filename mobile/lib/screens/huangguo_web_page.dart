@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 
 import '../models/video_item.dart';
 import '../services/huangguo_api.dart';
+import '../services/jinguo_api.dart';
+import '../services/short_drama_api.dart';
 import '../services/source_catalog.dart';
 import '../utils/hg_cover_log.dart';
 import '../utils/http_headers.dart';
@@ -13,8 +15,9 @@ import '../utils/native_browser_http.dart';
 import '../utils/playback_helpers.dart';
 import 'search_feed_screen.dart';
 
-/// 黄果短剧站内入口：仿 huangguoai.com web 移动端样式（卡片网格 + 频道导航 + 分页），
-/// 无底部 Tab 栏，点卡片进入既有播放器；[topicPath] 非空时直接进入专题列表页。
+/// 短剧站内入口（黄果/禁果共用）：仿站点 web 移动端样式
+/// （卡片网格 + 频道导航 + 分页），无底部 Tab 栏，点卡片进入既有播放器；
+/// [topicPath] 非空时直接进入专题/分类列表页。
 class HuangGuoWebPage extends StatefulWidget {
   const HuangGuoWebPage({
     super.key,
@@ -39,8 +42,7 @@ class _ChannelCache {
 }
 
 class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
-  static const _primary = Color(0xFFFFD21C);
-  static const _channels = <(String, String)>[
+  static const _huangguoChannels = <(String, String)>[
     ('recommend', '首页'),
     ('duanju', 'AI成人短剧'),
     ('manju', 'AI成人漫剧'),
@@ -49,6 +51,21 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     ('topics', '专题'),
     ('rank', '排行榜'),
   ];
+  static const _jinguoChannels = <(String, String)>[
+    ('hot', '首页'),
+    ('short', '短剧'),
+    ('series', '系列'),
+    ('rank', '榜'),
+  ];
+
+  bool get _isJinGuo => widget.site.id == 'jinguodj';
+  Color get _primary =>
+      _isJinGuo ? const Color(0xFFE64A19) : const Color(0xFFFFD21C);
+  List<(String, String)> get _channels =>
+      _isJinGuo ? _jinguoChannels : _huangguoChannels;
+  String get _siteTitle => _isJinGuo ? '禁果短剧' : '黄果短剧';
+  ShortDramaApi get _api =>
+      _isJinGuo ? context.read<JinGuoApi>() : context.read<HuangGuoApi>();
 
   final _scroll = ScrollController();
   final _searchCtrl = TextEditingController();
@@ -70,13 +87,14 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     for (final (id, name) in _channels) {
       if (id == _channel) return name;
     }
-    return '黄果短剧';
+    return _siteTitle;
   }
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    if (_isJinGuo) _channel = 'hot';
     _topicPath = widget.topicPath;
     _topicTitle = widget.topicTitle;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -170,7 +188,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
       _error = null;
     });
     try {
-      final api = context.read<HuangGuoApi>();
+      final api = _api;
       final List<VideoItem> list;
       if (query.isNotEmpty) {
         list = await api.search(query, page: 1);
@@ -218,7 +236,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     final page = _page;
     setState(() => _loadingMore = true);
     try {
-      final api = context.read<HuangGuoApi>();
+      final api = _api;
       final List<VideoItem> list;
       if (query.isNotEmpty) {
         list = await api.search(query, page: page + 1);
@@ -282,7 +300,9 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
         MaterialPageRoute(
           builder: (_) => SearchFeedScreen(
             items: items,
-            source: SearchSource.huangguo,
+            source: _isJinGuo
+                ? SearchSource.jinguodj
+                : SearchSource.huangguo,
             site: widget.site,
             title: title,
             initialIndex: index,
@@ -326,8 +346,8 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
             InkWell(
               borderRadius: BorderRadius.circular(18),
               onTap: () => Navigator.of(context).pop(),
-              child: const Padding(
-                padding: EdgeInsets.all(6),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
                 child: Icon(Icons.arrow_back_ios_new,
                     color: _primary, size: 18),
               ),
@@ -338,7 +358,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
                 _topicTitle ?? _topicPath ?? '',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   color: _primary,
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
@@ -347,8 +367,8 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
               ),
             ),
           ] else
-            const Text(
-              '\u9ec4\u679c\u77ed\u5267',
+            Text(
+              _siteTitle,
               style: TextStyle(
                 color: _primary,
                 fontSize: 21,
@@ -443,7 +463,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(
+      return Center(
         child: CircularProgressIndicator(color: _primary, strokeWidth: 2.5),
       );
     }
@@ -464,7 +484,7 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
               onPressed: () => unawaited(_load()),
               style: OutlinedButton.styleFrom(
                 foregroundColor: _primary,
-                side: const BorderSide(color: _primary),
+                side: BorderSide(color: _primary),
               ),
               child: const Text('\u91cd\u8bd5'),
             ),
@@ -557,7 +577,11 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
     if (thumb == null || thumb.isEmpty) {
       return _coverPlaceholder();
     }
-    return _HgCover(key: ValueKey(thumb), url: thumb);
+    return _HgCover(
+      key: ValueKey(thumb),
+      url: thumb,
+      decrypt: !_isJinGuo,
+    );
   }
 
   Widget _coverPlaceholder() {
@@ -591,8 +615,8 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
 
   Widget _buildFooter() {
     if (_loadingMore) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 20),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
         child: Center(
           child: CircularProgressIndicator(color: _primary, strokeWidth: 2.5),
         ),
@@ -613,8 +637,11 @@ class _HuangGuoWebPageState extends State<HuangGuoWebPage> {
 /// 黄果封面加载器：优先走原生 URLSession（部分 CDN 拒绝 Dart HttpClient 的 TLS
 /// 指纹，webview 能显示而 Flutter 直连失败）；失败时记录日志并回退 dart:io 直连。
 class _HgCover extends StatefulWidget {
-  const _HgCover({super.key, required this.url});
+  const _HgCover({super.key, required this.url, this.decrypt = true});
   final String url;
+
+  /// 黄果封面是 AES 密文；禁果等普通站点直接按原图字节显示。
+  final bool decrypt;
 
   @override
   State<_HgCover> createState() => _HgCoverState();
@@ -628,14 +655,18 @@ class _HgCoverState extends State<_HgCover> {
   Uint8List? _bytes;
   bool _loading = false;
 
+  /// 黄果密文封面与禁果明文封面共用同一页时，同一 URL 的缓存字节也
+  /// 必须按解密方式区分，否则一边会显示另一边的密文/明文。
+  String get _cacheKey => '${widget.decrypt}|${widget.url}';
+
   @override
   void initState() {
     super.initState();
     HgCoverLog.retrySignal.addListener(_onRetrySignal);
-    final hit = _mem.remove(widget.url);
+    final hit = _mem.remove(_cacheKey);
     if (hit != null) {
       // Re-insert to refresh LRU recency.
-      _mem[widget.url] = hit;
+      _mem[_cacheKey] = hit;
       _bytes = hit;
     } else {
       unawaited(_loadNative());
@@ -663,8 +694,8 @@ class _HgCoverState extends State<_HgCover> {
         widget.url,
         headers: AppHttpHeaders.forMediaUrl(widget.url),
         timeout: const Duration(seconds: 8),
-        aesKeyHex: HuangGuoApi.mediaAesKey,
-        aesIvHex: HuangGuoApi.mediaAesIv,
+        aesKeyHex: widget.decrypt ? HuangGuoApi.mediaAesKey : null,
+        aesIvHex: widget.decrypt ? HuangGuoApi.mediaAesIv : null,
       );
       if (!mounted) return;
       if (bytes != null && bytes.isNotEmpty) {
@@ -677,8 +708,8 @@ class _HgCoverState extends State<_HgCover> {
         HgCoverLog.add(
           'cover native OK ${bytes.length}B magic=$magic ${isJpeg ? 'JPEG' : ''}: '
           '${widget.url}');
-        _mem.remove(widget.url);
-        _mem[widget.url] = bytes;
+        _mem.remove(_cacheKey);
+        _mem[_cacheKey] = bytes;
         if (_mem.length > _memLimit) {
           _mem.remove(_mem.keys.first);
         }

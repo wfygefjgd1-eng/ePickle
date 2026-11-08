@@ -8,6 +8,7 @@ import 'services/app_settings.dart';
 import 'services/app_route_observer.dart';
 import 'services/generic_site_api.dart';
 import 'services/huangguo_api.dart';
+import 'services/jinguo_api.dart';
 import 'services/langmei_api.dart';
 import 'services/layout_settings.dart';
 import 'services/mitao_api.dart';
@@ -42,6 +43,7 @@ class PlayerApp extends StatelessWidget {
         Provider(create: (_) => XvideosApi()),
         Provider(create: (_) => MitaoApi()),
         Provider(create: (_) => HuangGuoApi(settings: settings)),
+        Provider(create: (_) => JinGuoApi()),
         Provider(create: (_) => LangmeiApi()),
         Provider(create: (_) => GenericSiteApi()),
         Provider(create: (_) => Translator()),

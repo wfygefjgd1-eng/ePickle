@@ -59,7 +59,13 @@ class AppSettings extends ChangeNotifier {
   int _skipTier4Sec = 70;
 
   /// 黄果规则主域名（换域名时在设置里修改，无需更新 App）。
-  static const huangguoDefaultDomain = 'https://huangguoai.com';
+  /// 2026-11 黄果换站：huangguoai.io 为新主站，旧 .com/.ai 已失效。
+  static const huangguoDefaultDomain = 'https://huangguoai.io';
+  static const _retiredHuangguoHosts = {
+    'huangguoai.com',
+    'huangguoai.ai',
+    'hgai12.com',
+  };
   String _huangguoDomain = huangguoDefaultDomain;
 
   bool get skipIntro => _skipIntro;
@@ -207,6 +213,10 @@ class AppSettings extends ChangeNotifier {
     }
     final uri = Uri.tryParse(value);
     if (uri == null || uri.host.isEmpty) return huangguoDefaultDomain;
+    // 旧版本持久化的死域名：自动迁移到新主站，升级后无需手动改设置。
+    if (_retiredHuangguoHosts.contains(uri.host.toLowerCase())) {
+      return huangguoDefaultDomain;
+    }
     return Uri(
       scheme: uri.scheme == 'http' ? 'http' : 'https',
       host: uri.host,

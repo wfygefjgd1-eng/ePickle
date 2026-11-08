@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../models/video_item.dart';
 import '../services/generic_site_api.dart';
 import '../services/huangguo_api.dart';
+import '../services/jinguo_api.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
 import '../services/source_catalog.dart';
@@ -216,6 +217,13 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
               limit: 40,
               exclude: exclude,
             );
+      case 'jinguodj':
+        return context.read<JinGuoApi>().fetchFeed(
+              tagId: tag.id,
+              page: page,
+              limit: 40,
+              exclude: exclude,
+            );
       default:
         return api.fetchFeed(
           widget.site,
@@ -366,6 +374,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         'xvideos' => SearchSource.x,
         'mitao' => SearchSource.zhong,
         'huangguo' => SearchSource.huangguo,
+        'jinguodj' => SearchSource.jinguodj,
         _ => SearchSource.generic,
       };
 

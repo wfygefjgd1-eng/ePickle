@@ -94,9 +94,11 @@ jobs:
   ios:
     needs: quality
     if: ${{ github.event_name == 'push' || github.event.inputs.platforms != 'android' }}
-    # macos-14（ARM64）已被 GitHub 于 2026-11-02 全面下线，改用受支持的
-    # macos-15（ARM64，Xcode 16）镜像。
-    runs-on: macos-15
+    # macos-14（ARM64）已于 2026-11-02 下线。2026-11 中旬起 GitHub 的
+    # macOS 15/26 ARM64 托管机频繁「分配到机器但永不上线」，排队 15 分钟
+    # 后任务被自动取消（actions/runner-images#15291）。Intel 镜像不受该
+    # 故障影响，且 Flutter 3.47.1 仍提供 x64 SDK，产物同样是 arm64 设备包。
+    runs-on: macos-15-intel
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7

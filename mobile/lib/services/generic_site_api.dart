@@ -4040,8 +4040,23 @@ class GenericSiteApi {
       if (_isJunkTitle(title)) continue;
 
       String? thumb;
+      // RedTube 列表图真实地址在 data-o_thumb 上（路径不含图片扩展名，
+      // 通用候选会因验收规则漏掉）；src 只是 base64 占位。HTML 属性里的
+      // &amp; 必须还原，否则 CDN 签名参数名会变成 amp;validto。
+      if (ptype == 'redtube') {
+        final rt = RegExp(
+          r'''data-o_thumb\s*=\s*["']([^"']+)["']''',
+          caseSensitive: false,
+        ).firstMatch(chunk);
+        if (rt != null) {
+          thumb = _normalizeThumbUrl(
+            rt.group(1)!.replaceAll('&amp;', '&'),
+            base,
+          );
+        }
+      }
       final im = imgRe.firstMatch(chunk);
-      if (im != null) {
+      if (thumb == null && im != null) {
         thumb = _normalizeThumbUrl(im.group(1), base);
       }
       thumb ??= _extractThumbFromChunk(chunk, base);
@@ -4308,7 +4323,7 @@ class GenericSiteApi {
 
   String? _normalizeThumbUrl(String? raw, String base) {
     if (raw == null) return null;
-    var thumb = raw.replaceAll(r'\/', '/').trim();
+    var thumb = raw.replaceAll('&amp;', '&').replaceAll(r'\/', '/').trim();
     if (thumb.isEmpty) return null;
     if (thumb.startsWith('//')) thumb = 'https:$thumb';
     if (!thumb.startsWith('http')) thumb = _abs(base, thumb);

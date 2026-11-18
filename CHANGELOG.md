@@ -5,6 +5,30 @@
 
 ---
 
+## [2.8.55] - 2026-11-18 - 恢复 RedTube / Eporner，下架失效站点
+
+### ✨ 新增 / 恢复
+
+1. **恢复 RedTube 卡片**：列表缩略图改读 `data-o_thumb` 并还原 `&amp;`，
+   详情继续解析 `mediaDefinitions` 的 HLS/MP4 地址。
+2. **新增 Eporner 卡片**：列表与缩略图走官方 `api/v2/video/search/`，详情页
+   解析 JSON-LD `contentUrl` 的 gvideo MP4；「热门 / 最新 / 精选 / 亚洲」
+   四个目录入口可用。
+
+### ♻️ 下架
+
+3. **移除 14 个站点**：浪妹视频、要发发视频、HOT-SEX-TUBE、Qorno、FuQ、
+   PornBest、PornKai、TubeSafari、iXXX、BestJAVPorn、7MMTV、123AV、
+   SupJav、Jable。
+4. **浪妹下架原因**：上游视频 CDN `de5x3008nq0df.cloudfront.net` 与
+   `d1cujq7ph4pp9b.cloudfront.net` 已整体 NXDOMAIN；`play.php` 虽能换签名，
+   但返回的仍是失效域名，新视频播放与封面均无法恢复，故按用户要求移除卡片。
+5. **保留站点**：Pornhub、xVideos、黄果短剧、xNxx、xHamster、TNAFlix、
+   RedTube、Eporner、Stripchat、Chaturbate。目录版本升至 v20，老安装首次
+   启动自动刷新启用列表。
+
+---
+
 ## [2.8.53] - 2026-11-08 - 仓库/依赖瘦身（无功能变化）
 
 ### 🧹 瘦身

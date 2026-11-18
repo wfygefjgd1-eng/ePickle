@@ -24,7 +24,7 @@ void main() {
 
   test('catalog version bump refreshes stale device lists for new cards',
       () async {
-    // 老安装（如 v2.8.39，catalogVer=14）的存储列表缺 iXXX/新聚合站；新代码
+    // 老安装（如 v2.8.39，catalogVer=14）的存储列表缺后续新增卡片；新代码
     // 版本号更高时 load 必须刷新为默认目录，否则新卡片不可见。
     SharedPreferences.setMockInitialValues({
       'layout_enabled_video_ids_v1': ['pornhub', 'xvideos', 'xnxx'],
@@ -35,19 +35,23 @@ void main() {
 
     expect(
       settings.enabledVideoSites.map((s) => s.id),
-      contains('ixxx'),
+      contains('redtube'),
     );
     expect(
       settings.enabledVideoSites.map((s) => s.id),
-      contains('fuq'),
+      contains('eporner'),
+    );
+    expect(
+      settings.enabledVideoSites.map((s) => s.id),
+      isNot(contains('langmei')),
     );
     // 刷新后的列表必须被持久化为高于旧版本的目录号 + 新默认列表。
     final p = await SharedPreferences.getInstance();
     expect(p.getInt('layout_catalog_ver_v1'), greaterThan(14));
-    expect(p.getStringList('layout_enabled_video_ids_v1'), contains('ixxx'));
+    expect(p.getStringList('layout_enabled_video_ids_v1'), contains('eporner'));
     expect(
       p.getStringList('layout_enabled_video_ids_v1'),
-      contains('hotsextube'),
+      isNot(contains('langmei')),
     );
   });
 

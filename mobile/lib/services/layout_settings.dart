@@ -29,7 +29,10 @@ class LayoutSettings extends ChangeNotifier {
   // 禁果短剧已按用户要求移除（2026-11，金币墙内容过多）：不需要 catalogVer
   // 迁移，load() 里启用列表按 byId 过滤，旧安装残留的 'jinguodj' 会被自然
   // 丢弃；卡片从目录消失（未 bump 版本号，避免重置用户自定义布局）。
-  static const _catalogVer = 19;
+  // v20（2026-11-18）：恢复 RedTube / Eporner 卡片，并下架浪妹、要发发等
+  // 14 个失效站点。老安装必须迁移刷新启用列表，否则新卡会被旧设备列表挡住，
+  // 已下架的卡片也会继续残留（同 v15 的机制）。
+  static const _catalogVer = 20;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);

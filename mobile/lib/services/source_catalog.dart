@@ -1152,10 +1152,60 @@ class SourceCatalog {
     directoryTags: xhamsterDirectoryTags,
   );
 
+  /// RedTube（MindGeek 家族）：2026-11 按用户要求恢复卡片。解析分支一直保留
+  /// （mediaDefinitions HLS + 裸数字 ID 卡 + 搜索）。目录标签只保留通用解析
+  /// 真正实现的 4 个排序，避免其余标签全部回跳首页同内容。
+  static const redtubeDirectoryTags = <SiteTag>[
+    SiteTag(id: 'hot', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
+    SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
+    SiteTag(id: 'best', label: '\u7cbe\u9009', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
+    SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
+  ];
+
+  static const redtube = SiteDef(
+    id: 'redtube',
+    name: 'RedTube',
+    kind: SiteKind.video,
+    color: 0xFFB71C1C,
+    letter: 'R',
+    ready: true,
+    mirrors: [
+      'https://www.redtube.com',
+      'https://redtube.com',
+    ],
+    tags: vodTags,
+    directoryTags: redtubeDirectoryTags,
+  );
+
+  /// Eporner 目录标签：官方 API 支持 query=all/asian 与 order=top-weekly/
+  /// latest/top-rated，这里只暴露实际有独立内容的 4 个入口。
+  static const epornerDirectoryTags = <SiteTag>[
+    SiteTag(id: 'hot', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
+    SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
+    SiteTag(id: 'best', label: '\u7cbe\u9009', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
+    SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
+  ];
+
+  /// Eporner：列表与缩略图走官方 `api/v2/video/search/`，详情页解析
+  /// JSON-LD 的 `contentUrl`（gvideo MP4）；解析分支一直保留，本轮恢复卡片。
+  static const eporner = SiteDef(
+    id: 'eporner',
+    name: 'Eporner',
+    kind: SiteKind.video,
+    color: 0xFF00897B,
+    letter: 'E',
+    ready: true,
+    mirrors: [
+      'https://www.eporner.com',
+      'https://eporner.com',
+    ],
+    tags: vodTags,
+    directoryTags: epornerDirectoryTags,
+  );
+
   // Removed from catalog (unstable / blocked for most users):
-  // eporner, freeporn, spankbang, youporn, redtube, javmix, javgg,
+  // freeporn, spankbang, youporn, javmix, javgg,
   // av01, missav.
-  // 两站 7mmtv / bestjavporn 2026-10-30 按用户要求恢复（解析分支一直保留）。
 
   static const tnaflix = SiteDef(
     id: 'tnaflix',
@@ -1992,23 +2042,15 @@ class SourceCatalog {
     // mitao 已按用户要求从卡片列表移除（2026-09）：SiteDef 保留供
     // customFromUrl 的 'mitao' 解析器复用，但不再出现在任何卡片里。
     huangguo,
-    langmei,
-    yaofafa,
     xnxx,
     xhamster,
+    redtube,
+    eporner,
     tnaflix,
-    jable,
-    supjav,
-    av123,
-    mmtv7,
-    bestjavporn,
-    pornbest,
-    ixxx,
-    fuq,
-    qorno,
-    pornkai,
-    tubesafari,
-    hotsextube,
+    // 2026-11 按用户要求下架：langmei（上游视频 CDN 域名 NXDOMAIN，播放与
+    // 新图均不可用）、yaofafa、jable、supjav、av123、mmtv7、bestjavporn、
+    // pornbest、ixxx、fuq、qorno、pornkai、tubesafari、hotsextube。
+    // SiteDef 与解析分支保留，byId 只认 all 内站点。
     stripchat,
     chaturbate,
   ];

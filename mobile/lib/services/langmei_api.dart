@@ -26,6 +26,7 @@ class LangmeiSiteConfig {
     required this.entryBase,
     required this.apiBase,
     required this.keyMask,
+    this.staticBase,
     this.navRename = const {},
     this.navOrder = const [],
     this.navExclude = const {},
@@ -34,6 +35,10 @@ class LangmeiSiteConfig {
   /// 页面入口（`/#/play/<id>`、`/get/play.php` 挂在这个域上）。
   final String entryBase;
   final String apiBase;
+
+  /// 图片镜像域名。API 返回的封面域名（CloudFront）2026-11 起已 NXDOMAIN，
+  /// 旧 `/upload/vod/...` 路径在同域 static 镜像上仍可访问，保留路径替换域名。
+  final String? staticBase;
 
   /// app.js 里的异或掩码字节数组，运行时逐字节 ^0x5A 还原 AES-256 密钥。
   final List<int> keyMask;
@@ -77,6 +82,7 @@ class LangmeiApi {
     'langmei': LangmeiSiteConfig(
       entryBase: 'https://10326.rczga.cn',
       apiBase: 'https://api.rczga.cn/lm-api/',
+      staticBase: 'https://static.rczga.cn',
       keyMask: const [
         202, 211, 221, 188, 52, 127, 180, 22, 13, 100, 241, 190, 183, 127, 26,
         100, 80, 225, 133, 206, 147, 145, 255, 149, 243, 36, 96, 155, 231, 163,
@@ -97,6 +103,7 @@ class LangmeiApi {
     'yaofafa': LangmeiSiteConfig(
       entryBase: 'https://10326.lfbrs.cn',
       apiBase: 'https://api.lfbrs.cn/yf-api/',
+      staticBase: 'https://static.lfbrs.cn',
       keyMask: const [
         105, 247, 25, 38, 156, 50, 4, 164, 49, 53, 48, 214, 114, 179, 87, 55,
         61, 95, 6, 227, 42, 76, 181, 70, 119, 166, 206, 209, 164, 135, 110, 19,
@@ -130,6 +137,7 @@ class LangmeiApi {
           entryBase: site.primaryHost,
           apiBase: family.apiBase,
           keyMask: family.keyMask,
+          staticBase: family.staticBase,
         ),
       );
     }
@@ -298,7 +306,8 @@ class LangmeiApi {
     return _parseVods(data, site);
   }
 
-  static List<VideoItem> _parseVods(dynamic data, SiteDef site) {
+  List<VideoItem> _parseVods(dynamic data, SiteDef site) {
+    final cfg = configOf(site);
     final raw = data is Map<String, dynamic> ? data['vods'] : null;
     final items = <VideoItem>[];
     if (raw is List) {
@@ -313,13 +322,30 @@ class LangmeiApi {
           url: '${site.primaryHost}/#/play/$id',
           title: name,
           duration: remarks.isEmpty ? '-' : remarks,
-          thumb: '${v['pic'] ?? ''}',
+          thumb: _normalizeThumb('${v['pic'] ?? ''}', cfg),
           score: score.isEmpty ? null : score,
           badge: '${v['type_name'] ?? ''}',
         ));
       }
     }
     return items;
+  }
+
+  /// 封面域名归一化：API 返回的 CloudFront 域名已整体下线（DNS NXDOMAIN），
+  /// 但旧 `/upload/...` 图片在站点 static 镜像上仍有同一路径。保留原路径、
+  /// 只替换域名；非 CDN 域名保持原样，避免破坏正常图片。
+  /// 新 `/video/...` 封面在 static 上同样不存在，属于上游源站缺失，无法兜底。
+  static final _deadThumbHost = RegExp(
+    r'^(?:https?:)?//(?:de5x3008nq0df|d1cujq7ph4pp9b)\.cloudfront\.net',
+    caseSensitive: false,
+  );
+
+  static String _normalizeThumb(String raw, LangmeiSiteConfig cfg) {
+    final src = raw.trim();
+    final base = cfg.staticBase;
+    if (src.isEmpty || base == null) return src;
+    if (!_deadThumbHost.hasMatch(src)) return src;
+    return src.replaceFirst(_deadThumbHost, base);
   }
 
   // ── 详情 / 播放地址 ──────────────────────────────────────────────────
@@ -351,7 +377,7 @@ class LangmeiApi {
     }
     final vod = data['vod'] as Map<String, dynamic>;
     final name = '${vod['name'] ?? ''}'.trim();
-    final pic = '${vod['pic'] ?? ''}';
+    final pic = _normalizeThumb('${vod['pic'] ?? ''}', cfg);
     final durationSec = _parseDuration('${vod['duration'] ?? vod['remarks'] ?? ''}');
 
     // sources[0].episodes[nid].url；本站单源单集，取第一集。

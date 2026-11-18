@@ -714,23 +714,96 @@ void main() {
         adapter.requests.single.uri.queryParameters, isNot(contains('tags')));
   });
 
+  test('RedTube cards use data-o_thumb thumbnails and bare numeric URLs',
+      () async {
+    final site = SourceCatalog.redtube;
+    final base = site.primaryHost.replaceAll(RegExp(r'/$'), '');
+    final adapter = _FixtureAdapter({
+      '$base/?page=1': _FixtureResponse(
+        _html('''
+          <li id="video_list267756101" class="js-pop thumbnail-card">
+            <div class="video_block_wrapper">
+              <span class="video_thumb_wrap">
+                <a href="/267756101" data-video-id="267756101">
+                  <picture class="js_thumbPicTag">
+                    <source data-srcset="https://pix-cdn77.rdtcdn.com/x/original.mp4/plain/rs:fit:192:108?hash=a&amp;validto=1 1x">
+                    <img alt="Hot Couple Alpha" src="data:image/png;base64,AAAA"
+                      data-o_thumb="https://pix-cdn77.rdtcdn.com/x/original.mp4/plain/rs:fit:384:216?hash=b&amp;validto=1">
+                  </picture>
+                </a>
+              </span>
+            </div>
+          </li>
+        '''),
+      ),
+    });
+    final dio = Dio()..httpClientAdapter = adapter;
+    final feed = await GenericSiteApi(dio: dio).fetchFeed(
+      site,
+      tagId: 'hot',
+      limit: 1,
+    );
+
+    expect(feed, hasLength(1));
+    expect(feed.single.url, '$base/267756101');
+    expect(feed.single.title, 'Hot Couple Alpha');
+    expect(
+      feed.single.thumb,
+      'https://pix-cdn77.rdtcdn.com/x/original.mp4/plain/rs:fit:384:216?hash=b&validto=1',
+    );
+  });
+
+  test('RedTube detail parses relative mediaDefinitions HLS', () async {
+    final site = SourceCatalog.redtube;
+    const pageUrl = 'https://www.redtube.com/267756101';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <meta property="og:image"
+            content="https://pix-cdn77.rdtcdn.com/x.jpg?hash=c&amp;validto=1">
+          <script>
+            var player = {"mediaDefinitions":[
+              {"format":"hls","videoUrl":"\\/media\\/hls?s=abc","remote":true},
+              {"format":"mp4","videoUrl":"https:\\/\\/cdn.test\\/v.mp4","remote":true}
+            ]};
+          </script>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+
+    expect(
+      detail.streams.map((stream) => stream.url),
+      contains('https://www.redtube.com/media/hls?s=abc'),
+    );
+    expect(detail.thumb, 'https://pix-cdn77.rdtcdn.com/x.jpg?hash=c&validto=1');
+  });
+
   test('catalog keeps stable sources only after removing broken VODs', () {
     final enabled = SourceCatalog.defaultEnabledVideoIds;
     for (final id in [
       'pornhub',
       'xvideos',
-      // mitao 已按用户要求从卡片目录移除（2026-09），SiteDef 仍保留供
-      // 自定义解析器复用，但不得再出现在默认启用列表里。
+      'huangguo',
       'xnxx',
       'xhamster',
+      'redtube',
+      'eporner',
       'tnaflix',
+    ]) {
+      expect(enabled, contains(id), reason: '$id should be ready/enabled');
+    }
+    for (final id in [
+      // 2026-11 下架：浪妹上游视频 CDN 域名 NXDOMAIN，播放/新图不可用。
+      'langmei',
+      'yaofafa',
       'jable',
-      // 7mmtv / bestjavporn：2026-10-30 按用户要求恢复卡片（解析分支
-      // 一直保留），必须回到默认启用列表。
-      '7mmtv',
-      'bestjavporn',
       'supjav',
       '123av',
+      '7mmtv',
+      'bestjavporn',
       'pornbest',
       'ixxx',
       'fuq',
@@ -738,15 +811,10 @@ void main() {
       'pornkai',
       'tubesafari',
       'hotsextube',
-    ]) {
-      expect(enabled, contains(id), reason: '$id should be ready/enabled');
-    }
-    for (final id in [
-      'eporner',
+      // 更早下架的站点。
       'freeporn',
       'spankbang',
       'youporn',
-      'redtube',
       'javmix',
       'javgg',
       'av01',
@@ -783,7 +851,6 @@ void main() {
       SourceCatalog.xnxx,
       SourceCatalog.xhamster,
       SourceCatalog.tnaflix,
-      SourceCatalog.jable,
     ];
     for (final site in cases) {
       final base = site.primaryHost.replaceAll(RegExp(r'/$'), '');
@@ -791,14 +858,12 @@ void main() {
         'xnxx' => '$base/search/new/1',
         'xhamster' => '$base/newest/1',
         'tnaflix' => '$base/new/?page=1',
-        'jable' => '$base/latest-updates/1/',
         _ => throw StateError('unexpected site ${site.id}'),
       };
       final href = switch (site.id) {
         'xnxx' => '/video-xnxxalpha/',
         'xhamster' => '/videos/xhamster-alpha',
         'tnaflix' => '/video/tnaflix-alpha/123456',
-        'jable' => '/videos/jable-alpha/',
         _ => throw StateError('unexpected site ${site.id}'),
       };
       final adapter = _FixtureAdapter({

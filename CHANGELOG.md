@@ -5,6 +5,35 @@
 
 ---
 
+## [2.8.56] - 2026-11-18 - RedTube / Eporner 真实分类与内置播放修复
+
+### 🛠️ 修复
+
+1. **RedTube 标签补全**：按官网 `/categories` 的真实分类补到 77 个（连「热门 /
+   最新 / 精选」共 80 个），分类 feed 统一走 `/redtube/{slug}?page=N`；排序页
+   改用真实存在的 `/mostviewed`、`/newest`、`/top`，移除已 404 的
+   `/most-favorited/`，不再因错误路径耗尽 16 秒预算报「列表解析超时」。
+2. **RedTube 内置播放**：详情页的 `mediaDefinition` 只包含
+   `/media/mp4?s=…` 与 `/media/hls?s=…` 两个 JSON 索引；现在先请求 MP4 索引
+   （失败再请求 HLS），解析出 `em-ph.rdtcdn.com` / `im-h-ph.rdtcdn.com` 的
+   1080/720/480/240 真实地址交给内置播放器，不再把索引 JSON 当视频地址，
+   也不会再跳网页撞 `I'm 18` 年龄门。
+3. **Eporner 标签补全**：按官网 `/cat/` 的真实分类补到 38 个（加热门 / 最新 /
+   精选共 41 个），分类 feed 走 `/cat/{slug}/` 与 `/cat/{slug}/{page}/`；
+   分类标签不再误用官方 API 的 `query=all`（此前每个分类都是同一批内容）。
+4. **Eporner 内置播放**：详情页优先解析 `/dload/{id}/{q}/{fid}-{q}p.mp4`
+   下载直链（跳过 iOS 无法解码的 AV1 变体），带页面 Referer 播放完整
+   720/480/360/240p；不再使用已 403 的 `gvideo` 与 `code:3` 的
+   `/xhr/video` 鉴权链，点击卡片直接在内置播放器自动播放。
+
+### ✅ 测试
+
+5. 新增 RedTube `mediaDefinition` 索引解析、分类路径、Eporner `/dload` 流与
+   `/cat/{slug}/` 列表的离线 fixture 测试；`flutter analyze` 与
+   `flutter test` 全绿。
+
+---
+
 ## [2.8.55] - 2026-11-18 - 恢复 RedTube / Eporner，下架失效站点
 
 ### ✨ 新增 / 恢复

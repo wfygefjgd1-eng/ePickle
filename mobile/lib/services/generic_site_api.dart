@@ -1056,6 +1056,11 @@ class GenericSiteApi {
   }) async {
     switch (site.parserId ?? site.id) {
       case 'eporner':
+        // 分类标签走真实 /cat/{slug}/ 页面；官方 API 没有分类参数，继续调用
+        // 只会把未知 query 当成 all，导致每个分类标签都是同一批内容。
+        if (tagId != 'hot' && tagId != 'new' && tagId != 'best') {
+          return const [];
+        }
         return _fetchEpornerApi(
           site,
           tagId: tagId,
@@ -1928,8 +1933,24 @@ class GenericSiteApi {
       }
     }
 
-    // MindGeek family (YouPorn / RedTube): mediaDefinitions like Pornhub
-    if (site.id == 'youporn' || site.id == 'redtube') {
+    // RedTube: `mediaDefinition` only holds /media/mp4 and /media/hls token
+    // indexes which answer with JSON arrays of real CDN URLs. Resolve them
+    // before the generic extractor hands the index itself to the player.
+    if (site.id == 'redtube') {
+      final rt = await _extractRedTubeStreams(url, html, base);
+      if (rt.isNotEmpty) {
+        return VideoDetail(
+          url: url,
+          title: _extractTitle(html) ?? url,
+          durationSec: _extractDurationSec(html),
+          thumb: _resolvedThumb(html, url),
+          streams: rt,
+        );
+      }
+    }
+
+    // YouPorn: mediaDefinitions like Pornhub
+    if (site.id == 'youporn') {
       final mg = _extractMindGeekStreams(html, pageUrl: url);
       if (mg.isNotEmpty) {
         return VideoDetail(
@@ -2309,8 +2330,55 @@ class GenericSiteApi {
     String html,
     String base,
   ) async {
+    final origin = _originOf(pageUrl) ?? base;
+    final vid = RegExp(r'/video-([A-Za-z0-9]+)(?:[/?#]|$)')
+            .firstMatch(pageUrl)
+            ?.group(1) ??
+        RegExp(r'''data-vid=["']([A-Za-z0-9]+)/''')
+            .firstMatch(html)
+            ?.group(1) ??
+        RegExp(r'/embed/([A-Za-z0-9]+)').firstMatch(pageUrl)?.group(1);
+
+    // 2026-11 实测：`/xhr/video/{id}/?hash=` 即使带页面 Cookie + Referer 仍
+    // 返回 code 3（Authorization failed），JSON-LD 的 gvideo 直链也 403。
+    // 唯一稳定可播的是下载链接 `/dload/{id}/{q}/{fid}-{q}p.mp4`（需 Referer），
+    // 因此优先解析它；AV1 变体在 iOS AVPlayer 上没有解码器，直接跳过。
     final out = <StreamQuality>[];
-    // Direct in page (gvideo.eporner.com / static mp4)
+    final seen = <String>{};
+    for (final m in RegExp(
+      r'''href\s*=\s*["']((?:https?:)?//[^"']*?/dload/[^"']+?\.mp4|/dload/[^"']+?\.mp4)["']''',
+      caseSensitive: false,
+    ).allMatches(html)) {
+      final raw = m.group(1)!;
+      if (raw.toLowerCase().contains('-av1')) continue;
+      final url = _siteMediaUrl(raw, origin);
+      if (url == null || !seen.add(url)) continue;
+      var height = int.tryParse(
+            RegExp(r'/dload/[^/]+/(\d+)/').firstMatch(url)?.group(1) ?? '',
+          ) ??
+          0;
+      if (height <= 0) {
+        height = int.tryParse(
+              RegExp(r'-(\d+)p(?:-av1)?\.mp4').firstMatch(url)?.group(1) ?? '',
+            ) ??
+            0;
+      }
+      if (height <= 0) height = 720;
+      out.add(
+        StreamQuality(
+          width: (height * 16 / 9).round(),
+          height: height,
+          url: url,
+          referer: pageUrl,
+        ),
+      );
+    }
+    if (out.isNotEmpty) {
+      out.sort((a, b) => b.pixels.compareTo(a.pixels));
+      return _filterPreviewStreams(out);
+    }
+
+    // Fallback: direct in page (gvideo.eporner.com / static mp4)
     out.addAll(_extractStreams(html, base));
     out.addAll(_extractStreamsLoose(html, base));
     for (final m in RegExp(
@@ -2331,22 +2399,7 @@ class GenericSiteApi {
     }
 
     // /xhr/video/ID or download hash links
-    final idm = RegExp(r'/video-([A-Za-z0-9]+)/').firstMatch(pageUrl) ??
-        RegExp(r'/hd-porn/([A-Za-z0-9]+)/').firstMatch(pageUrl) ??
-        RegExp(r'/video-([A-Za-z0-9]+)/').firstMatch(html) ??
-        RegExp(r'/embed/([A-Za-z0-9]+)/').firstMatch(pageUrl);
-    final vid = idm?.group(1);
-    if (vid != null) {
-      // Public progressive URL often works without xhr auth.
-      final progressive = 'https://gvideo.eporner.com/$vid/$vid.mp4';
-      out.add(
-        StreamQuality(
-          width: 1280,
-          height: 720,
-          url: progressive,
-          referer: pageUrl,
-        ),
-      );
+    if (vid != null && out.isEmpty) {
       // 三个端点任一给出新流即可收工（补齐的都是同一视频的同一组流，
       // 连打三个端点只多花两倍往返时间，加速 failover 链后续阶段）。
       final before = out.length;
@@ -2393,6 +2446,114 @@ class GenericSiteApi {
       }
     }
     return _filterPreviewStreams(out);
+  }
+
+  /// RedTube: `mediaDefinition` / `mediaDefinitions` carries session-token
+  /// indexes (`/media/mp4?s=…`, `/media/hls?s=…`). Fetch the indexes and parse
+  /// the JSON arrays they return into real CDN URLs.
+  Future<List<StreamQuality>> _extractRedTubeStreams(
+    String pageUrl,
+    String html,
+    String base,
+  ) async {
+    final origin = _originOf(pageUrl) ?? base;
+    final block = RegExp(
+      r'''mediaDefinitions?\s*[:=]\s*(\[[\s\S]*?\])\s*[,;}]''',
+    ).firstMatch(html);
+    final blob = block?.group(1) ?? html;
+
+    final indexes = <String>[];
+    final seen = <String>{};
+    // `mediaDefinition` 的对象里可能还嵌着 `segmentFormats` 子对象，按完整
+    // 对象匹配会因为嵌套花括号整段失配；直接扫 videoUrl 再按媒体索引路径
+    // 过滤，既能兼容嵌套结构，也不会把页面 canonical videoUrl 捡进来。
+    for (final m in RegExp(
+      r'''"videoUrl"\s*:\s*"((?:https?:)?[^"]+)"''',
+      caseSensitive: false,
+    ).allMatches(blob)) {
+      final raw = m.group(1);
+      final url = _siteMediaUrl(raw, origin);
+      if (url == null) continue;
+      final lower = url.toLowerCase();
+      if (!lower.contains('/media/hls') && !lower.contains('/media/mp4')) {
+        continue;
+      }
+      if (seen.add(url)) indexes.add(url);
+    }
+
+    // 盒子播放器对渐进式 MP4 的兼容性最好；HLS 作为索引失败后的兜底。
+    indexes.sort((a, b) {
+      final am = a.contains('/media/mp4') ? 0 : 1;
+      final bm = b.contains('/media/mp4') ? 0 : 1;
+      return am.compareTo(bm);
+    });
+
+    final out = <StreamQuality>[];
+    for (final indexUrl in indexes) {
+      try {
+        final raw = await _getHtml(
+          indexUrl,
+          headers: {
+            ...AppHttpHeaders.forSite(base),
+            'Referer': pageUrl,
+            'Accept': 'application/json,text/plain,*/*',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+        );
+        for (final s in _parseRedTubeMediaIndex(raw, pageUrl)) {
+          if (seen.add(s.url)) out.add(s);
+        }
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
+      }
+      if (out.any((s) => !s.url.toLowerCase().contains('m3u8'))) break;
+    }
+    out.sort((a, b) => b.pixels.compareTo(a.pixels));
+    return _filterPreviewStreams(out);
+  }
+
+  List<StreamQuality> _parseRedTubeMediaIndex(String raw, String pageUrl) {
+    final out = <StreamQuality>[];
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      return out;
+    }
+    final list = decoded is List ? decoded : const [];
+    for (final entry in list) {
+      if (entry is! Map) continue;
+      final map = entry.map((k, v) => MapEntry('$k', v));
+      final rawUrl = (map['videoUrl'] ?? '').toString();
+      if (rawUrl.isEmpty) continue;
+      final url = rawUrl.replaceAll(r'\/', '/').replaceAll('&amp;', '&');
+      if (!url.startsWith('http')) continue;
+      // HLS 索引里的 width/height 是播放器尺寸（720x404），真实画质在
+      // `quality`；MP4 索引则只有 quality。两边统一按 quality 计算宽高。
+      var height = int.tryParse((map['quality'] ?? '').toString()) ?? 0;
+      if (height <= 0) {
+        height = int.tryParse((map['height'] ?? '').toString()) ?? 0;
+      }
+      if (height <= 0) height = url.contains('m3u8') ? 720 : 480;
+      out.add(
+        StreamQuality(
+          width: (height * 16 / 9).round(),
+          height: height,
+          url: url,
+          referer: pageUrl,
+        ),
+      );
+    }
+    return out;
+  }
+
+  String? _siteMediaUrl(String? raw, String origin) {
+    if (raw == null || raw.isEmpty) return null;
+    var url = raw.replaceAll(r'\/', '/').replaceAll('&amp;', '&').trim();
+    if (url.startsWith('//')) url = 'https:$url';
+    if (url.startsWith('/')) url = '$origin$url';
+    if (!url.startsWith('http')) return null;
+    return url;
   }
 
   List<StreamQuality> _extractMindGeekStreams(String html, {String? pageUrl}) {
@@ -2732,6 +2893,12 @@ class GenericSiteApi {
     if (low.contains('sample') && !low.contains('m3u8')) return true;
     if (low.contains('mediabook')) return true;
     if (low.contains('static.eporner.com/na.mp4')) return true;
+    // MindGeek 的 `/media/hls?s=` / `/media/mp4?s=` 只是「取真实地址」的
+    // JSON 索引，不是媒体本体。索引请求失败时通用宽匹配会把它当播放地址
+    // 捡回来，交给播放器只会得到一段 JSON。
+    if (low.contains('/media/hls?') || low.contains('/media/mp4?')) {
+      return true;
+    }
     if (_reNaPlaceholder.hasMatch(low)) {
       return true;
     }
@@ -3142,11 +3309,17 @@ class GenericSiteApi {
           (b) => '$b/?page=$p',
         ];
       case 'eporner':
+        // 2026-11 实测：分类页是 /cat/{slug}/，第 2 页起 /cat/{slug}/{page}/。
+        // /recent/{p}/ 会 302 回 /recent/（无分页），所以 hot/new/best 仍由
+        // 官方 API 提供，这里只作为 API 失败后的 HTML 兜底。
         return [
-          if (tagId == 'new') (b) => '$b/recent/$p/',
-          if (tagId == 'asian') (b) => '$b/cat/asian/$p/',
-          if (tagId == 'best') (b) => '$b/top-rated/$p/',
-          if (tagId == 'hot') (b) => '$b/best-videos/$p/',
+          if (tagId == 'new') (b) => '$b/recent/',
+          if (tagId == 'best')
+            (b) => '$b/top-rated/${p > 1 ? '$p/' : ''}',
+          if (tagId == 'hot')
+            (b) => '$b/best-videos/${p > 1 ? '$p/' : ''}',
+          (b) => '$b/cat/$tagId/${p > 1 ? '$p/' : ''}',
+          (b) => '$b/cat/$tagId/',
           (b) => '$b/popular-videos/$p/',
           (b) => '$b/',
         ];
@@ -3279,11 +3452,15 @@ class GenericSiteApi {
           (b) => '$b/',
         ];
       case 'redtube':
+        // 2026-11 实测：真实排序页是 /newest、/mostviewed、/top
+        // （/most-favorited 已 404，会把人拖进超时）；分类页是
+        // /redtube/{slug}?page=N，首页只作兜底。
         return [
-          if (tagId == 'new') (b) => '$b/?page=$p&ordering=newest',
-          if (tagId == 'asian') (b) => '$b/?search=asian&page=$p',
-          if (tagId == 'best') (b) => '$b/most-favorited/?page=$p',
-          if (tagId == 'hot') (b) => '$b/?page=$p',
+          if (tagId == 'new') (b) => '$b/newest?page=$p',
+          if (tagId == 'best') (b) => '$b/top?page=$p',
+          if (tagId == 'hot') (b) => '$b/mostviewed?page=$p',
+          (b) => '$b/redtube/$tagId?page=$p',
+          (b) => '$b/redtube/$tagId',
           (b) => '$b/?page=$p',
           (b) => '$b/',
         ];
@@ -3906,6 +4083,13 @@ class GenericSiteApi {
     SiteDef site,
   ) {
     final out = <VideoItem>[];
+    // Eporner 分类页卡是 `<div class="mb">`（内层 class 都不含通用切分词），
+    // 通用切分会把整页切在导航/侧栏上，标题和缩略图容易串卡。官方 API 又
+    // 没有分类参数，所以分类页单独按真实卡片结构解析。
+    if ((site.parserId ?? site.id) == 'eporner') {
+      final parsed = _parseEpornerList(html, base, seen);
+      if (parsed.isNotEmpty) return parsed;
+    }
     // Collect href candidates that look like video pages
     final hrefRe = RegExp(
       r'''href\s*=\s*["']([^"']+)["']''',
@@ -4074,6 +4258,55 @@ class GenericSiteApi {
           title: title,
           duration: duration ?? '-',
           thumb: thumb,
+        ),
+      );
+      if (out.length >= 80) break;
+    }
+    return out;
+  }
+
+  /// Eporner 分类/搜索页：每张卡是 `<div class="mb">`，内部依次是
+  /// `/video-<id>/` 链接、`img src` 缩略图、`p.mbtit` 标题、`span.mbtim`
+  /// 时长。按卡片字面切分，避免通用切词把相邻卡拼在一起。
+  List<VideoItem> _parseEpornerList(
+    String html,
+    String base,
+    Set<String> seen,
+  ) {
+    final out = <VideoItem>[];
+    for (final part in html.split('<div class="mb"').skip(1)) {
+      final href = RegExp(
+        r'''href=["'](/video-[^"']+)["']''',
+        caseSensitive: false,
+      ).firstMatch(part)?.group(1);
+      if (href == null) continue;
+      final abs = _abs(base, href);
+      final key = abs.split('#').first;
+      if (!seen.add(key)) continue;
+      var title = RegExp(
+        r'''<p class="mbtit"><a[^>]*>([^<]+)</a>''',
+        caseSensitive: false,
+      ).firstMatch(part)?.group(1);
+      title ??= RegExp(
+        r'''img\b[^>]*\balt=["']([^"']{3,200})["']''',
+        caseSensitive: false,
+      ).firstMatch(part)?.group(1);
+      final clean = _cleanTitle(title ?? '');
+      if (clean.length < 2 || _isJunkTitle(clean)) continue;
+      final thumb = RegExp(
+        r'''<img\b[^>]*\b(?:data-src|src)=["']([^"']+)["']''',
+        caseSensitive: false,
+      ).firstMatch(part)?.group(1);
+      final duration = RegExp(
+        r'''class=["']mbtim["'][^>]*>([^<]+)<''',
+        caseSensitive: false,
+      ).firstMatch(part)?.group(1)?.trim();
+      out.add(
+        VideoItem(
+          url: abs,
+          title: clean,
+          duration: duration == null || duration.isEmpty ? '-' : duration,
+          thumb: _normalizeThumbUrl(thumb, base),
         ),
       );
       if (out.length >= 80) break;

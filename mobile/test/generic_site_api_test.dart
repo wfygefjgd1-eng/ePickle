@@ -364,6 +364,183 @@ void main() {
     expect(urls, everyElement(isNot(contains('static.eporner.com/na.mp4'))));
   });
 
+  test('RedTube resolves mediaDefinition token indexes to CDN streams',
+      () async {
+    const pageUrl = 'https://www.redtube.com/267756101';
+    const hlsIndex = 'https://www.redtube.com/media/hls?s=token-hls';
+    const mp4Index = 'https://www.redtube.com/media/mp4?s=token-mp4';
+    const cdn720 = 'https://em-ph.rdtcdn.com/videos/x/720P.mp4?hash=a';
+    const cdn1080 = 'https://em-ph.rdtcdn.com/videos/x/1080P.mp4?hash=b';
+    final adapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html(r'''
+          <script>
+            mediaDefinition: [{"format":"hls","videoUrl":"\/media\/hls?s=token-hls","remote":true},{"format":"mp4","videoUrl":"\/media\/mp4?s=token-mp4","remote":true}],
+          </script>
+        '''),
+      ),
+      mp4Index: _FixtureResponse(
+        jsonEncode([
+          {'quality': '1080', 'videoUrl': cdn1080},
+          {'quality': '720', 'videoUrl': cdn720},
+        ]),
+      ),
+    });
+    final dio = Dio()..httpClientAdapter = adapter;
+
+    final detail = await GenericSiteApi(
+      dio: dio,
+    ).getVideoDetail(SourceCatalog.redtube, pageUrl);
+    final urls = detail.streams.map((stream) => stream.url).toList();
+
+    expect(urls, containsAll([cdn1080, cdn720]));
+    expect(
+      urls,
+      everyElement(isNot(contains('/media/mp4'))),
+      reason: 'the token index must never be handed to the player',
+    );
+    expect(detail.streams.first.height, 1080);
+    expect(
+      adapter.requests.where((r) => r.uri.toString() == hlsIndex),
+      isEmpty,
+      reason: 'a successful MP4 index should skip the HLS request',
+    );
+    final mediaRequest = adapter.requests.singleWhere(
+      (r) => r.uri.toString() == mp4Index,
+    );
+    expect(mediaRequest.headers['Referer'], pageUrl);
+  });
+
+  test('Eporner prefers /dload MP4 links and skips AV1', () async {
+    const pageUrl = 'https://www.eporner.com/video-ZfZ5g0AdJiX/example/';
+    const d240 = '/dload/ZfZ5g0AdJiX/240/18908446-240p.mp4';
+    const d720 = '/dload/ZfZ5g0AdJiX/720/18908446-720p.mp4';
+    const av1 = '/dload/ZfZ5g0AdJiX/240/18908446-240p-av1.mp4';
+    const gvideo = 'https://gvideo.eporner.com/ZfZ5g0AdJiX/ZfZ5g0AdJiX.mp4';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <script>{"contentUrl": "$gvideo"}</script>
+          <a href="$d240">240p</a>
+          <a href="$d720">720p</a>
+          <a href="$av1">240p AV1</a>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(
+      dio: dio,
+    ).getVideoDetail(SourceCatalog.eporner, pageUrl);
+    final urls = detail.streams.map((stream) => stream.url).toList();
+
+    expect(urls.first, 'https://www.eporner.com$d720');
+    expect(urls, contains('https://www.eporner.com$d240'));
+    expect(urls, everyElement(isNot(contains('-av1'))));
+    expect(urls, isNot(contains(gvideo)));
+    expect(detail.streams.first.height, 720);
+  });
+
+  test('Eporner category tags use /cat/{slug}/ pages, not the public API',
+      () async {
+    const base = 'https://eporner.test';
+    const site = SiteDef(
+      id: 'eporner',
+      name: 'Eporner',
+      kind: SiteKind.video,
+      tags: [],
+      color: 0,
+      letter: 'E',
+      mirrors: [base],
+      parserId: 'eporner',
+    );
+    final adapter = _FixtureAdapter({
+      '$base/cat/milf/2/': _FixtureResponse(
+        _html('''
+          <div class="mb" data-id="1">
+            <div class="mbimg"><div class="mbcontent">
+              <a href="/video-qQrwSe15G43/curly-bbw-milf-s-huge-tits-destroy-young-stud/"><img src="https://static-ca-cdn.eporner.com/thumbs/1.jpg" alt="Curly BBW Milf" /></a>
+            </div></div>
+            <div class="mbunder"><p class="mbtit"><a href="/video-qQrwSe15G43/curly-bbw-milf-s-huge-tits-destroy-young-stud/">Curly BBW Milf&#039;s Huge Tits</a></p>
+            <p class="mbstats"><span class="mbtim" title="Duration">8:00</span></p></div>
+          </div>
+          <div class="mb" data-id="2">
+            <div class="mbimg"><div class="mbcontent">
+              <a href="/video-S49V58k2LKU/richelle-ryan/"><img src="https://static-ca-cdn.eporner.com/thumbs/2.jpg" alt="Richelle Ryan" /></a>
+            </div></div>
+            <div class="mbunder"><p class="mbtit"><a href="/video-S49V58k2LKU/richelle-ryan/">Richelle Ryan</a></p>
+            <p class="mbstats"><span class="mbtim" title="Duration">12:34</span></p></div>
+          </div>
+        '''),
+      ),
+    });
+    final dio = Dio()..httpClientAdapter = adapter;
+
+    final feed = await GenericSiteApi(
+      dio: dio,
+    ).fetchFeed(site, tagId: 'milf', page: 2, limit: 40);
+
+    expect(feed.length, 2);
+    expect(feed.first.url, contains('/video-qQrwSe15G43/'));
+    expect(feed.first.title, "Curly BBW Milf's Huge Tits");
+    expect(feed.first.duration, '8:00');
+    expect(feed.first.thumb, contains('/thumbs/1.jpg'));
+    expect(feed.last.duration, '12:34');
+    expect(
+      adapter.requests.where((r) => r.uri.path.contains('/api/v2/')),
+      isEmpty,
+    );
+    expect(
+      adapter.requests.map((r) => r.uri.toString()),
+      contains('$base/cat/milf/2/'),
+    );
+  });
+
+  test('RedTube category tags use /redtube/{slug} pages', () async {
+    const base = 'https://redtube.test';
+    const site = SiteDef(
+      id: 'redtube',
+      name: 'RedTube',
+      kind: SiteKind.video,
+      tags: [],
+      color: 0,
+      letter: 'R',
+      mirrors: [base],
+      parserId: 'redtube',
+    );
+    final adapter = _FixtureAdapter({
+      '$base/redtube/bigtits?page=2': _FixtureResponse(
+        _html('''
+          <div class="video_block_wrapper">
+            <a class="video_link" href="/267756101" data-video-id="267756101" title="Fixture RedTube video">
+              <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP" data-o_thumb="https://pix-cdn77.rdtcdn.com/c6371/preview?hash=x&amp;validto=2" />
+            </a>
+            <span class="video-properties tm_video_duration">13:48</span>
+          </div>
+        '''),
+      ),
+    });
+    final dio = Dio()..httpClientAdapter = adapter;
+
+    final feed = await GenericSiteApi(
+      dio: dio,
+    ).fetchFeed(site, tagId: 'bigtits', page: 2, limit: 40);
+
+    expect(feed, hasLength(1));
+    expect(feed.first.url, '$base/267756101');
+    expect(feed.first.title, 'Fixture RedTube video');
+    expect(feed.first.duration, '13:48');
+    expect(feed.first.thumb, contains('pix-cdn77.rdtcdn.com'));
+    expect(
+      adapter.requests.map((r) => r.uri.toString()),
+      contains('$base/redtube/bigtits?page=2'),
+    );
+    expect(
+      adapter.requests.map((r) => r.uri.toString()),
+      isNot(contains(contains('most-favorited'))),
+    );
+  });
+
   test('parses ISO 8601 video duration metadata', () async {
     const pageUrl = 'https://fixture.test/watch/long';
     final dio = Dio();
@@ -753,9 +930,13 @@ void main() {
     );
   });
 
-  test('RedTube detail parses relative mediaDefinitions HLS', () async {
+  test('RedTube detail resolves mediaDefinitions index before playback',
+      () async {
     final site = SourceCatalog.redtube;
     const pageUrl = 'https://www.redtube.com/267756101';
+    const hlsIndex = 'https://www.redtube.com/media/hls?s=abc';
+    const hlsCdn =
+        'https://im-h-ph.rdtcdn.com/hls/c6251/720P/master.m3u8?token=1';
     final dio = Dio();
     dio.httpClientAdapter = _FixtureAdapter({
       pageUrl: _FixtureResponse(
@@ -770,13 +951,27 @@ void main() {
           </script>
         '''),
       ),
+      hlsIndex: _FixtureResponse(
+        jsonEncode([
+          {
+            'format': 'hls',
+            'quality': '720',
+            'width': 720,
+            'height': 404,
+            'videoUrl': hlsCdn,
+          },
+        ]),
+      ),
     });
 
     final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+    final urls = detail.streams.map((stream) => stream.url).toList();
 
+    expect(urls, contains(hlsCdn));
     expect(
-      detail.streams.map((stream) => stream.url),
-      contains('https://www.redtube.com/media/hls?s=abc'),
+      urls,
+      isNot(contains(hlsIndex)),
+      reason: 'the JSON index itself is not a playable media URL',
     );
     expect(detail.thumb, 'https://pix-cdn77.rdtcdn.com/x.jpg?hash=c&validto=1');
   });

@@ -209,15 +209,42 @@ class PlaybackHelpers {
   static StreamQuality? pickStream(VideoDetail detail, int qualityCap) =>
       detail.streamForCap(qualityCap);
 
-  /// Ordered candidates for init fallback: preferred/cap first, then lower, then higher.
+  static StreamQuality? _firstWhereOrNull(
+    Iterable<StreamQuality> items,
+    bool Function(StreamQuality) test,
+  ) {
+    for (final item in items) {
+      if (test(item)) return item;
+    }
+    return null;
+  }
+
+  /// HLS playlist vs progressive MP4. Used only to pick a second transport
+  /// when a detail page exposes both formats at the same resolution.
+  static bool _isHls(StreamQuality stream) =>
+      stream.url.toLowerCase().contains('.m3u8');
+
+  /// Ordered candidates for init fallback: preferred/cap first, then the
+  /// other transport format (MP4 ↔ HLS) at the same resolution, then lower,
+  /// then any remaining.
   static List<StreamQuality> streamCandidates(
     VideoDetail detail,
     int qualityCap,
   ) {
     if (detail.streams.isEmpty) return const [];
-    final primary = detail.streamForCap(qualityCap);
+    var primary = detail.streamForCap(qualityCap);
     final rest = [...detail.streams]
       ..sort((a, b) => b.pixels.compareTo(a.pixels));
+    // 同画质优先渐进式 MP4：iOS AVPlayer 只在 Range 请求上携带自定义
+    // Referer，HLS 分片不一定继承；把 HLS 放首选会让失败后只剩更短的
+    // 初始化窗口留给 MP4。
+    if (primary != null && _isHls(primary)) {
+      final mp4Twin = _firstWhereOrNull(
+        rest,
+        (s) => !_isHls(s) && s.height == primary!.height,
+      );
+      if (mp4Twin != null) primary = mp4Twin;
+    }
     final out = <StreamQuality>[];
     final seen = <String>{};
     void add(StreamQuality? s) {
@@ -226,6 +253,18 @@ class PlaybackHelpers {
     }
 
     add(primary);
+    // 第二候选换一种传输格式：部分 CDN 边缘会忽略 Range 并返回 200 全文件，
+    // 使 moov 在尾部的 MP4 初始化超时；HLS 分片不依赖 Range。反过来，HLS
+    // 鉴权头在个别平台不生效时也能退回 MP4。
+    final head = primary;
+    if (head != null) {
+      add(
+        _firstWhereOrNull(
+          rest,
+          (s) => _isHls(s) != _isHls(head) && s.height <= head.height,
+        ),
+      );
+    }
     // Lower first (more likely to play on weak net), then any remaining.
     final lower = rest
         .where((s) =>

@@ -141,9 +141,21 @@ class VideoDetail {
         '${s.toString().padLeft(2, '0')}';
   }
 
+  /// Rank HLS below progressive MP4 when both expose the same resolution:
+  /// iOS AVPlayer does not reliably forward custom Referer headers to HLS
+  /// segment requests.
+  static int _hlsRank(StreamQuality s) =>
+      s.url.toLowerCase().contains('.m3u8') ? 1 : 0;
+
+  static int _byPixelsDesc(StreamQuality a, StreamQuality b) {
+    final byPixels = b.pixels.compareTo(a.pixels);
+    if (byPixels != 0) return byPixels;
+    return _hlsRank(a).compareTo(_hlsRank(b));
+  }
+
   StreamQuality? get bestStream {
     if (streams.isEmpty) return null;
-    final sorted = [...streams]..sort((a, b) => b.pixels.compareTo(a.pixels));
+    final sorted = [...streams]..sort(_byPixelsDesc);
     return sorted.first;
   }
 
@@ -153,7 +165,7 @@ class VideoDetail {
     final under720 =
         streams.where((s) => s.height > 0 && s.height <= 720).toList();
     if (under720.isNotEmpty) {
-      under720.sort((a, b) => b.pixels.compareTo(a.pixels));
+      under720.sort(_byPixelsDesc);
       return under720.first;
     }
     return bestStream;
@@ -166,11 +178,15 @@ class VideoDetail {
     final under =
         streams.where((s) => s.height > 0 && s.height <= maxHeight).toList();
     if (under.isNotEmpty) {
-      under.sort((a, b) => b.pixels.compareTo(a.pixels));
+      under.sort(_byPixelsDesc);
       return under.first;
     }
     // Cap lower than all — pick lowest
-    final sorted = [...streams]..sort((a, b) => a.pixels.compareTo(b.pixels));
+    final sorted = [...streams]
+      ..sort((a, b) {
+        final byPixels = a.pixels.compareTo(b.pixels);
+        return byPixels != 0 ? byPixels : _hlsRank(a).compareTo(_hlsRank(b));
+      });
     return sorted.first;
   }
 }

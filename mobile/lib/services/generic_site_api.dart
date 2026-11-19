@@ -2364,6 +2364,10 @@ class GenericSiteApi {
             0;
       }
       if (height <= 0) height = 720;
+      // 2026-11 实测：1080/1440/2160 的 /dload 对匿名会话一律 302 到
+      // /login（会员下载），放进候选只会让播放器先撞一次登录页；720 及
+      // 以下才是匿名可播的清晰度。
+      if (height > 720) continue;
       out.add(
         StreamQuality(
           width: (height * 16 / 9).round(),
@@ -2481,15 +2485,18 @@ class GenericSiteApi {
       if (seen.add(url)) indexes.add(url);
     }
 
-    // 盒子播放器对渐进式 MP4 的兼容性最好；HLS 作为索引失败后的兜底。
+    // 盒子播放器对渐进式 MP4 的兼容性最好；HLS 作为第二种传输格式兜底。
+    // RedTube 的 MP4 是 moov 在文件尾部（非 faststart），且部分 CDN 边缘节点
+    // 会忽略 Range 直接返回 200 全文件——播放器在 8s 内读不到 moov 就会回退
+    // 网页。HLS 分片不依赖 Range，所以两种格式都保留，交给候选排序把同画质
+    // 的 MP4 放前面、HLS 放第二。
     indexes.sort((a, b) {
       final am = a.contains('/media/mp4') ? 0 : 1;
       final bm = b.contains('/media/mp4') ? 0 : 1;
       return am.compareTo(bm);
     });
 
-    final out = <StreamQuality>[];
-    for (final indexUrl in indexes) {
+    Future<List<StreamQuality>> load(String indexUrl) async {
       try {
         final raw = await _getHtml(
           indexUrl,
@@ -2500,15 +2507,28 @@ class GenericSiteApi {
             'X-Requested-With': 'XMLHttpRequest',
           },
         );
-        for (final s in _parseRedTubeMediaIndex(raw, pageUrl)) {
-          if (seen.add(s.url)) out.add(s);
-        }
+        return _parseRedTubeMediaIndex(raw, pageUrl);
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        return const [];
       }
-      if (out.any((s) => !s.url.toLowerCase().contains('m3u8'))) break;
     }
-    out.sort((a, b) => b.pixels.compareTo(a.pixels));
+
+    // 两个索引并行取（各自带一次签名换取），避免详情页多等一轮往返。
+    final parts = await Future.wait(indexes.map(load));
+    final out = <StreamQuality>[];
+    for (final part in parts) {
+      for (final s in part) {
+        if (seen.add(s.url)) out.add(s);
+      }
+    }
+    out.sort((a, b) {
+      final byHeight = b.height.compareTo(a.height);
+      if (byHeight != 0) return byHeight;
+      final ah = a.url.toLowerCase().contains('m3u8') ? 1 : 0;
+      final bh = b.url.toLowerCase().contains('m3u8') ? 1 : 0;
+      return ah.compareTo(bh);
+    });
     return _filterPreviewStreams(out);
   }
 

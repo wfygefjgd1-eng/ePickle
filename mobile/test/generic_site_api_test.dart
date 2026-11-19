@@ -371,6 +371,8 @@ void main() {
     const mp4Index = 'https://www.redtube.com/media/mp4?s=token-mp4';
     const cdn720 = 'https://em-ph.rdtcdn.com/videos/x/720P.mp4?hash=a';
     const cdn1080 = 'https://em-ph.rdtcdn.com/videos/x/1080P.mp4?hash=b';
+    const cdnHls720 =
+        'https://im-h-ph.rdtcdn.com/hls/x/720P/master.m3u8?token=h';
     final adapter = _FixtureAdapter({
       pageUrl: _FixtureResponse(
         _html(r'''
@@ -385,6 +387,16 @@ void main() {
           {'quality': '720', 'videoUrl': cdn720},
         ]),
       ),
+      hlsIndex: _FixtureResponse(
+        jsonEncode([
+          {
+            'quality': '720',
+            'width': 720,
+            'height': 404,
+            'videoUrl': cdnHls720,
+          },
+        ]),
+      ),
     });
     final dio = Dio()..httpClientAdapter = adapter;
 
@@ -393,17 +405,17 @@ void main() {
     ).getVideoDetail(SourceCatalog.redtube, pageUrl);
     final urls = detail.streams.map((stream) => stream.url).toList();
 
-    expect(urls, containsAll([cdn1080, cdn720]));
+    expect(urls, containsAll([cdn1080, cdn720, cdnHls720]));
     expect(
       urls,
-      everyElement(isNot(contains('/media/mp4'))),
+      everyElement(isNot(contains('/media/'))),
       reason: 'the token index must never be handed to the player',
     );
     expect(detail.streams.first.height, 1080);
     expect(
       adapter.requests.where((r) => r.uri.toString() == hlsIndex),
-      isEmpty,
-      reason: 'a successful MP4 index should skip the HLS request',
+      hasLength(1),
+      reason: 'both indexes are fetched in parallel to offer an HLS fallback',
     );
     final mediaRequest = adapter.requests.singleWhere(
       (r) => r.uri.toString() == mp4Index,
@@ -415,6 +427,7 @@ void main() {
     const pageUrl = 'https://www.eporner.com/video-ZfZ5g0AdJiX/example/';
     const d240 = '/dload/ZfZ5g0AdJiX/240/18908446-240p.mp4';
     const d720 = '/dload/ZfZ5g0AdJiX/720/18908446-720p.mp4';
+    const d1080 = '/dload/ZfZ5g0AdJiX/1080/18908446-1080p.mp4';
     const av1 = '/dload/ZfZ5g0AdJiX/240/18908446-240p-av1.mp4';
     const gvideo = 'https://gvideo.eporner.com/ZfZ5g0AdJiX/ZfZ5g0AdJiX.mp4';
     final dio = Dio();
@@ -424,6 +437,7 @@ void main() {
           <script>{"contentUrl": "$gvideo"}</script>
           <a href="$d240">240p</a>
           <a href="$d720">720p</a>
+          <a href="$d1080">1080p</a>
           <a href="$av1">240p AV1</a>
         '''),
       ),
@@ -438,6 +452,11 @@ void main() {
     expect(urls, contains('https://www.eporner.com$d240'));
     expect(urls, everyElement(isNot(contains('-av1'))));
     expect(urls, isNot(contains(gvideo)));
+    expect(
+      urls,
+      isNot(contains('https://www.eporner.com$d1080')),
+      reason: '1080p /dload redirects anonymous sessions to /login',
+    );
     expect(detail.streams.first.height, 720);
   });
 

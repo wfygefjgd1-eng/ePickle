@@ -11,6 +11,7 @@ import '../models/video_item.dart';
 import '../services/app_settings.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
+import 'forward_45_icon.dart';
 import 'stripchat_live_view.dart';
 
 class VideoPlayerPage extends StatefulWidget {
@@ -546,7 +547,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 ),
               ),
             ),
-            // 横屏：快进 30 秒按钮（左下角）
+            // 横屏：快进 45 秒按钮（左下角，图标 3 倍）
             if (showFFButton)
               Positioned(
                 left: 16,
@@ -554,10 +555,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 child: SafeArea(
                   child: GestureDetector(
                     onTap: widget.onFastForward,
-                    child: Icon(
-                      Icons.forward_30,
+                    child: Forward45Icon(
+                      size: 84,
                       color: Colors.white.withValues(alpha: 0.5),
-                      size: 28,
                       shadows: const [
                         Shadow(color: Colors.black45, blurRadius: 4),
                       ],
@@ -619,7 +619,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   : const SizedBox.shrink(),
             ),
           ),
-          // 竖屏：快进 30 秒按钮（半透明，无背景，左下角）
+          // 竖屏：快进 45 秒按钮（半透明，无背景，左下角，图标 3 倍）
           Positioned(
             left: 10,
             bottom: 80,
@@ -629,7 +629,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                       storageKey: 'ff_button_normal',
                       defaultOffset: const Offset(10, 80),
                       anchorBottom: true,
-                      icon: Icons.forward_30,
+                      icon: Icons.fast_forward,
+                      iconSize: 84,
+                      numeral: '45',
                       onTap: widget.onFastForward,
                     )
                   : const SizedBox.shrink(),
@@ -750,6 +752,8 @@ class _MinimalButton extends StatefulWidget {
     required this.onTap,
     this.anchorRight = false,
     this.anchorBottom = false,
+    this.iconSize = 28,
+    this.numeral,
   });
 
   final String storageKey;
@@ -760,6 +764,13 @@ class _MinimalButton extends StatefulWidget {
   // anchorBottom 时为距底边的距离（与外层 Positioned 的语义一致）。
   final bool anchorRight;
   final bool anchorBottom;
+
+  /// 图标尺寸（默认 28；快进按钮传 84 ≈ 3 倍）。
+  final double iconSize;
+
+  /// 非空时渲染「数字 + 双三角」的自绘快进图标（Material 无 forward_45），
+  /// 数字显示 [numeral]，三角形用 [icon]。
+  final String? numeral;
 
   @override
   State<_MinimalButton> createState() => _MinimalButtonState();
@@ -922,14 +933,26 @@ class _MinimalButtonState extends State<_MinimalButton> {
             builder: (_, pressing, __) => AnimatedScale(
               scale: pressing ? 1.2 : 1.0,
               duration: const Duration(milliseconds: 150),
-              child: Icon(
-                widget.icon,
-                color: pressing
-                    ? Colors.white.withValues(alpha: 0.9)
-                    : Colors.white.withValues(alpha: 0.5),
-                size: 28,
-                shadows: const [Shadow(color: Colors.black45, blurRadius: 4)],
-              ),
+              child: widget.numeral != null
+                  ? Forward45Icon(
+                      size: widget.iconSize,
+                      color: pressing
+                          ? Colors.white.withValues(alpha: 0.9)
+                          : Colors.white.withValues(alpha: 0.5),
+                      shadows: const [
+                        Shadow(color: Colors.black45, blurRadius: 4),
+                      ],
+                    )
+                  : Icon(
+                      widget.icon,
+                      color: pressing
+                          ? Colors.white.withValues(alpha: 0.9)
+                          : Colors.white.withValues(alpha: 0.5),
+                      size: widget.iconSize,
+                      shadows: const [
+                        Shadow(color: Colors.black45, blurRadius: 4),
+                      ],
+                    ),
             ),
           ),
         ),

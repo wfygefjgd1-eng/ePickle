@@ -2466,7 +2466,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
     final duration = c.value.duration;
-    // 快进基准必须是可信播放头：seek 换段期间平台会报 ~0，用它算 +30s 会把
+    // 快进基准必须是可信播放头：seek 换段期间平台会报 ~0，用它算 +45s 会把
     // 正在中段看的视频原地拉回开头附近。
     final currentPos = PlaybackHelpers.playhead(
           c.value.position,
@@ -2475,7 +2475,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         ) ??
         _lastGoodPos;
     if (currentPos == null) return;
-    final newPos = currentPos + const Duration(seconds: 30);
+    final newPos = currentPos + const Duration(seconds: 45);
     final target = newPos < duration ? newPos : duration;
     _pinPlayhead(target, duration);
 

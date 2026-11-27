@@ -11,6 +11,7 @@ import '../services/layout_settings.dart';
 import '../services/watch_history.dart';
 import '../utils/privacy_wipe.dart';
 import '../screens/hidden_sites_page.dart';
+import 'forward_45_icon.dart';
 
 part 'player_settings_part_components.dart';
 part 'player_settings_part_dialogs.dart';
@@ -214,10 +215,9 @@ Future<void> showPlayerSettingsSheet(
                                     size: 17,
                                   ),
                                   SizedBox(width: 6),
-                                  Icon(
-                                    Icons.forward_30,
-                                    color: Color(0xFFFF6B35),
+                                  Forward45Icon(
                                     size: 17,
+                                    color: Color(0xFFFF6B35),
                                   ),
                                 ],
                               ),
@@ -313,11 +313,11 @@ Future<void> showPlayerSettingsSheet(
                                     right: 24,
                                   ),
                                   title: const Text(
-                                    '快进 30 秒按钮',
+                                    '快进 45 秒按钮',
                                     style: TextStyle(color: Colors.white),
                                   ),
                                   subtitle: const Text(
-                                    '控制播放器左下角快进 30 秒按钮的显示',
+                                    '控制播放器左下角快进 45 秒按钮的显示',
                                     style: TextStyle(
                                       color: Colors.white38,
                                       fontSize: 12,

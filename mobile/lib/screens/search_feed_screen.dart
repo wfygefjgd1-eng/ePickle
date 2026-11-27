@@ -26,6 +26,7 @@ import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
+import '../widgets/forward_45_icon.dart';
 import '../widgets/player_settings_sheet.dart';
 import '../widgets/stripchat_live_view.dart';
 
@@ -1974,7 +1975,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
     final duration = c.value.duration;
-    // 快进基准必须是可信播放头：seek 换段期间平台会报 ~0，用它算 +30s 会把
+    // 快进基准必须是可信播放头：seek 换段期间平台会报 ~0，用它算 +45s 会把
     // 正在中段看的视频原地拉回开头附近。
     final currentPos = PlaybackHelpers.playhead(
           c.value.position,
@@ -1983,7 +1984,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         ) ??
         _lastGoodPos;
     if (currentPos == null) return;
-    final newPos = currentPos + const Duration(seconds: 30);
+    final newPos = currentPos + const Duration(seconds: 45);
     final target = newPos < duration ? newPos : duration;
     _pinPlayhead(target, duration);
 
@@ -2542,7 +2543,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           : const SizedBox.shrink(),
                     ),
                   ),
-                  // 竖屏：快进 30 秒按钮（半透明，无背景，左下角）
+                  // 竖屏：快进 45 秒按钮（半透明，无背景，左下角，图标 3 倍）
                   Positioned(
                     left: 10,
                     bottom: 80,
@@ -2551,7 +2552,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           ? _MinimalButton(
                               storageKey: 'search_ff_button_normal',
                               defaultOffset: const Offset(10, 80),
-                              icon: Icons.forward_30,
+                              icon: Icons.fast_forward,
+                              iconSize: 84,
+                              numeral: '45',
                               onTap: _fastForward,
                             )
                           : const SizedBox.shrink(),
@@ -2716,10 +2719,19 @@ class _MinimalButton extends StatefulWidget {
     required this.onTap,
     this.iconAlpha = 0.5,
     this.showShadow = true,
+    this.iconSize = 28,
+    this.numeral,
   });
 
   final String storageKey;
   final Offset defaultOffset;
+
+  /// 图标尺寸（默认 28；快进按钮传 84 ≈ 3 倍）。
+  final double iconSize;
+
+  /// 非空时渲染「数字 + 双三角」的自绘快进图标（Material 无 forward_45），
+  /// 数字显示 [numeral]，三角形用 [icon]。
+  final String? numeral;
   final IconData icon;
   final VoidCallback onTap;
   final double iconAlpha;
@@ -2809,16 +2821,26 @@ class _MinimalButtonState extends State<_MinimalButton> {
         child: AnimatedScale(
           scale: _isDragging ? 1.2 : 1.0,
           duration: const Duration(milliseconds: 150),
-          child: Icon(
-            widget.icon,
-            color: _isDragging
-                ? Colors.white.withValues(alpha: 0.9)
-                : Colors.white.withValues(alpha: widget.iconAlpha),
-            size: 28,
-            shadows: widget.showShadow
-                ? const [Shadow(color: Colors.black45, blurRadius: 4)]
-                : null,
-          ),
+          child: widget.numeral != null
+              ? Forward45Icon(
+                  size: widget.iconSize,
+                  color: _isDragging
+                      ? Colors.white.withValues(alpha: 0.9)
+                      : Colors.white.withValues(alpha: widget.iconAlpha),
+                  shadows: widget.showShadow
+                      ? const [Shadow(color: Colors.black45, blurRadius: 4)]
+                      : null,
+                )
+              : Icon(
+                  widget.icon,
+                  color: _isDragging
+                      ? Colors.white.withValues(alpha: 0.9)
+                      : Colors.white.withValues(alpha: widget.iconAlpha),
+                  size: widget.iconSize,
+                  shadows: widget.showShadow
+                      ? const [Shadow(color: Colors.black45, blurRadius: 4)]
+                      : null,
+                ),
         ),
       ),
     );

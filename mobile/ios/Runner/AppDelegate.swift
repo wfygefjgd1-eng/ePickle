@@ -481,6 +481,9 @@ private final class StripchatLivePlatformView: NSObject,
   private var loadingStartedAt: Date?
   private var pageLoadedAt: Date?
   private var videoRevealed = false
+  /// 连接超时自动切换只发一次的标记（每个房间对应一个全新平台视图实例，
+  /// 随 Dart 侧房间 URL 换 key 重建自然归零）。
+  private var skipNotified = false
   private var lastTransferBytes: Int64 = 0
   private var lastTransferAt: Date?
   private var currentSpeedText = "—"
@@ -697,6 +700,15 @@ private final class StripchatLivePlatformView: NSObject,
     guard isStripchat else { return }
     guard !videoRevealed, let loadingStartedAt else { return }
     let elapsed = max(0, Int(Date().timeIntervalSince(loadingStartedAt)))
+
+    // 连接计时走到 5 秒仍未出画：不再等待提示，通知 Flutter 自动切下一个
+    // 直播间（与跳过按钮同一 'skip' 通道；只发一次，若 Dart 已切页，本
+    // 平台视图随之销毁）。offline/私密/群组仍由 installVideoFocus 即时判
+    // 出并走 onLiveFailed。
+    if elapsed >= 5 && !skipNotified {
+      skipNotified = true
+      StripchatLivePlatformView.controlChannel?.invokeMethod("skip", arguments: nil)
+    }
 
     // 总超时 20 秒；页面 DOM 就绪后 10 秒仍无画面即判失败。离线房间由
     // installVideoFocus 读到 isOnline:false 后立即报错，不靠这里的超时。

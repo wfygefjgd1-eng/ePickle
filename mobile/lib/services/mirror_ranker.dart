@@ -382,7 +382,10 @@ class MirrorRanker {
     //   badge and stole bandwidth from real content;
     // - unknown / failing mirrors follow, capped at [maxProbesPerSite] per
     //   site so a cold start cannot sprawl.
-    final queues = <List<String>>[];
+    // 队列与站点 id 成对携带：某些 target 的 queue 可能为空（mirrors 为空），
+    // 若只按索引对位 targets[i]/queues[i]，空队列会把之后所有站点的
+    // "探哪个域名"与"结果记到哪个站点"整体错位。
+    final queues = <(String, List<String>)>[];
     for (final site in targets) {
       final ranked = rankedMirrors(site);
       final stats = _bySite[site.id] ?? const {};
@@ -396,7 +399,7 @@ class MirrorRanker {
         if (healthy && i != 0) continue;
         queue.add(base);
       }
-      if (queue.isNotEmpty) queues.add(queue);
+      if (queue.isNotEmpty) queues.add((site.id, queue));
     }
     if (queues.isEmpty) return;
     probing.value = true;
@@ -413,13 +416,13 @@ class MirrorRanker {
       while (more) {
         more = false;
         for (var i = 0; i < queues.length; i++) {
-          if (wave >= queues[i].length) continue;
+          if (wave >= queues[i].$2.length) continue;
           more = true;
           if (gate.length >= probeConcurrency) {
             await Future.wait(gate);
             gate.clear();
           }
-          gate.add(_probeOne(targets[i].id, queues[i][wave]));
+          gate.add(_probeOne(queues[i].$1, queues[i].$2[wave]));
         }
         wave++;
       }

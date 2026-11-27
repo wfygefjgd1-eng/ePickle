@@ -68,7 +68,12 @@ class WatchHistory extends ChangeNotifier {
       if (f.existsSync()) {
         final raw = await f.readAsString();
         if (raw.isNotEmpty) {
-          final list = jsonDecode(raw) as List<dynamic>;
+          // 顶层必须是 List：合法 JSON 但顶层是 Map（并发写坏/外部改写）
+          // 时强转会抛 TypeError 被外层吞掉，下一次 record() 就会用空列表
+          // 覆盖文件、把整份历史清掉。类型不符则按空列表处理（循环空转，
+          // 后续 _ensureBackupExcluded/_ready 流程照常走）。
+          final decoded = jsonDecode(raw);
+          final list = decoded is List ? decoded : const <dynamic>[];
           for (final e in list) {
             if (e is! Map) continue;
             // One malformed entry must not discard the whole history:

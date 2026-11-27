@@ -80,8 +80,8 @@ class StripchatLiveView extends StatelessWidget {
     _updateChannelHandler();
   }
 
-  /// 原生失败浮层被 IgnorePointer 挡住、按钮点不到，所以原生失败后通过
-  /// 'onLiveFailed' 把原因推给 Dart，由 Flutter 渲染可点击的重试/跳过。
+  /// 原生失败（下播/私密/群组/断流/超时）后通过 'onLiveFailed' 把原因推
+  /// 给 Dart：Dart 不再渲染重试/跳过页面，直接动画滑到下一个直播间。
   static void setFailureHandler(
     Object owner,
     void Function(String message)? onFailure,

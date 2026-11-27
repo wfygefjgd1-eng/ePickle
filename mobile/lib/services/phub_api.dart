@@ -76,7 +76,7 @@ class PhubApi {
     if (uri == null || !_phFamilyHosts.contains(uri.host.toLowerCase())) {
       return url;
     }
-    final base = override.replaceAll(RegExp(r'/$'), '');
+    final base = override.replaceAll(_trailingSlashRe, '');
     final query = uri.hasQuery && uri.query.isNotEmpty ? '?${uri.query}' : '';
     return '$base${uri.path}$query';
   }
@@ -149,6 +149,32 @@ class PhubApi {
     r"""https?://[a-z0-9]+\.phncdn\.com/[^"'\s<>)]+\.(?:jpg|jpeg|png|webp)""",
     caseSensitive: false,
   );
+  // ---- Hoisted inline RegExp (precompiled once, reused per call/loop). ----
+  static final _trailingSlashRe = RegExp(r'/$');
+  static final _ogDescriptionRe = RegExp(
+    r'<meta\s+property="og:description"\s+content="([^"]+)"',
+    caseSensitive: false,
+  );
+  static final _metaDescriptionRe = RegExp(
+    r'<meta\s+name="description"\s+content="([^"]+)"',
+    caseSensitive: false,
+  );
+  static final _htmlTagRe = RegExp(r'<[^>]+>');
+  static final _trailerClipRe = RegExp(r'[_-](9|10|15)s[_.-]');
+  static final _ogImageRe =
+      RegExp(r'<meta\s+property="og:image"\s+content="([^"]+)"');
+  static final _imgAnySrcRe = RegExp(
+    r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp))"',
+    caseSensitive: false,
+  );
+  static final _viewkeyChunkSplitRe =
+      RegExp(r'(?=view_video\.php\?viewkey=[a-z0-9]+)');
+  static final _whitespaceRe = RegExp(r'\s+');
+  static final _bgImageStyleRe =
+      RegExp(r"""background-image:\s*url\(['"]?(https?://[^'" )]+)""");
+  static final _bareViewkeyRe = RegExp(r'^[a-z0-9]+$');
+  static final _nonDigitRe = RegExp(r'[^0-9]');
+  static final _qualityPrefixRe = RegExp(r'[Pp]_');
 
   String _cookieHeaderFor(String url) {
     final host = Uri.tryParse(url)?.host;
@@ -192,7 +218,7 @@ class PhubApi {
     final mirrors = MirrorRanker.instance.rankedMirrors(SourceCatalog.pornhub);
     final bases = <String>[
       for (final m in mirrors.take(3))
-        m.replaceAll(RegExp(r'/$'), ''),
+        m.replaceAll(_trailingSlashRe, ''),
     ];
     if (bases.isEmpty) bases.add(_primaryHost);
     final ladderStarted = DateTime.now();
@@ -490,21 +516,16 @@ class PhubApi {
     var desc = flash['video_description']?.toString();
     // Fallback: extract description from HTML meta tags
     if (desc == null || desc.isEmpty) {
-      final ogDesc = RegExp(
-              r'<meta\s+property="og:description"\s+content="([^"]+)"',
-              caseSensitive: false)
-          .firstMatch(html);
+      final ogDesc = _ogDescriptionRe.firstMatch(html);
       desc = ogDesc?.group(1);
     }
     if (desc == null || desc.isEmpty) {
-      final metaDesc = RegExp(r'<meta\s+name="description"\s+content="([^"]+)"',
-              caseSensitive: false)
-          .firstMatch(html);
+      final metaDesc = _metaDescriptionRe.firstMatch(html);
       desc = metaDesc?.group(1);
     }
     // Strip HTML tags
     if (desc != null) {
-      desc = desc.replaceAll(RegExp(r'<[^>]+>'), '');
+      desc = desc.replaceAll(_htmlTagRe, '');
       desc = desc
           .replaceAll('&amp;', '&')
           .replaceAll('&#039;', "'")
@@ -535,7 +556,7 @@ class PhubApi {
         if (low.contains('trailer') ||
             low.contains('preview') ||
             low.contains('mediabook') ||
-            RegExp(r'[_-](9|10|15)s[_.-]').hasMatch(low)) {
+            _trailerClipRe.hasMatch(low)) {
           continue;
         }
         final format = '${q['format'] ?? ''}'.toLowerCase();
@@ -599,14 +620,10 @@ class PhubApi {
         final t = flash['image_url']?.toString();
         if (t != null && t.startsWith('http')) return t;
       }
-      final og = RegExp(r'<meta\s+property="og:image"\s+content="([^"]+)"')
-          .firstMatch(html);
+      final og = _ogImageRe.firstMatch(html);
       if (og != null) return og.group(1);
       // fallback: first img with http src in the page
-      final imgM = RegExp(
-              r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp))"',
-              caseSensitive: false)
-          .firstMatch(html);
+      final imgM = _imgAnySrcRe.firstMatch(html);
       return imgM?.group(1);
     } catch (_) {
       return null;
@@ -652,8 +669,7 @@ class PhubApi {
   /// no video entry is missed, regardless of its CSS class.
   List<VideoItem> _parseViaViewkeyChunks(String html, Set<String> seen) {
     final results = <VideoItem>[];
-    final chunks =
-        html.split(RegExp(r'(?=view_video\.php\?viewkey=[a-z0-9]+)'));
+    final chunks = html.split(_viewkeyChunkSplitRe);
     if (chunks.length < 2) return results;
 
     for (var i = 1; i < chunks.length; i++) {
@@ -701,7 +717,7 @@ class PhubApi {
           .replaceAll('&#039;', "'")
           .replaceAll('&amp;', '&')
           .replaceAll('&quot;', '"')
-          .replaceAll(RegExp(r'\s+'), ' ')
+          .replaceAll(_whitespaceRe, ' ')
           .trim();
       if (t.length < 4) continue;
       final low = t.toLowerCase();
@@ -814,9 +830,7 @@ class PhubApi {
         }
       }
       final style = el.attributes['style'] ?? '';
-      final bg =
-          RegExp(r"""background-image:\s*url\(['"]?(https?://[^'" )]+)""")
-              .firstMatch(style);
+      final bg = _bgImageStyleRe.firstMatch(style);
       if (bg != null) {
         final u = bg.group(1)!;
         if (u.contains('phncdn.com')) return u;
@@ -836,7 +850,7 @@ class PhubApi {
       return 'https://www.pornhub.com/view_video.php?$query';
     }
     // bare viewkey
-    if (RegExp(r'^[a-z0-9]+$').hasMatch(t)) {
+    if (_bareViewkeyRe.hasMatch(t)) {
       return 'https://www.pornhub.com/view_video.php?viewkey=$t';
     }
     return t;
@@ -874,7 +888,7 @@ class PhubApi {
   int? _parseQuality(dynamic value) {
     if (value is int) return value;
     if (value is String) {
-      final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+      final digits = value.replaceAll(_nonDigitRe, '');
       if (digits.isNotEmpty) return int.tryParse(digits);
     }
     return null;
@@ -897,7 +911,7 @@ class PhubApi {
   int? _parseQualityFromUrl(String url) {
     for (final part in url.split('/')) {
       if (part.toLowerCase().contains('p_')) {
-        final prefix = part.split(RegExp(r'[Pp]_')).first;
+        final prefix = part.split(_qualityPrefixRe).first;
         return _parseQuality(prefix);
       }
     }

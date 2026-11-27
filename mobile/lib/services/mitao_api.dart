@@ -22,6 +22,103 @@ class MitaoApi {
 
   static const _singleRequestTimeout = Duration(seconds: 10);
 
+  // ---- 预编译正则（热路径提速）----
+  // 这些正则原本在各解析函数里逐调用/逐卡/逐上下文现场构造，单页列表会
+  // 触发数十至上百次 RegExp 构造；提为 static final 一次编译常驻，行为
+  // 完全不变。命名前缀 _re（与 generic_site_api.dart 同惯例）。
+  static final _reSlashEnd = RegExp(r'/$');
+  // ---- _parseList ----
+  static final _reDetailPath = RegExp(r'/index\.php/vod/detail/id/(\d+)\.html');
+  static final _rePlayPath = RegExp(
+    r'/index\.php/vod/play/id/(\d+)/sid/(\d+)/nid/(\d+)\.html',
+  );
+  static final _reCardTitleHref = RegExp(
+    r'title="([^"]{2,200})"[^>]*href="(/index\.php/vod/(?:detail|play)/id/(\d+)[^"]*)"',
+    caseSensitive: false,
+  );
+  static final _reCardHrefTitle = RegExp(
+    r'href="(/index\.php/vod/(?:detail|play)/id/(\d+)[^"]*)"[^>]*title="([^"]{2,200})"',
+    caseSensitive: false,
+  );
+  static final _reCardAltThumb = RegExp(
+    r'alt="([^"]{2,200})"[^>]*(?:data-original|data-src|src)="([^"]+)"[^>]{0,200}href="[^"]*vod/(?:detail|play)/id/(\d+)',
+    caseSensitive: false,
+  );
+  static final _reCardAnchorText = RegExp(
+    r'href="(/index\.php/vod/(?:detail|play)/id/(\d+)[^"]*)"[^>]*>\s*([^<]{4,200})\s*<',
+    caseSensitive: false,
+  );
+  static final _reModuleTitleA = RegExp(
+    r'class="[^"]*module-item-title[^"]*"[^>]*>\s*<a[^>]*href="[^"]*id/(\d+)[^"]*"[^>]*>([^<]{2,200})</a>',
+    caseSensitive: false,
+  );
+  static final _reModuleTitleB = RegExp(
+    r'class="[^"]*module-item-title[^"]*"[^>]*>\s*<a[^>]*title="([^"]{2,200})"[^>]*href="[^"]*id/(\d+)',
+    caseSensitive: false,
+  );
+  // ---- 标题清洗/打分 ----
+  static final _reHtmlTags = RegExp(r'<[^>]+>');
+  static final _reWhitespace = RegExp(r'\s+');
+  static final _reDigitsOnly = RegExp(r'^\d+$');
+  static final _reVideoNumbered = RegExp(r'^视频\s*\d+$');
+  static final _reHasCjk = RegExp(r'[\u4e00-\u9fff]');
+  // ---- _pickTitle / _pickThumb（详情上下文抽取）----
+  static final _reAttrTitle = RegExp(r'title="([^"]{2,200})"');
+  static final _reAttrAlt = RegExp(r'alt="([^"]{2,200})"');
+  static final _reBlockTitle = RegExp(
+    r'<(?:h[234]|span|p|div)[^>]*class="[^"]*(?:title|name|vod)[^"]*"[^>]*>([^<]{2,200})</',
+    caseSensitive: false,
+  );
+  static final _reBareCjk = RegExp(r'>([\u4e00-\u9fff][^<]{3,80})<');
+  static final _reThumbAttr = RegExp(
+    r'data-original="([^"]+)"|data-src="([^"]+)"|data-bg="([^"]+)"|src="((?:https?:)?//[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
+    caseSensitive: false,
+  );
+  // ---- getVideoDetail / 播放地址 ----
+  static final _reDetailId = RegExp(r'/vod/detail/id/(\d+)');
+  static final _rePlayerAaaaScript = RegExp(
+    r'player_aaaa\s*=\s*(\{[\s\S]*?\})\s*</script>',
+  );
+  static final _rePlayerAaaaSemi = RegExp(
+    r'player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;',
+  );
+  static final _rePlayerDataSemi = RegExp(
+    r'player_data\s*=\s*(\{[\s\S]*?\})\s*;',
+  );
+  static final _reLooseMediaUrl = RegExp(
+    r'''["']url["']\s*:\s*["'](https?[^"']+\.(?:m3u8|mp4)[^"']*)["']''',
+    caseSensitive: false,
+  );
+  static final _reUrlField = RegExp(r'''["']url["']\s*:\s*["']([^"']+)["']''');
+  // ---- 页面 title / 时长 ----
+  static final _reOgTitle = RegExp(
+    r'<meta[^>]+property=["'
+    ']og:title["'
+    '][^>]+content=["'
+    ']([^"'
+    ']+)["'
+    ']',
+    caseSensitive: false,
+  );
+  static final _reTitleTag = RegExp(
+    r'<title>([^<]+)</title>',
+    caseSensitive: false,
+  );
+  static final _reTitleSep = RegExp(r'\s*[-_|–—]\s*');
+  static final _reDurationPatterns = <RegExp>[
+    // 捕获连冒号一起拿（"12:34"），交给 _parseDurationText 归一化；
+    // 只抓 \d+ 会把 "12:34" 截成 12 秒。
+    RegExp(r'vod_duration["\s:]+["' "'" r']?([\d:]+)'),
+    RegExp(r'时长[：:\s]*(\d{1,2}):(\d{2}):(\d{2})'),
+    RegExp(r'(?:播放时长|片长)[：:\s]*(\d{1,2}:\d{2}(?::\d{2})?)'),
+    RegExp(r'''data-duration=["'](\d+)["']'''),
+    RegExp(r'"duration"\s*:\s*(\d+)'),
+  ];
+  // ---- m3u8 解析 ----
+  static final _reNewline = RegExp(r'\r?\n');
+  static final _reBandwidth = RegExp(r'BANDWIDTH=(\d+)');
+  static final _reExtInf = RegExp(r'#EXTINF:([\d.]+)');
+
   MitaoApi({Dio? dio, CancelToken? cancelToken})
       : _cancelToken = cancelToken ?? CancelToken(),
         _dio = dio ??
@@ -98,7 +195,7 @@ class MitaoApi {
     for (final base in bases) {
       try {
         final html = await _getHtml(buildUrl(base));
-        return (html: html, base: base.replaceAll(RegExp(r'/$'), ''));
+        return (html: html, base: base.replaceAll(_reSlashEnd, ''));
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
         lastError = e;
@@ -288,10 +385,8 @@ class MitaoApi {
     // Anchor relative URLs to the mirror that actually served [html] — after
     // a failover the preferred base can be the mirror that just failed.
     final out = <VideoItem>[];
-    final detailRe = RegExp(r'/index\.php/vod/detail/id/(\d+)\.html');
-    final playRe = RegExp(
-      r'/index\.php/vod/play/id/(\d+)/sid/(\d+)/nid/(\d+)\.html',
-    );
+    final detailRe = _reDetailPath;
+    final playRe = _rePlayPath;
 
     final titles = <String, String>{};
     final thumbs = <String, String>{};
@@ -308,10 +403,7 @@ class MitaoApi {
     }
 
     // Module cards: title attr + href (both orders)
-    for (final m in RegExp(
-      r'title="([^"]{2,200})"[^>]*href="(/index\.php/vod/(?:detail|play)/id/(\d+)[^"]*)"',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reCardTitleHref.allMatches(html)) {
       final id = m.group(3)!;
       considerTitle(id, m.group(1)!);
       final href = m.group(2)!;
@@ -319,10 +411,7 @@ class MitaoApi {
         playPaths.putIfAbsent(id, () => href);
       }
     }
-    for (final m in RegExp(
-      r'href="(/index\.php/vod/(?:detail|play)/id/(\d+)[^"]*)"[^>]*title="([^"]{2,200})"',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reCardHrefTitle.allMatches(html)) {
       final id = m.group(2)!;
       considerTitle(id, m.group(3)!);
       final href = m.group(1)!;
@@ -332,19 +421,13 @@ class MitaoApi {
     }
 
     // data-original / lazy img alt near detail links
-    for (final m in RegExp(
-      r'alt="([^"]{2,200})"[^>]*(?:data-original|data-src|src)="([^"]+)"[^>]{0,200}href="[^"]*vod/(?:detail|play)/id/(\d+)',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reCardAltThumb.allMatches(html)) {
       considerTitle(m.group(3)!, m.group(1)!);
       thumbs.putIfAbsent(m.group(3)!, () => m.group(2)!);
     }
 
     // Text inside titled anchors: <a href="...detail/id/N">真实标题</a>
-    for (final m in RegExp(
-      r'href="(/index\.php/vod/(?:detail|play)/id/(\d+)[^"]*)"[^>]*>\s*([^<]{4,200})\s*<',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reCardAnchorText.allMatches(html)) {
       final id = m.group(2)!;
       considerTitle(id, m.group(3)!);
       final href = m.group(1)!;
@@ -386,16 +469,10 @@ class MitaoApi {
     }
 
     // MacCMS list often has .module-item-title / .module-item-pic
-    for (final m in RegExp(
-      r'class="[^"]*module-item-title[^"]*"[^>]*>\s*<a[^>]*href="[^"]*id/(\d+)[^"]*"[^>]*>([^<]{2,200})</a>',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reModuleTitleA.allMatches(html)) {
       considerTitle(m.group(1)!, m.group(2)!);
     }
-    for (final m in RegExp(
-      r'class="[^"]*module-item-title[^"]*"[^>]*>\s*<a[^>]*title="([^"]{2,200})"[^>]*href="[^"]*id/(\d+)',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reModuleTitleB.allMatches(html)) {
       considerTitle(m.group(2)!, m.group(1)!);
     }
 
@@ -421,45 +498,42 @@ class MitaoApi {
   }
 
   String _cleanTitle(String t) => t
-      .replaceAll(RegExp(r'<[^>]+>'), '')
+      .replaceAll(_reHtmlTags, '')
       .replaceAll('&amp;', '&')
       .replaceAll('&#039;', "'")
       .replaceAll('&quot;', '"')
       .replaceAll('&nbsp;', ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
+      .replaceAll(_reWhitespace, ' ')
       .trim();
 
   bool _isGoodTitle(String t, String id) {
     if (t.isEmpty || t.length < 2) return false;
-    if (t == id || RegExp(r'^\d+$').hasMatch(t)) return false;
+    if (t == id || _reDigitsOnly.hasMatch(t)) return false;
     if (t == '中文字幕' || t == '更多' || t == '播放' || t == '详情') return false;
     if (t.contains('点击') || t.contains('广告')) return false;
-    if (t.startsWith('视频') && RegExp(r'^视频\s*\d+$').hasMatch(t)) return false;
+    if (t.startsWith('视频') && _reVideoNumbered.hasMatch(t)) return false;
     return true;
   }
 
   int _titleScore(String t) {
     var s = t.length;
-    if (RegExp(r'[\u4e00-\u9fff]').hasMatch(t)) s += 20;
+    if (_reHasCjk.hasMatch(t)) s += 20;
     return s;
   }
 
   String _pickTitle(String ctx, String id) {
     final cands = <String>[];
-    for (final m in RegExp(r'title="([^"]{2,200})"').allMatches(ctx)) {
+    for (final m in _reAttrTitle.allMatches(ctx)) {
       cands.add(_cleanTitle(m.group(1)!));
     }
-    for (final m in RegExp(r'alt="([^"]{2,200})"').allMatches(ctx)) {
+    for (final m in _reAttrAlt.allMatches(ctx)) {
       cands.add(_cleanTitle(m.group(1)!));
     }
-    for (final m in RegExp(
-      r'<(?:h[234]|span|p|div)[^>]*class="[^"]*(?:title|name|vod)[^"]*"[^>]*>([^<]{2,200})</',
-      caseSensitive: false,
-    ).allMatches(ctx)) {
+    for (final m in _reBlockTitle.allMatches(ctx)) {
       cands.add(_cleanTitle(m.group(1)!));
     }
     // bare CJK text near link
-    for (final m in RegExp(r'>([\u4e00-\u9fff][^<]{3,80})<').allMatches(ctx)) {
+    for (final m in _reBareCjk.allMatches(ctx)) {
       cands.add(_cleanTitle(m.group(1)!));
     }
     String? best;
@@ -471,10 +545,7 @@ class MitaoApi {
   }
 
   String? _pickThumb(String ctx) {
-    final im = RegExp(
-      r'data-original="([^"]+)"|data-src="([^"]+)"|data-bg="([^"]+)"|src="((?:https?:)?//[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
-      caseSensitive: false,
-    ).firstMatch(ctx);
+    final im = _reThumbAttr.firstMatch(ctx);
     if (im == null) return null;
     return im.group(1) ?? im.group(2) ?? im.group(3) ?? im.group(4);
   }
@@ -485,7 +556,7 @@ class MitaoApi {
     // preferred base made playback fail even when another mirror had just
     // served the list) and remember WHICH mirror served the html, so the
     // relative play URL below anchors to that mirror.
-    final detailIdm = RegExp(r'/vod/detail/id/(\d+)').firstMatch(url);
+    final detailIdm = _reDetailId.firstMatch(url);
     final playPath = detailIdm != null
         ? '/index.php/vod/play/id/${detailIdm.group(1)}/sid/1/nid/1.html'
         : null;
@@ -511,22 +582,13 @@ class MitaoApi {
           : base;
     }
 
-    var m = RegExp(
-      r'player_aaaa\s*=\s*(\{[\s\S]*?\})\s*</script>',
-    ).firstMatch(html);
-    m ??= RegExp(
-      r'player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;',
-    ).firstMatch(html);
-    m ??= RegExp(
-      r'player_data\s*=\s*(\{[\s\S]*?\})\s*;',
-    ).firstMatch(html);
+    var m = _rePlayerAaaaScript.firstMatch(html);
+    m ??= _rePlayerAaaaSemi.firstMatch(html);
+    m ??= _rePlayerDataSemi.firstMatch(html);
 
     if (m == null) {
       // MacCMS sometimes puts url in MacPlayerConfig
-      final loose = RegExp(
-        r'''["']url["']\s*:\s*["'](https?[^"']+\.(?:m3u8|mp4)[^"']*)["']''',
-        caseSensitive: false,
-      ).firstMatch(html);
+      final loose = _reLooseMediaUrl.firstMatch(html);
       if (loose != null) {
         var playUrl = loose.group(1)!.replaceAll(r'\/', '/');
         playUrl = await _resolvePlayableUrl(playUrl);
@@ -550,8 +612,7 @@ class MitaoApi {
       data = jsonDecode(raw) as Map<String, dynamic>;
     } catch (e) {
       // Fallback: pull url field with regex
-      final um = RegExp(r'''["']url["']\s*:\s*["']([^"']+)["']''')
-          .firstMatch(m.group(1)!);
+      final um = _reUrlField.firstMatch(m.group(1)!);
       if (um == null) throw PhubException('播放 JSON 解析失败: $e');
       data = {'url': um.group(1), 'encrypt': 0};
     }
@@ -618,36 +679,18 @@ class MitaoApi {
   }
 
   String? _titleFromHtml(String html) {
-    final og = RegExp(
-      r'<meta[^>]+property=["'
-      ']og:title["'
-      '][^>]+content=["'
-      ']([^"'
-      ']+)["'
-      ']',
-      caseSensitive: false,
-    ).firstMatch(html);
+    final og = _reOgTitle.firstMatch(html);
     if (og != null) return og.group(1)!.trim();
-    final tm = RegExp(r'<title>([^<]+)</title>', caseSensitive: false)
-        .firstMatch(html);
+    final tm = _reTitleTag.firstMatch(html);
     if (tm != null) {
-      return tm.group(1)!.split(RegExp(r'\s*[-_|–—]\s*')).first.trim();
+      return tm.group(1)!.split(_reTitleSep).first.trim();
     }
     return null;
   }
 
   int _durationFromHtml(String html, int current) {
     if (current > 0) return current;
-    final patterns = <RegExp>[
-      // 捕获连冒号一起拿（"12:34"），交给 _parseDurationText 归一化；
-      // 只抓 \d+ 会把 "12:34" 截成 12 秒。
-      RegExp(r'vod_duration["\s:]+["' "'" r']?([\d:]+)'),
-      RegExp(r'时长[：:\s]*(\d{1,2}):(\d{2}):(\d{2})'),
-      RegExp(r'(?:播放时长|片长)[：:\s]*(\d{1,2}:\d{2}(?::\d{2})?)'),
-      RegExp(r'''data-duration=["'](\d+)["']'''),
-      RegExp(r'"duration"\s*:\s*(\d+)'),
-    ];
-    for (final re in patterns) {
+    for (final re in _reDurationPatterns) {
       final m = re.firstMatch(html);
       if (m == null) continue;
       if (m.groupCount >= 3 && m.group(3) != null) {
@@ -684,15 +727,14 @@ class MitaoApi {
       if (!body.contains('#EXTM3U')) return playUrl;
       // Master playlist: pick highest bandwidth variant
       if (body.contains('#EXT-X-STREAM-INF')) {
-        final lines = body.split(RegExp(r'\r?\n'));
+        final lines = body.split(_reNewline);
         String? best;
         var bestBw = -1;
         for (var i = 0; i < lines.length; i++) {
           final line = lines[i].trim();
           if (!line.startsWith('#EXT-X-STREAM-INF')) continue;
           final bw = int.tryParse(
-                  RegExp(r'BANDWIDTH=(\d+)').firstMatch(line)?.group(1) ??
-                      '') ??
+                  _reBandwidth.firstMatch(line)?.group(1) ?? '') ??
               0;
           if (i + 1 >= lines.length) continue;
           var next = lines[i + 1].trim();
@@ -739,7 +781,7 @@ class MitaoApi {
         );
         final body = res.data ?? '';
         if (body.contains('#EXT-X-STREAM-INF')) {
-          final lines = body.split(RegExp(r'\r?\n'));
+          final lines = body.split(_reNewline);
           for (var i = 0; i < lines.length; i++) {
             if (lines[i].contains('#EXT-X-STREAM-INF') &&
                 i + 1 < lines.length) {
@@ -753,7 +795,7 @@ class MitaoApi {
           continue;
         }
         var total = 0.0;
-        for (final m in RegExp(r'#EXTINF:([\d.]+)').allMatches(body)) {
+        for (final m in _reExtInf.allMatches(body)) {
           total += double.tryParse(m.group(1)!) ?? 0;
         }
         if (total >= 1) return total.round();

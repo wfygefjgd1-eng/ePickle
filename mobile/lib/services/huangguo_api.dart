@@ -990,7 +990,10 @@ class HuangGuoApi implements ShortDramaApi {
   String? _originOf(String url) {
     final u = Uri.tryParse(url);
     if (u == null || u.host.isEmpty) return null;
-    return u.origin;
+    // Uri.origin 对非 http(s) scheme 会抛 StateError（如 content://、
+    // file:// 的内嵌页）；手工拼接无异常路径（与 generic_site_api 同款）。
+    final scheme = u.scheme.isEmpty ? 'https' : u.scheme;
+    return '$scheme://${u.host}';
   }
 
   String _cleanTitle(String t) => t

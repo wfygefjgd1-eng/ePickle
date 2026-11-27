@@ -286,6 +286,229 @@ class GenericSiteApi {
     r'just a moment|cf-browser-verification|attention required|cloudflare|服务暂不可用|正在跳转到发布页|已满18',
     caseSensitive: false,
   );
+  // ---- Eporner（JSON 兜底 / 详情流 / 卡片列表）----
+  static final _reEpornerJsonUrl = RegExp(
+    r'"url"\s*:\s*"(https?:[^"]+eporner[^"]+)"',
+    caseSensitive: false,
+  );
+  static final _reEpornerJsonTitle = RegExp(r'"title"\s*:\s*"([^"]+)"');
+  static final _reEpornerJsonThumb = RegExp(r'"src"\s*:\s*"(https?:[^"]+)"');
+  static final _reEpornerVidPath = RegExp(r'/video-([A-Za-z0-9]+)(?:[/?#]|$)');
+  static final _reEpornerDataVid = RegExp(r'''data-vid=["']([A-Za-z0-9]+)/''');
+  static final _reEpornerEmbedId = RegExp(r'/embed/([A-Za-z0-9]+)');
+  static final _reEpornerDloadHref = RegExp(
+    r'''href\s*=\s*["']((?:https?:)?//[^"']*?/dload/[^"']+?\.mp4|/dload/[^"']+?\.mp4)["']''',
+    caseSensitive: false,
+  );
+  static final _reEpornerDloadHeight = RegExp(r'/dload/[^/]+/(\d+)/');
+  static final _reEpornerHeightP = RegExp(r'-(\d+)p(?:-av1)?\.mp4');
+  static final _reEpornerGvideoMp4 = RegExp(
+    r'''(https?://(?:gvideo|static)[^"'<\s]+\.mp4[^"'<\s]*)''',
+    caseSensitive: false,
+  );
+  static final _reEpornerSourceUrl = RegExp(
+    r'''"(?:src|url)"\s*:\s*"(https?:[^"]+)"''',
+  );
+  static final _reEpornerCardHref = RegExp(
+    r'''href=["'](/video-[^"']+)["']''',
+    caseSensitive: false,
+  );
+  static final _reEpornerCardTitle = RegExp(
+    r'''<p class="mbtit"><a[^>]*>([^<]+)</a>''',
+    caseSensitive: false,
+  );
+  static final _reEpornerCardAlt = RegExp(
+    r'''img\b[^>]*\balt=["']([^"']{3,200})["']''',
+    caseSensitive: false,
+  );
+  static final _reEpornerCardThumb = RegExp(
+    r'''<img\b[^>]*\b(?:data-src|src)=["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  static final _reEpornerCardDur = RegExp(
+    r'''class=["']mbtim["'][^>]*>([^<]+)<''',
+    caseSensitive: false,
+  );
+  // ---- Stripchat / 直播间状态 ----
+  static final _reStripchatModelsMark = RegExp(
+    r'("models"\s*:\s*[\[{])',
+    caseSensitive: false,
+  );
+  static final _reRoomStatus = RegExp(r'"room_status"\s*:\s*"([a-zA-Z]+)"');
+  static final _reHlsSourceJson = RegExp(r'"hls_source"\s*:\s*"([^"]*)"');
+  // ---- 番号 / 时长 ----
+  static final _reJavCode = RegExp(r'([a-zA-Z]{2,12}-?\d{2,5}[a-zA-Z]?)');
+  static final _reIsoDuration = RegExp(
+    r'^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$',
+    caseSensitive: false,
+  );
+  static final _reMetaDuration = RegExp(
+    r'<meta[^>]*(?:property|name)=["'
+    '](?:video:)?duration["'
+    '][^>]*content=["'
+    '](\\d+)["'
+    ']',
+    caseSensitive: false,
+  );
+  static final _reFlashDuration = RegExp(
+    r'''["']video_duration["']\s*:\s*["']?(\d+)''',
+  );
+  static final _reLenSecDuration = RegExp(
+    r'''["'](?:length_sec|duration_sec)["']\s*:\s*["']?(\d+)''',
+    caseSensitive: false,
+  );
+  static final _reVidLengthMin = RegExp(
+    r'''(?:class=["'][^"']*vid-length[^"']*["'][^>]*>|Duration:\s*)(\d+)\s*min''',
+    caseSensitive: false,
+  );
+  // ---- MacCMS 播放器 blob / parse 解链 ----
+  static final _reMacCmsBlobPatterns = <RegExp>[
+    RegExp(
+      r'player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*</script>',
+      caseSensitive: false,
+    ),
+    RegExp(r'player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;', caseSensitive: false),
+    RegExp(r'player_data\s*=\s*(\{[\s\S]*?\})\s*;', caseSensitive: false),
+  ];
+  static final _reMacCmsParse = RegExp(
+    r'''["']parse["']\s*:\s*["']([^"']+)["']''',
+  );
+  static final _reEmbedIframe = RegExp(
+    r'''<iframe[^>]+(?:src|data-src|data-lazy-src|data-embed)=["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  // ---- RedTube ----
+  static final _reRedtubeMediaBlock = RegExp(
+    r'''mediaDefinitions?\s*[:=]\s*(\[[\s\S]*?\])\s*[,;}]''',
+  );
+  static final _reRedtubeVideoUrl = RegExp(
+    r'''"videoUrl"\s*:\s*"((?:https?:)?[^"]+)"''',
+    caseSensitive: false,
+  );
+  static final _reRedtubeOThumb = RegExp(
+    r'''data-o_thumb\s*=\s*["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  // ---- MindGeek（PORNHUB 家族 mediaDefinitions / qualityItems）----
+  static final _reMindGeekMediaBlock = RegExp(
+    r'''mediaDefinitions\s*[:=]\s*(\[[\s\S]*?\])\s*[,;}]''',
+  );
+  static final _reMindGeekVideoObj = RegExp(
+    r'''\{[^{}]*?"videoUrl"\s*:\s*"((?:https?:)?[^"]+)"[^{}]*?\}''',
+    caseSensitive: false,
+  );
+  static final _reMindGeekVideoUrlField = RegExp(
+    r'''"videoUrl"\s*:\s*"((?:https?:)?[^"]+)"''',
+  );
+  static final _reHeightField = RegExp(r'''"height"\s*:\s*(\d+)''');
+  static final _reQualityField = RegExp(r'''"quality"\s*:\s*"?(\d+)''');
+  static final _reQualityItems = RegExp(
+    r'''"quality_(\d+p)"\s*:\s*"((?:https?:)?[^"]+)"''',
+  );
+  static final _reMindGeekLooseVideoUrl = RegExp(
+    r'''["']videoUrl["']\s*:\s*["']((?:https?:)?[^"']+)["']''',
+    caseSensitive: false,
+  );
+  // ---- Spankbang（key 循环内是插值 pattern，保持现场构造）----
+  static final _reSpankbangStreamData = RegExp(
+    r'''stream_data\s*=\s*(\{[\s\S]*?\})\s*;''',
+  );
+  static final _reSpankbangQualityMap = RegExp(
+    r'''["'](\d+p)["']\s*:\s*\[\s*["'](https?[^"']+)["']''',
+  );
+  // ---- KVS（Kernel Video Sharing）----
+  static final _reKvsUrlKey = RegExp(
+    r'''(?:["']contentUrl["']\s*:|video_url\s*:|event_reporting2\s*:|video_alt_url\d*\s*:)[\s]*["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  static final _reKvsImageExt = RegExp(
+    r'''\.(?:jpe?g|png|webp|gif)(?:[?#]|$)''',
+  );
+  // ---- Our55/88XQQ DES-ECB 加密流 ----
+  static final _reEncryptedConfig = RegExp(
+    r'''video\s*:\s*\{[\s\S]{0,800}?id\s*:\s*["']([^"']+)["'][\s\S]{0,800}?data\s*:\s*\[([^\]]+)\]''',
+    caseSensitive: false,
+  );
+  static final _reEncryptedDecryptReq = RegExp(
+    r'''decrypt_req\s*\(\s*["']([A-Za-z0-9+/=]{24,})["']\s*,\s*["']([a-f0-9]{16,})["']\s*\)''',
+    caseSensitive: false,
+  );
+  static final _reEncryptedBlob = RegExp(
+    r'''["']([A-Za-z0-9+/]{24,}={0,2})["']''',
+  );
+  // ---- videoInitialData / BestJav ----
+  static final _reVideoInitialData = RegExp(
+    r'''<script[^>]*id=["']videoInitialData["'][^>]*>(.*?)</script>''',
+    caseSensitive: false,
+    dotAll: true,
+  );
+  static final _reBestJavMedia = RegExp(
+    r'''["'](https?://[^"']+\.(?:m3u8|mp4)[^"']*)["']''',
+    caseSensitive: false,
+  );
+  static final _reBestJavMediabook = RegExp(
+    r'''data-mediabook=["'](https?://[^"']+)["']''',
+    caseSensitive: false,
+  );
+  static final _reUrlTrailingPunct = RegExp(r'[.,;)\]!?&]+$');
+  // ---- 路由 tagId 形态判定 ----
+  static final _reDigitsOnly = RegExp(r'^\d+$');
+  static final _reTagRange = RegExp(r'^\d+-\d+$');
+  static final _reNumericTag3 = RegExp(r'^\d{3,}$');
+  static final _reSlugTag = RegExp(r'^[a-z0-9-]+$');
+  static final _reCjkTag12 = RegExp(r'^[\u4e00-\u9fffA-Za-z0-9]{1,12}$');
+  static final _reCjkTag20 = RegExp(r'^[\u4e00-\u9fffA-Za-z0-9]{1,20}$');
+  // ---- _parseList（通用列表主链）----
+  static final _reListHref = RegExp(
+    r'''href\s*=\s*["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  static final _reListTitle = RegExp(
+    r'''(?:title|alt)\s*=\s*["']([^"']{3,200})["']''',
+    caseSensitive: false,
+  );
+  static final _reListImg = RegExp(
+    r'''(?:data-src|data-original|data-thumb|data-poster|src)\s*=\s*["']((?:https?:)?//[^"']+\.(?:jpg|jpeg|png|webp|gif)[^"']*|[^"']+/thumb[^"']*|[^"']+/cover[^"']*)["']''',
+    caseSensitive: false,
+  );
+  static final _reSupjavCard = RegExp(r'^/[^/]*\d[^/]*\.html$');
+  // ---- meta / <title> 抽取 ----
+  static final _reMetaTag = RegExp(r'<meta\b[^>]*>', caseSensitive: false);
+  static final _reHtmlAttr = RegExp(
+    r'''([:\w-]+)\s*=\s*["']([^"']*)["']''',
+    caseSensitive: false,
+  );
+  static final _reTitleTag = RegExp(
+    r'<title>([^<]+)</title>',
+    caseSensitive: false,
+  );
+  static final _reTitleSep = RegExp(r'\s[-|–—]\s');
+  // ---- 直播流抽取（chaturbate / stripchat）----
+  static final _reChaturbateEdgeHls = RegExp(
+    r'''https?:\\?/\\?/[^\s"'<>]*(?:playlist|live|amic|edge)[^\s"'<>]*\.m3u8[^\s"'<>]*''',
+    caseSensitive: false,
+  );
+  static final _reHlsSourceField = RegExp(
+    r'''hls_source["']?\s*[:=]\s*["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  static final _reAnyEdgeHls = RegExp(
+    r'''https?:\\?/\\?/[^\s"'<>]+\.m3u8[^\s"'<>]*''',
+    caseSensitive: false,
+  );
+  static final _reStripchatPageHls = RegExp(
+    r'''https?:\\?/\\?/[^\s"'<>]*\.m3u8[^\s"'<>]*''',
+    caseSensitive: false,
+  );
+  static final _reStripchatHlsName = RegExp(
+    r'/hls/([^/]+)/',
+    caseSensitive: false,
+  );
+  static final _reStripchatRoomName = RegExp(r'^[a-zA-Z0-9_-]{3,100}$');
+  static final _reStripchatStreamName = RegExp(
+    r'''["'](?:streamName|stream_name|hlsStreamName)["']\s*:\s*["']([^"']+)["']''',
+    caseSensitive: false,
+  );
 
   GenericSiteApi({Dio? dio})
       : _dio = dio ??
@@ -878,7 +1101,9 @@ class GenericSiteApi {
     }
 
     final failures = <Object>[];
-    final allMirrors = _mirrorsFor(site);
+    // 与上方 probe 闭包用的同一份列表：_mirrorsFor(site) 是纯函数，
+    // 两次构造内容恒等，直接复用省一次重复构建。
+    final allMirrors = mirrors;
     // Persistent ranking, best mirror first. Every mirror stays in play —
     // ranking only decides the order, it never drops a domain. Falls back to
     // catalog order (and to the single primary host for custom sites).
@@ -1234,16 +1459,9 @@ class GenericSiteApi {
             return out;
           }
         } catch (_) {}
-        final videos = RegExp(
-          r'"url"\s*:\s*"(https?:[^"]+eporner[^"]+)"',
-          caseSensitive: false,
-        ).allMatches(raw);
-        final titles = RegExp(
-          r'"title"\s*:\s*"([^"]+)"',
-        ).allMatches(raw).toList();
-        final thumbs = RegExp(
-          r'"src"\s*:\s*"(https?:[^"]+)"',
-        ).allMatches(raw).toList();
+        final videos = _reEpornerJsonUrl.allMatches(raw);
+        final titles = _reEpornerJsonTitle.allMatches(raw).toList();
+        final thumbs = _reEpornerJsonThumb.allMatches(raw).toList();
         var i = 0;
         for (final m in videos) {
           final u = m.group(1)!.replaceAll(r'\/', '/');
@@ -1442,10 +1660,7 @@ class GenericSiteApi {
     // 数组里 —— 只取第一个会拿到空集，标签页于是全部回退到 girls API
     // （表现为"所有标签内容一样"）。逐个扫描所有 "models" 数组，取第一个
     // 真正含房间对象（带 "username"）的。
-    final marks = RegExp(
-      r'("models"\s*:\s*[\[{])',
-      caseSensitive: false,
-    ).allMatches(html);
+    final marks = _reStripchatModelsMark.allMatches(html);
     for (final mark in marks) {
       // 1) 从 "models:[" 处扫描到整个数组的结束 "]"（字符串感知）。
       var bracketDepth = 0;
@@ -1713,7 +1928,11 @@ class GenericSiteApi {
     return _parseList(body, base, seen, site);
   }
 
-  Future<VideoDetail> getVideoDetail(SiteDef site, String url) async {
+  Future<VideoDetail> getVideoDetail(
+    SiteDef site,
+    String url, {
+    int outDecodeDepth = 0,
+  }) async {
     final deadline = DateTime.now().add(_detailResolveTimeout);
     if (site.isStripchat) {
       throw PhubException('Stripchat 使用房间 WebRTC 实时播放，不使用预览 HLS');
@@ -1739,7 +1958,15 @@ class GenericSiteApi {
           (decoded.contains('/out/') || decoded.contains('/o.php?'))) {
         throw PhubException('${site.name} 条目指向broken推广链，已移除');
       }
-      if (decoded != null) return getVideoDetail(site, decoded);
+      if (decoded != null) {
+        // 解链深度护栏：自指/连环 out 链（l 参数 base64 解码回原 URL）会
+        // 无限递归到栈溢出；真实合作站链 ≤1 跳。超过 1 跳按既有 broken
+        // 推广链拒播（getCustomDetail 等外部入口默认 depth=0，不受影响）。
+        if (outDecodeDepth >= 1) {
+          throw PhubException('${site.name} 条目指向broken推广链，已移除');
+        }
+        return getVideoDetail(site, decoded, outDecodeDepth: outDecodeDepth + 1);
+      }
       // 付费站推广落地页守卫（列表阶段 _aggPromoLandpage 已滤过，这里挡
       // 旧缓存/转存条目）：直接拒播，别开 WebView 让用户看到"订阅解锁"页。
       if (_aggPromoLandpage(url)) {
@@ -1945,11 +2172,11 @@ class GenericSiteApi {
         );
         if (fetched.html.contains('"room_status"')) {
           final status =
-              RegExp(r'"room_status"\s*:\s*"([a-zA-Z]+)"')
+              _reRoomStatus
                   .firstMatch(fetched.html)
                   ?.group(1)
                   ?.toLowerCase();
-          final hls = RegExp(r'"hls_source"\s*:\s*"([^"]*)"')
+          final hls = _reHlsSourceJson
               .firstMatch(fetched.html)
               ?.group(1);
           if (status != null && status != 'public' && status != 'private') {
@@ -2209,7 +2436,7 @@ class GenericSiteApi {
     // 番号几乎总在靠后的段里。
     final segs = Uri.tryParse(url)?.pathSegments ?? const <String>[];
     for (final seg in segs.reversed) {
-      final m = RegExp(r'([a-zA-Z]{2,12}-?\d{2,5}[a-zA-Z]?)').firstMatch(seg);
+      final m = _reJavCode.firstMatch(seg);
       if (m != null) return m.group(1)?.toUpperCase();
     }
     return null;
@@ -2218,10 +2445,7 @@ class GenericSiteApi {
   int _extractDurationSec(String html) {
     final iso = _metaContent(html, {'duration'});
     if (iso != null) {
-      final match = RegExp(
-        r'^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$',
-        caseSensitive: false,
-      ).firstMatch(iso);
+      final match = _reIsoDuration.firstMatch(iso);
       if (match != null) {
         final days = int.tryParse(match.group(1) ?? '') ?? 0;
         final hours = int.tryParse(match.group(2) ?? '') ?? 0;
@@ -2231,28 +2455,13 @@ class GenericSiteApi {
         if (total > 0) return total;
       }
     }
-    final meta = RegExp(
-      r'<meta[^>]*(?:property|name)=["'
-      '](?:video:)?duration["'
-      '][^>]*content=["'
-      '](\\d+)["'
-      ']',
-      caseSensitive: false,
-    ).firstMatch(html);
+    final meta = _reMetaDuration.firstMatch(html);
     if (meta != null) return int.tryParse(meta.group(1)!) ?? 0;
-    final flash = RegExp(
-      r'''["']video_duration["']\s*:\s*["']?(\d+)''',
-    ).firstMatch(html);
+    final flash = _reFlashDuration.firstMatch(html);
     if (flash != null) return int.tryParse(flash.group(1)!) ?? 0;
-    final seconds = RegExp(
-      r'''["'](?:length_sec|duration_sec)["']\s*:\s*["']?(\d+)''',
-      caseSensitive: false,
-    ).firstMatch(html);
+    final seconds = _reLenSecDuration.firstMatch(html);
     if (seconds != null) return int.tryParse(seconds.group(1)!) ?? 0;
-    final minutes = RegExp(
-      r'''(?:class=["'][^"']*vid-length[^"']*["'][^>]*>|Duration:\s*)(\d+)\s*min''',
-      caseSensitive: false,
-    ).firstMatch(html);
+    final minutes = _reVidLengthMin.firstMatch(html);
     if (minutes != null) return (int.tryParse(minutes.group(1)!) ?? 0) * 60;
     final fallback = _durationSecondsFromText(html);
     if (fallback != null) return fallback;
@@ -2260,14 +2469,7 @@ class GenericSiteApi {
   }
 
   String? _macCmsPlayerBlob(String html) {
-    for (final re in [
-      RegExp(
-        r'player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*</script>',
-        caseSensitive: false,
-      ),
-      RegExp(r'player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;', caseSensitive: false),
-      RegExp(r'player_data\s*=\s*(\{[\s\S]*?\})\s*;', caseSensitive: false),
-    ]) {
+    for (final re in _reMacCmsBlobPatterns) {
       final match = re.firstMatch(html);
       if (match != null) return match.group(1);
     }
@@ -2326,15 +2528,10 @@ class GenericSiteApi {
   ) async {
     final blob = _macCmsPlayerBlob(html);
     if (blob == null) return const [];
-    final urlMatch = RegExp(
-      r'''["']url["']\s*:\s*["']([^"']+)["']''',
-    ).firstMatch(blob);
+    final urlMatch = _reMacCmsUrlKey.firstMatch(blob);
     if (urlMatch == null) return const [];
     final encrypt = int.tryParse(
-          RegExp(
-                r'''["']encrypt["']\s*:\s*["']?(\d+)''',
-              ).firstMatch(blob)?.group(1) ??
-              '',
+          _reMacCmsEncrypt.firstMatch(blob)?.group(1) ?? '',
         ) ??
         0;
     final playerUrl = _decodeMacCmsUrl(urlMatch.group(1)!, encrypt);
@@ -2342,9 +2539,8 @@ class GenericSiteApi {
       return _extractStreams('"file":"$playerUrl"', base);
     }
 
-    final parse = RegExp(
-      r'''["']parse["']\s*:\s*["']([^"']+)["']''',
-    ).firstMatch(blob)?.group(1)?.replaceAll(r'\/', '/');
+    final parse =
+        _reMacCmsParse.firstMatch(blob)?.group(1)?.replaceAll(r'\/', '/');
     String target;
     if (parse != null && parse.isNotEmpty) {
       final resolver = _abs(base, parse);
@@ -2395,10 +2591,7 @@ class GenericSiteApi {
     Set<String>? seen,
   }) async {
     if (depth <= 0) return const [];
-    final re = RegExp(
-      r'''<iframe[^>]+(?:src|data-src|data-lazy-src|data-embed)=["']([^"']+)["']''',
-      caseSensitive: false,
-    );
+    final re = _reEmbedIframe;
     final visited = seen ?? <String>{};
     var tried = 0;
     for (final emb in re.allMatches(html)) {
@@ -2457,13 +2650,13 @@ class GenericSiteApi {
     String base,
   ) async {
     final origin = _originOf(pageUrl) ?? base;
-    final vid = RegExp(r'/video-([A-Za-z0-9]+)(?:[/?#]|$)')
+    final vid = _reEpornerVidPath
             .firstMatch(pageUrl)
             ?.group(1) ??
-        RegExp(r'''data-vid=["']([A-Za-z0-9]+)/''')
+        _reEpornerDataVid
             .firstMatch(html)
             ?.group(1) ??
-        RegExp(r'/embed/([A-Za-z0-9]+)').firstMatch(pageUrl)?.group(1);
+        _reEpornerEmbedId.firstMatch(pageUrl)?.group(1);
 
     // 2026-11 实测：`/xhr/video/{id}/?hash=` 即使带页面 Cookie + Referer 仍
     // 返回 code 3（Authorization failed），JSON-LD 的 gvideo 直链也 403。
@@ -2471,21 +2664,18 @@ class GenericSiteApi {
     // 因此优先解析它；AV1 变体在 iOS AVPlayer 上没有解码器，直接跳过。
     final out = <StreamQuality>[];
     final seen = <String>{};
-    for (final m in RegExp(
-      r'''href\s*=\s*["']((?:https?:)?//[^"']*?/dload/[^"']+?\.mp4|/dload/[^"']+?\.mp4)["']''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reEpornerDloadHref.allMatches(html)) {
       final raw = m.group(1)!;
       if (raw.toLowerCase().contains('-av1')) continue;
       final url = _siteMediaUrl(raw, origin);
       if (url == null || !seen.add(url)) continue;
       var height = int.tryParse(
-            RegExp(r'/dload/[^/]+/(\d+)/').firstMatch(url)?.group(1) ?? '',
+            _reEpornerDloadHeight.firstMatch(url)?.group(1) ?? '',
           ) ??
           0;
       if (height <= 0) {
         height = int.tryParse(
-              RegExp(r'-(\d+)p(?:-av1)?\.mp4').firstMatch(url)?.group(1) ?? '',
+              _reEpornerHeightP.firstMatch(url)?.group(1) ?? '',
             ) ??
             0;
       }
@@ -2511,10 +2701,7 @@ class GenericSiteApi {
     // Fallback: direct in page (gvideo.eporner.com / static mp4)
     out.addAll(_extractStreams(html, base));
     out.addAll(_extractStreamsLoose(html, base));
-    for (final m in RegExp(
-      r'''(https?://(?:gvideo|static)[^"'<\s]+\.mp4[^"'<\s]*)''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reEpornerGvideoMp4.allMatches(html)) {
       final u = m.group(1)!.replaceAll(r'\/', '/');
       if (!_isPreviewUrl(u)) {
         out.add(
@@ -2551,9 +2738,7 @@ class GenericSiteApi {
           out.addAll(_extractStreams(raw, base));
           out.addAll(_extractStreamsLoose(raw, base));
           // eporner sources array
-          for (final m in RegExp(
-            r'''"(?:src|url)"\s*:\s*"(https?:[^"]+)"''',
-          ).allMatches(raw)) {
+          for (final m in _reEpornerSourceUrl.allMatches(raw)) {
             final u = m.group(1)!.replaceAll(r'\/', '/');
             if ((u.contains('.mp4') || u.contains('.m3u8')) &&
                 !_isPreviewUrl(u)) {
@@ -2587,9 +2772,7 @@ class GenericSiteApi {
     String base,
   ) async {
     final origin = _originOf(pageUrl) ?? base;
-    final block = RegExp(
-      r'''mediaDefinitions?\s*[:=]\s*(\[[\s\S]*?\])\s*[,;}]''',
-    ).firstMatch(html);
+    final block = _reRedtubeMediaBlock.firstMatch(html);
     final blob = block?.group(1) ?? html;
 
     final indexes = <String>[];
@@ -2597,10 +2780,7 @@ class GenericSiteApi {
     // `mediaDefinition` 的对象里可能还嵌着 `segmentFormats` 子对象，按完整
     // 对象匹配会因为嵌套花括号整段失配；直接扫 videoUrl 再按媒体索引路径
     // 过滤，既能兼容嵌套结构，也不会把页面 canonical videoUrl 捡进来。
-    for (final m in RegExp(
-      r'''"videoUrl"\s*:\s*"((?:https?:)?[^"]+)"''',
-      caseSensitive: false,
-    ).allMatches(blob)) {
+    for (final m in _reRedtubeVideoUrl.allMatches(blob)) {
       final raw = m.group(1);
       final url = _siteMediaUrl(raw, origin);
       if (url == null) continue;
@@ -2708,20 +2888,16 @@ class GenericSiteApi {
     final origin = pageUrl == null ? null : _originOf(pageUrl);
 
     // mediaDefinitions JSON array (Pornhub / YouPorn / RedTube)
-    final block = RegExp(
-      r'''mediaDefinitions\s*[:=]\s*(\[[\s\S]*?\])\s*[,;}]''',
-    ).firstMatch(html);
+    final block = _reMindGeekMediaBlock.firstMatch(html);
     final blob = block?.group(1) ?? html;
 
     // Absolute or relative videoUrl (RedTube often uses /media/hls?s=...)
-    for (final m in RegExp(
-      r'''\{[^{}]*?"videoUrl"\s*:\s*"((?:https?:)?[^"]+)"[^{}]*?\}''',
-      caseSensitive: false,
-    ).allMatches(blob)) {
+    for (final m in _reMindGeekVideoObj.allMatches(blob)) {
       final obj = m.group(0)!;
-      var url = RegExp(
-        r'''"videoUrl"\s*:\s*"((?:https?:)?[^"]+)"''',
-      ).firstMatch(obj)?.group(1)?.replaceAll(r'\/', '/');
+      var url = _reMindGeekVideoUrlField
+          .firstMatch(obj)
+          ?.group(1)
+          ?.replaceAll(r'\/', '/');
       if (url == null || url.isEmpty) continue;
       if (url.startsWith('//')) url = 'https:$url';
       if (url.startsWith('/') && origin != null) url = '$origin$url';
@@ -2729,15 +2905,12 @@ class GenericSiteApi {
       if (_isPreviewUrl(url)) continue;
       // Prefer full streams; HLS ordering is applied after all candidates parse.
       var height = int.tryParse(
-            RegExp(r'''"height"\s*:\s*(\d+)''').firstMatch(obj)?.group(1) ?? '',
+            _reHeightField.firstMatch(obj)?.group(1) ?? '',
           ) ??
           0;
       if (height <= 0) {
         height = int.tryParse(
-              RegExp(
-                    r'''"quality"\s*:\s*"?(\d+)''',
-                  ).firstMatch(obj)?.group(1) ??
-                  '',
+              _reQualityField.firstMatch(obj)?.group(1) ?? '',
             ) ??
             0;
       }
@@ -2750,9 +2923,7 @@ class GenericSiteApi {
     }
 
     // qualityItems (YouPorn)
-    for (final m in RegExp(
-      r'''"quality_(\d+p)"\s*:\s*"((?:https?:)?[^"]+)"''',
-    ).allMatches(html)) {
+    for (final m in _reQualityItems.allMatches(html)) {
       var url = m.group(2)!.replaceAll(r'\/', '/');
       if (url.startsWith('//')) url = 'https:$url';
       if (url.startsWith('/') && origin != null) url = '$origin$url';
@@ -2766,10 +2937,7 @@ class GenericSiteApi {
     }
 
     // Loose videoUrl / media path scan for RedTube-style pages
-    for (final m in RegExp(
-      r'''["']videoUrl["']\s*:\s*["']((?:https?:)?[^"']+)["']''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reMindGeekLooseVideoUrl.allMatches(html)) {
       var url = m.group(1)!.replaceAll(r'\/', '/');
       if (url.startsWith('//')) url = 'https:$url';
       if (url.startsWith('/') && origin != null) url = '$origin$url';
@@ -2792,13 +2960,9 @@ class GenericSiteApi {
 
   List<StreamQuality> _extractSpankbang(String html, String base) {
     final out = <StreamQuality>[];
-    final streamData = RegExp(
-      r'''stream_data\s*=\s*(\{[\s\S]*?\})\s*;''',
-    ).firstMatch(html);
+    final streamData = _reSpankbangStreamData.firstMatch(html);
     final blob = streamData?.group(1) ?? html;
-    for (final m in RegExp(
-      r'''["'](\d+p)["']\s*:\s*\[\s*["'](https?[^"']+)["']''',
-    ).allMatches(blob)) {
+    for (final m in _reSpankbangQualityMap.allMatches(blob)) {
       final h = int.tryParse(m.group(1)!.replaceAll('p', '')) ?? 720;
       final u = m.group(2)!.replaceAll(r'\/', '/');
       if (!_isPreviewUrl(u)) {
@@ -2833,10 +2997,7 @@ class GenericSiteApi {
     final seen = <String>{};
     final origin = _originOf(base);
     final cookie = origin == null ? null : _cookieHeader(origin);
-    for (final match in RegExp(
-      r'''(?:["']contentUrl["']\s*:|video_url\s*:|event_reporting2\s*:|video_alt_url\d*\s*:)[\s]*["']([^"']+)["']''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final match in _reKvsUrlKey.allMatches(html)) {
       var value = match.group(1)!.replaceAll(r'\/', '/').trim();
       final absoluteAt = value.indexOf('http');
       if (absoluteAt > 0 && value.startsWith('function/')) {
@@ -2849,7 +3010,7 @@ class GenericSiteApi {
           !low.contains('.m3u8')) {
         continue;
       }
-      if (RegExp(r'''\.(?:jpe?g|png|webp|gif)(?:[?#]|$)''').hasMatch(low)) {
+      if (_reKvsImageExt.hasMatch(low)) {
         continue;
       }
       if (_isPreviewUrl(value) || !seen.add(value)) continue;
@@ -2882,17 +3043,11 @@ class GenericSiteApi {
     String pageUrl,
   ) {
     // Prefer structured video:{ id, data:[] }; also accept decrypt_req(data, id).
-    final config = RegExp(
-      r'''video\s*:\s*\{[\s\S]{0,800}?id\s*:\s*["']([^"']+)["'][\s\S]{0,800}?data\s*:\s*\[([^\]]+)\]''',
-      caseSensitive: false,
-    ).firstMatch(html);
+    final config = _reEncryptedConfig.firstMatch(html);
     String? id = config?.group(1);
     String encodedBlob = config?.group(2) ?? '';
     if (id == null || encodedBlob.isEmpty) {
-      final alt = RegExp(
-        r'''decrypt_req\s*\(\s*["']([A-Za-z0-9+/=]{24,})["']\s*,\s*["']([a-f0-9]{16,})["']\s*\)''',
-        caseSensitive: false,
-      ).firstMatch(html);
+      final alt = _reEncryptedDecryptReq.firstMatch(html);
       if (alt != null) {
         encodedBlob = '"${alt.group(1)!}"';
         id = alt.group(2);
@@ -2903,9 +3058,7 @@ class GenericSiteApi {
     final out = <StreamQuality>[];
     final seen = <String>{};
     final encodedValues = encodedBlob.replaceAll(r'\/', '/');
-    for (final encodedMatch in RegExp(
-      r'''["']([A-Za-z0-9+/]{24,}={0,2})["']''',
-    ).allMatches(encodedValues)) {
+    for (final encodedMatch in _reEncryptedBlob.allMatches(encodedValues)) {
       try {
         final clear = DesEcbPkcs7.decryptBase64Utf8(
           encodedMatch.group(1)!,
@@ -2942,11 +3095,7 @@ class GenericSiteApi {
   /// Some Chinese-drama / JS-player sites embed a <script id="videoInitialData">
   /// JSON block with per-episode HLS URLs (epPlaySrcs) or a single videoSrc.
   List<StreamQuality> _extractVideoInitialDataStreams(String html, String url) {
-    final m = RegExp(
-      r'''<script[^>]*id=["']videoInitialData["'][^>]*>(.*?)</script>''',
-      caseSensitive: false,
-      dotAll: true,
-    ).firstMatch(html);
+    final m = _reVideoInitialData.firstMatch(html);
     if (m == null) return const [];
     Object? data;
     try {
@@ -2973,8 +3122,9 @@ class GenericSiteApi {
     absorb(data['epPlaySrcs']);
     absorb(data['videoSrc']);
     final out = <StreamQuality>[];
-    final base =
-        Uri.tryParse(url)?.hasScheme == true ? Uri.parse(url).origin : '';
+    // Uri.origin 对非 http(s) scheme / 空 host 会抛 StateError，用同文件的
+    // 手写版（正常 http(s) 页面 URL 返回值与 origin 完全一致）。
+    final base = _originOf(url) ?? '';
     final checked = <String>{};
     for (final c in candidates) {
       final resolved =
@@ -2997,10 +3147,7 @@ class GenericSiteApi {
   List<StreamQuality> _extractBestJav(String html, String base) {
     final out = <StreamQuality>[];
     // Hover previews are short — skip data-mediabook unless nothing else
-    for (final m in RegExp(
-      r'''["'](https?://[^"']+\.(?:m3u8|mp4)[^"']*)["']''',
-      caseSensitive: false,
-    ).allMatches(html)) {
+    for (final m in _reBestJavMedia.allMatches(html)) {
       // 其他抽取器都会解码 \/,这里漏了解码会得到一条死流,与
       // _extractStreams 解码后的同一条 URL 去重不上、双双入库。
       final u = m.group(1)!.replaceAll(r'\/', '/');
@@ -3017,10 +3164,7 @@ class GenericSiteApi {
     out.addAll(_extractStreams(html, base));
     if (out.isEmpty) {
       // last resort: mediabook previews (may be short)
-      for (final m in RegExp(
-        r'''data-mediabook=["'](https?://[^"']+)["']''',
-        caseSensitive: false,
-      ).allMatches(html)) {
+      for (final m in _reBestJavMediabook.allMatches(html)) {
         out.add(StreamQuality(width: 640, height: 360, url: m.group(1)!));
       }
     }
@@ -3195,15 +3339,18 @@ class GenericSiteApi {
         if (c <= 0x20 || c >= 0x7f || c == 0x22 || c == 0x27) break;
         sb.writeCharCode(c);
       }
-      final u = sb.toString().replaceAll(RegExp(r'[.,;)\]!?&]+$'), '');
+      final u = sb.toString().replaceAll(_reUrlTrailingPunct, '');
       if (u.length > 12 && Uri.tryParse(u) != null) return u;
     }
     return null;
   }
 
   /// 生命值最小 msgpack 遍历：只关心在元素边界抽 url 所需的定长跳表。
-  int? _msgpackSkip(List<int> b, int i) {
-    if (i >= b.length) return null;
+  int? _msgpackSkip(List<int> b, int i, {int depth = 0}) {
+    // 深度护栏：容器可互相嵌套，损坏/恶意帧（连续 array16 头）会让递归
+    // 深度达数万 → 栈溢出。真实帧嵌套 ≤10 层，64 远超实际需求；超限返回
+    // null，调用方走既有 ASCII 扫描兜底。
+    if (depth > 64 || i >= b.length) return null;
     final c = b[i];
     if (c >= 0xa0 && c <= 0xbf) return i + 1 + (c & 0x1f);
     if (c == 0xd9 || c == 0xc4) {
@@ -3224,7 +3371,7 @@ class GenericSiteApi {
       i++;
       for (var k = 0; k < n; k++) {
         if (i >= b.length) return null;
-        final r = _msgpackSkip(b, i);
+        final r = _msgpackSkip(b, i, depth: depth + 1);
         if (r == null) return null;
         i = r;
       }
@@ -3236,7 +3383,7 @@ class GenericSiteApi {
       i++;
       for (var k = 0; k < n; k++) {
         if (i >= b.length) return null;
-        final r = _msgpackSkip(b, i);
+        final r = _msgpackSkip(b, i, depth: depth + 1);
         if (r == null) return null;
         i = r;
       }
@@ -3263,7 +3410,7 @@ class GenericSiteApi {
       if (count > 4096) return null; // 帧外误判 / 防御性上限
       for (var k = 0; k < count; k++) {
         if (i >= b.length) return null;
-        final r = _msgpackSkip(b, i);
+        final r = _msgpackSkip(b, i, depth: depth + 1);
         if (r == null) return null;
         i = r;
       }
@@ -3595,7 +3742,7 @@ class GenericSiteApi {
         // 通用调用方（预热/随机页传 'hot' 等）兜底到 91视频(25)。页 1 两种
         // 形态都在（/type/id/{id}.html 与 /type/id/{id}/page/1.html），先走
         // 带 page 的（与第 2 页起同构，翻页少一次跳变）。
-        final md91Id = RegExp(r'^\d+$').hasMatch(tagId) ? tagId : '25';
+        final md91Id = _reDigitsOnly.hasMatch(tagId) ? tagId : '25';
         return [
           (b) => '$b/index.php/vod/type/id/$md91Id/page/$p.html',
           (b) => '$b/index.php/vod/type/id/$md91Id.html',
@@ -3605,14 +3752,14 @@ class GenericSiteApi {
         // /like-{p}.html；今日热播 /rank/index.html（/{ymd}-{p}.html 日期不
         // 固定，只取首页）。分类 tagId '1-27' → /site/1/27-{p}.html；热搜
         // 标签 tagId（纯数字，/tags/ 索引页）→ /tags/{id}-{p}.html。
-        if (RegExp(r'^\d+-\d+$').hasMatch(tagId)) {
+        if (_reTagRange.hasMatch(tagId)) {
           final parts = tagId.split('-');
           return [
             (b) => '$b/site/${parts[0]}/${parts[1]}-$p.html',
             (b) => '$b/site/${parts[0]}/${parts[1]}.html',
           ];
         }
-        if (RegExp(r'^\d{3,}$').hasMatch(tagId)) {
+        if (_reNumericTag3.hasMatch(tagId)) {
           return [
             (b) => p > 1 ? '$b/tags/$tagId-$p.html' : '$b/tags/$tagId.html',
           ];
@@ -3632,7 +3779,7 @@ class GenericSiteApi {
         if (tagId == 'hot') return [(b) => '$b/top-rated/$p/'];
         if (tagId == 'new') return [(b) => '$b/latest-updates/$p/'];
         if (tagId == 'pop') return [(b) => '$b/most-popular/$p/'];
-        if (RegExp(r'^[a-z0-9-]+$').hasMatch(tagId)) {
+        if (_reSlugTag.hasMatch(tagId)) {
           return [(b) => '$b/tags/$tagId/$p/', (b) => '$b/tags/$tagId/'];
         }
         return [(b) => '$b/top-rated/$p/'];
@@ -3642,7 +3789,7 @@ class GenericSiteApi {
         // 繁体中文标签名）。/top 是周榜但卡结构不同（无 .item），不用。
         final isPapalahTag = tagId != 'hot' &&
             tagId != 'new' &&
-            RegExp(r'^[\u4e00-\u9fffA-Za-z0-9]{1,12}$').hasMatch(tagId);
+            _reCjkTag12.hasMatch(tagId);
         if (isPapalahTag) {
           final t = Uri.encodeComponent(tagId);
           return [(b) => '$b/tag/$t?&q=$t&page=$p'];
@@ -3657,7 +3804,7 @@ class GenericSiteApi {
           return [(b) => '$b/%E5%85%8D%E8%B4%B9a%E7%89%87?page=$p'];
         }
         if (tagId != 'new' &&
-            RegExp(r'^[\u4e00-\u9fffA-Za-z0-9]{1,20}$').hasMatch(tagId)) {
+            _reCjkTag20.hasMatch(tagId)) {
           final t = Uri.encodeComponent(tagId);
           return [(b) => '$b/a%E7%89%87/search/$t?page=$p'];
         }
@@ -4182,7 +4329,7 @@ class GenericSiteApi {
       }
 
       if (username != null &&
-          RegExp(r'^[a-zA-Z0-9_-]{3,60}$').hasMatch(username)) {
+          _reUsername.hasMatch(username)) {
         if (!matchesChaturbateCategory(map)) return;
         final online = map['is_online'] ?? map['isOnline'] ?? map['online'];
         final isLive = map['isLive'] ?? map['is_live'];
@@ -4360,18 +4507,9 @@ class GenericSiteApi {
     // href=/v/{id}.html 命中 _reGenericV、图在 data-original —— 通用解析链
     // 全兼容，无需专用解析器；只有详情播放走 KVS 专用抽取（见 _parseVideoDetail）。
     // Collect href candidates that look like video pages
-    final hrefRe = RegExp(
-      r'''href\s*=\s*["']([^"']+)["']''',
-      caseSensitive: false,
-    );
-    final titleRe = RegExp(
-      r'''(?:title|alt)\s*=\s*["']([^"']{3,200})["']''',
-      caseSensitive: false,
-    );
-    final imgRe = RegExp(
-      r'''(?:data-src|data-original|data-thumb|data-poster|src)\s*=\s*["']((?:https?:)?//[^"']+\.(?:jpg|jpeg|png|webp|gif)[^"']*|[^"']+/thumb[^"']*|[^"']+/cover[^"']*)["']''',
-      caseSensitive: false,
-    );
+    final hrefRe = _reListHref;
+    final titleRe = _reListTitle;
+    final imgRe = _reListImg;
 
     // Split into rough cards by common wrappers
     var chunks = html.split(_reListSplitDiv);
@@ -4497,10 +4635,7 @@ class GenericSiteApi {
       // 通用候选会因验收规则漏掉）；src 只是 base64 占位。HTML 属性里的
       // &amp; 必须还原，否则 CDN 签名参数名会变成 amp;validto。
       if (ptype == 'redtube') {
-        final rt = RegExp(
-          r'''data-o_thumb\s*=\s*["']([^"']+)["']''',
-          caseSensitive: false,
-        ).firstMatch(chunk);
+        final rt = _reRedtubeOThumb.firstMatch(chunk);
         if (rt != null) {
           thumb = _normalizeThumbUrl(
             rt.group(1)!.replaceAll('&amp;', '&'),
@@ -4544,32 +4679,20 @@ class GenericSiteApi {
   ) {
     final out = <VideoItem>[];
     for (final part in html.split('<div class="mb"').skip(1)) {
-      final href = RegExp(
-        r'''href=["'](/video-[^"']+)["']''',
-        caseSensitive: false,
-      ).firstMatch(part)?.group(1);
+      final href = _reEpornerCardHref.firstMatch(part)?.group(1);
       if (href == null) continue;
       final abs = _abs(base, href);
       final key = abs.split('#').first;
       if (!seen.add(key)) continue;
-      var title = RegExp(
-        r'''<p class="mbtit"><a[^>]*>([^<]+)</a>''',
-        caseSensitive: false,
-      ).firstMatch(part)?.group(1);
-      title ??= RegExp(
-        r'''img\b[^>]*\balt=["']([^"']{3,200})["']''',
-        caseSensitive: false,
-      ).firstMatch(part)?.group(1);
+      var title = _reEpornerCardTitle.firstMatch(part)?.group(1);
+      title ??= _reEpornerCardAlt.firstMatch(part)?.group(1);
       final clean = _cleanTitle(title ?? '');
       if (clean.length < 2 || _isJunkTitle(clean)) continue;
-      final thumb = RegExp(
-        r'''<img\b[^>]*\b(?:data-src|src)=["']([^"']+)["']''',
-        caseSensitive: false,
-      ).firstMatch(part)?.group(1);
-      final duration = RegExp(
-        r'''class=["']mbtim["'][^>]*>([^<]+)<''',
-        caseSensitive: false,
-      ).firstMatch(part)?.group(1)?.trim();
+      final thumb = _reEpornerCardThumb.firstMatch(part)?.group(1);
+      final duration = _reEpornerCardDur
+          .firstMatch(part)
+          ?.group(1)
+          ?.trim();
       out.add(
         VideoItem(
           url: abs,
@@ -4843,7 +4966,7 @@ class GenericSiteApi {
         return h.contains('/o.php?');
       case 'supjav':
         // 视频卡 = /{digits}.html（可能带 /zh 前缀目录）。
-        return h.endsWith('.html') && RegExp(r'^/[^/]*\d[^/]*\.html$').hasMatch(h);
+        return h.endsWith('.html') && _reSupjavCard.hasMatch(h);
       case '123av':
         // /en/v/{code} 详情卡；其余值链被通用排除挡掉。
         return h.contains('/v/');
@@ -4941,14 +5064,10 @@ class GenericSiteApi {
   }
 
   String? _metaContent(String html, Set<String> names) {
-    final tags =
-        RegExp(r'<meta\b[^>]*>', caseSensitive: false).allMatches(html);
+    final tags = _reMetaTag.allMatches(html);
     for (final tag in tags) {
       final attrs = <String, String>{};
-      for (final attr in RegExp(
-        r'''([:\w-]+)\s*=\s*["']([^"']*)["']''',
-        caseSensitive: false,
-      ).allMatches(tag.group(0)!)) {
+      for (final attr in _reHtmlAttr.allMatches(tag.group(0)!)) {
         attrs[attr.group(1)!.toLowerCase()] = attr.group(2)!;
       }
       final name =
@@ -4965,13 +5084,10 @@ class GenericSiteApi {
   String? _extractTitle(String html) {
     final meta = _metaContent(html, {'og:title', 'twitter:title'});
     if (meta != null) return _cleanTitle(meta);
-    final t = RegExp(
-      r'<title>([^<]+)</title>',
-      caseSensitive: false,
-    ).firstMatch(html);
+    final t = _reTitleTag.firstMatch(html);
     if (t != null) {
       var s = _cleanTitle(t.group(1)!);
-      s = s.split(RegExp(r'\s[-|–—]\s')).first.trim();
+      s = s.split(_reTitleSep).first.trim();
       if (s.length >= 2) return s;
     }
     return null;
@@ -5302,10 +5418,7 @@ class GenericSiteApi {
 
     // Chaturbate: edge HLS + room Dossier API (live only, not VOD shows)
     if (site.isChaturbate) {
-      for (final m in RegExp(
-        r'''https?:\\?/\\?/[^\s"'<>]*(?:playlist|live|amic|edge)[^\s"'<>]*\.m3u8[^\s"'<>]*''',
-        caseSensitive: false,
-      ).allMatches(html)) {
+      for (final m in _reChaturbateEdgeHls.allMatches(html)) {
         var u = m.group(0)!.replaceAll(r'\/', '/');
         if (u.startsWith('//')) u = 'https:$u';
         // Skip non-live VOD / sex-show replays when possible
@@ -5313,10 +5426,7 @@ class GenericSiteApi {
         if (low.contains('record') || low.contains('/vod/')) continue;
         streams.add(StreamQuality(width: 1280, height: 720, url: u));
       }
-      final hlsSrc = RegExp(
-        r'''hls_source["']?\s*[:=]\s*["']([^"']+)["']''',
-        caseSensitive: false,
-      ).firstMatch(html);
+      final hlsSrc = _reHlsSourceField.firstMatch(html);
       if (hlsSrc != null) {
         var u = hlsSrc.group(1)!.replaceAll(r'\/', '/');
         if (u.startsWith('//')) u = 'https:$u';
@@ -5342,17 +5452,11 @@ class GenericSiteApi {
                 'X-Requested-With': 'XMLHttpRequest',
               },
             );
-            for (final m in RegExp(
-              r'''https?:\\?/\\?/[^\s"'<>]+\.m3u8[^\s"'<>]*''',
-              caseSensitive: false,
-            ).allMatches(raw)) {
+            for (final m in _reAnyEdgeHls.allMatches(raw)) {
               var u = m.group(0)!.replaceAll(r'\/', '/');
               streams.add(StreamQuality(width: 1280, height: 720, url: u));
             }
-            final hs = RegExp(
-              r'''hls_source["']?\s*[:=]\s*["']([^"']+)["']''',
-              caseSensitive: false,
-            ).firstMatch(raw);
+            final hs = _reHlsSourceField.firstMatch(raw);
             if (hs != null) {
               var u = hs.group(1)!.replaceAll(r'\/', '/');
               if (u.startsWith('//')) u = 'https:$u';
@@ -5374,12 +5478,9 @@ class GenericSiteApi {
 
       void addStripchatStream(String rawValue) {
         final value = rawValue.replaceAll(r'\/', '/');
-        final embeddedName = RegExp(
-          r'/hls/([^/]+)/',
-          caseSensitive: false,
-        ).firstMatch(value)?.group(1);
+        final embeddedName = _reStripchatHlsName.firstMatch(value)?.group(1);
         final name = embeddedName ?? value;
-        if (!RegExp(r'^[a-zA-Z0-9_-]{3,100}$').hasMatch(name)) return;
+        if (!_reStripchatRoomName.hasMatch(name)) return;
         streams.add(
           StreamQuality(
             width: 1280,
@@ -5390,17 +5491,11 @@ class GenericSiteApi {
         );
       }
 
-      for (final m in RegExp(
-        r'''https?:\\?/\\?/[^\s"'<>]*\.m3u8[^\s"'<>]*''',
-        caseSensitive: false,
-      ).allMatches(html)) {
+      for (final m in _reStripchatPageHls.allMatches(html)) {
         addStripchatStream(m.group(0)!);
       }
       // streamName in initial state
-      final sn = RegExp(
-        r'''["'](?:streamName|stream_name|hlsStreamName)["']\s*:\s*["']([^"']+)["']''',
-        caseSensitive: false,
-      ).firstMatch(html);
+      final sn = _reStripchatStreamName.firstMatch(html);
       if (sn != null) {
         addStripchatStream(sn.group(1)!);
       }
@@ -5416,16 +5511,10 @@ class GenericSiteApi {
               'Referer': pageUrl,
             },
           );
-          for (final m in RegExp(
-            r'''https?:\\?/\\?/[^\s"'<>]+\.m3u8[^\s"'<>]*''',
-            caseSensitive: false,
-          ).allMatches(raw)) {
+          for (final m in _reAnyEdgeHls.allMatches(raw)) {
             addStripchatStream(m.group(0)!);
           }
-          final apiField = RegExp(
-            r'''["'](?:streamName|stream_name|hlsStreamName)["']\s*:\s*["']([^"']+)["']''',
-            caseSensitive: false,
-          ).firstMatch(raw);
+          final apiField = _reStripchatStreamName.firstMatch(raw);
           if (apiField != null) {
             addStripchatStream(apiField.group(1)!);
           }

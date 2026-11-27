@@ -757,8 +757,8 @@ class StripchatLiveView(
     private val statusLabel = android.widget.TextView(context)
     private val speedLabel = android.widget.TextView(context)
     private val spinner = android.widget.ProgressBar(context)
-    // 失败态的重试/跳过按钮由 Flutter 渲染（原生浮层被 IgnorePointer 挡住
-    // 收不到点击），原生失败后通过 onLiveFailed 把原因推给 Dart。
+    // 失败态不再渲染任何提示页面：原生失败后通过 onLiveFailed 把原因推
+    // 给 Dart，Dart 动画滑到下一个直播间（本视图随之销毁）。
     private val handler = Handler(Looper.getMainLooper())
     private var videoRevealed = false
     private var disposed = false
@@ -767,6 +767,8 @@ class StripchatLiveView(
     private var focusAttempts = 0
     private var errorRetries = 0
     private var livePaused = false
+    // 连接超时自动切换只发一次的标记（每次房间加载随视图重建归零）。
+    private var skipNotified = false
     private val tapDetector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
@@ -781,6 +783,14 @@ class StripchatLiveView(
         override fun run() {
             if (disposed || videoRevealed || !isStripchat) return
             val elapsed = ((System.currentTimeMillis() - loadingStartedAt) / 1000).toInt()
+            // 连接计时走到 5 秒仍未出画：不再等待提示，通知 Flutter 自动切
+            // 下一个直播间（与跳过按钮同一 'skip' 通道；只发一次，若 Dart
+            // 已切页，本平台视图随之销毁）。offline/私密/群组仍由
+            // installVideoFocus 在 DOM 就绪后即时判出并走 onLiveFailed。
+            if (elapsed >= 5 && !skipNotified) {
+                skipNotified = true
+                StripchatSkipBridge.emit()
+            }
             // 单阶段状态：不再出现"正在连接→网页已加载→再寻找"的多次转圈，
             // 用户只看到一条连续计时。离线房间由 installVideoFocus 在 DOM
             // 就绪后立即判出（isOnline:false），不会等到这里超时。

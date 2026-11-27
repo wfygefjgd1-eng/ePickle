@@ -75,9 +75,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   bool _browserIsStripchat = false;
   bool _livePaused = false;
 
-  /// 原生 WebView 失败原因（'onLiveFailed' 推送）：非空时 Flutter 渲染
-  /// 重试/跳过按钮（原生浮层按钮被 IgnorePointer 挡住点不到）。
-  String? _liveFailedMessage;
+  /// 直播自动切换防抖：动画进行中忽略并发到达的失败/超时信号。
+  bool _autoAdvancingLive = false;
   int _currentIndex = 0;
   int _loadSeq = 0;
 
@@ -1988,7 +1987,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _currentDetail = detail;
     _browserLiveUrl = url;
     _livePaused = false;
-    _liveFailedMessage = null;
     // Both providers can restore a promotional/full-site shell after an iOS
     // background round-trip. Keep their WebViews in controlled player mode.
     final focusLive = live &&
@@ -2043,45 +2041,50 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     });
   }
 
-  /// 原生浮层"跳过"按钮：用户主动放弃当前直播间，直接切下一条。与自动
-  /// 跳过（_scheduleSkipToNext）不同——不计失败次数、不设上限。
+  /// 直播自动切下一个直播间（原生跳过按钮 / 连接超时 5 秒 / 失败信号共用）：
+  /// 动画滑到下一页，让真实的 _onPageChanged 触发与手动往下滑完全一致的
+  /// 清理链路——旧 WebView 平台视图随房间 URL 换 key 销毁、预载槽与冻结
+  /// 控制器回收、看门狗重置，内存不残留。末页回绕时 PageView 无法向后
+  /// 动画，直接播放首条并重钉控制器。
+  void _autoAdvanceLive() {
+    if (!mounted || !_canRun || _browserLiveUrl == null) return;
+    if (_items.length < 2) return;
+    if (_autoAdvancingLive) return;
+    _autoAdvancingLive = true;
+    final current = _pageCtrl.hasClients
+        ? (_pageCtrl.page?.round() ?? _currentIndex)
+        : _currentIndex;
+    final next = current + 1;
+    Future<void> done;
+    if (next < _items.length && _pageCtrl.hasClients) {
+      done = _pageCtrl.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    } else {
+      done = _playIndex(0);
+      _schedulePageResync();
+    }
+    unawaited(done.catchError((_) {}).whenComplete(() {
+      _autoAdvancingLive = false;
+    }));
+  }
+
+  /// 原生浮层"跳过"按钮 / 连接超时 / 失败信号共用：直接切下一条，不计
+  /// 失败次数、不设上限（自动切换的节奏由原生侧保证：连接计时 ≥5 秒才
+  /// 触发，失败信号来自逐房间探测）。
   void _onNativeLiveSkip() {
     if (!mounted || !_canRun || _browserLiveUrl == null) return;
-    if (_items.length < 2) {
-      PlaybackHelpers.toast(context, '没有下一个频道');
-      return;
-    }
-    final next = (_currentIndex + 1) % _items.length;
-    _playIndex(next);
+    _autoAdvanceLive();
   }
 
-  /// 原生 WebView 失败（超时/拦截/badroom）：Flutter 渲染重试/跳过按钮。
+  /// 原生 WebView 失败（下播/私密/群组/断流/超时）：不再渲染重试/跳过
+  /// 页面，直接自动切下一个直播间（内容随页销毁，与手动下滑同链路）。
   void _onNativeLiveFailed(String message) {
     if (!mounted || !_canRun || _browserLiveUrl == null) return;
-    setState(() => _liveFailedMessage = message);
-  }
-
-  /// 重试当前直播间：置空浏览器地址让平台视图销毁重建（原生彻底重载房间），
-  /// 同时清掉失败提示与暂停残留。
-  Future<void> _reloadCurrentLive() async {
-    if (!mounted || _browserLiveUrl == null) return;
-    setState(() {
-      _browserLiveUrl = null;
-      _browserIsStripchat = false;
-      _livePaused = false;
-      _liveFailedMessage = null;
-      _pageLoading = true;
-    });
-    await Future<void>.delayed(const Duration(milliseconds: 80));
-    if (!mounted || !_canRun) return;
-    await _playIndex(_currentIndex);
-  }
-
-  /// 跳过失败直播间，切下一条。
-  void _skipFailedLive() {
-    if (!mounted) return;
-    setState(() => _liveFailedMessage = null);
-    _onNativeLiveSkip();
+    debugPrint('ePickle live auto-skip: $message');
+    _autoAdvanceLive();
   }
 
   /// Drop items far from the play head so memory stays bounded.
@@ -2144,6 +2147,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     // 700ms 自动跳过计划同样捕获了旧索引：作废它（_scheduleSkipToNext
     // 的 epoch 守卫在回调里放行前检查）。
     _itemsEpoch++;
+    // 预加载槽刚被清空且 _loadSeq 已变：立刻重启预加载波次，否则要等
+    // 下一次 onPageChanged 才补上，触发裁剪的那批滑动里下一条没有预缓冲
+    // （search_feed_screen 的同款重基逻辑即如此）。自带守卫：后台/停播时
+    // 直接返回；_preloadCycle(旧值)!=_loadSeq 保证必然执行。
+    _restartPreloading();
   }
 
   Future<void> _disposeController() async {
@@ -2673,6 +2681,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       canPop: _allowPop || defaultTargetPlatform == TargetPlatform.iOS,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) {
+          // 页面此刻正在退出、context 仍有效：取消在途的列表/详情请求
+          // （退后台路径的 _cancelBackgroundWork 已做，退出路径此前没有）。
+          context.read<PhubApi>().cancelRequests('feed disposed');
+          context.read<XvideosApi>().cancelRequests('feed disposed');
+          context.read<MitaoApi>().cancelRequests('feed disposed');
+          context.read<HuangGuoApi>().cancelRequests('feed disposed');
+          context.read<GenericSiteApi>().cancelRequests('feed disposed');
           stopPlaybackImmediately();
           return;
         }
@@ -2738,9 +2753,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               onBack: _exitAfterStopping,
               onOpenSettings: _openPlayerSettings,
               onLiveToggle: () => unawaited(_toggleBrowserLivePlayback()),
-              liveFailed: _browserIsStripchat ? _liveFailedMessage : null,
-              onLiveRetry: () => unawaited(_reloadCurrentLive()),
-              onLiveSkip: _skipFailedLive,
               onSeekPreview: _onSeekPreview,
               onSeekStart: () => _seeking = true,
               onSeekEnd: _onSeekCommit,
@@ -2756,6 +2768,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     int index,
     int streamHeight,
   ) async {
+    // 并发 _playIndex 竞态护栏：冻结过程中的多次 await 之间若又启动了新
+    // 一轮播放（_loadSeq 已变），本轮的迟到写回会覆盖新播放刚停进冻结槽
+    // 的控制器。入口记下 seq，末尾复核——过期则本控制器已是孤儿，静默
+    // 释放、不碰冻结槽（与下方 !_canRun 分支同型）。
+    final seq = _loadSeq;
     final stale = _frozenController;
     _frozenController = null;
     _frozenIndex = null;
@@ -2781,6 +2798,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       await controller.pause();
     } catch (_) {}
     if (!_canRun) {
+      try {
+        await controller.dispose();
+      } catch (_) {}
+      return;
+    }
+    if (seq != _loadSeq) {
       try {
         await controller.dispose();
       } catch (_) {}

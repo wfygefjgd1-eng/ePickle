@@ -471,7 +471,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
           // 域名测速悬浮提示：正在后台探测最快域名时显示在左上角，
           // 探测结束自动消失 —— 左上角没有它 = 测速已完成，可正常使用。
-          Positioned(top: 6, left: 6, child: _MirrorProbeBadge()),
+          Positioned(top: 6, left: 6, child: const _MirrorProbeBadge()),
         ],
       ),
     );
@@ -537,9 +537,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ],
       ),
     );
-    // 对话框已关闭，取完输入值立即释放控制器（该对话框可反复打开）。
+    // 对话框已关闭，取完输入值延迟释放控制器：pop 即完成 Future，但退场
+    // 动画期间 TextField 仍挂在树上并持有它，立即 dispose 会踩
+    // notifyListeners-after-dispose 断言（该对话框可反复打开）。
     final entered = ctrl.text.trim();
-    ctrl.dispose();
+    Future.delayed(const Duration(milliseconds: 350), ctrl.dispose);
     if (saved == null) return;
     if (!saved) {
       await ranker.clearManualBasePersisted(site.id);

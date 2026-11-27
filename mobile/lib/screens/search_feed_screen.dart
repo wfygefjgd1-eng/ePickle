@@ -718,7 +718,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           (_controller?.value.isPlaying ?? false) ||
           _pageLoading ||
           _browserPageUrl != null;
-      _active = false;
       _seq++;
       _autoRotate?.listening = false;
       _autoRotate?.stop();
@@ -1667,6 +1666,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     int index,
     int streamHeight,
   ) async {
+    // 并发 _playIndex 竞态护栏：冻结过程中的多次 await 之间若又启动了新
+    // 一轮播放（_seq 已变），本轮的迟到写回会覆盖新播放刚停进冻结槽的
+    // 控制器。入口记下 seq，末尾复核——过期则本控制器已是孤儿，静默
+    // 释放、不碰冻结槽（与下方 !_canRun 分支同型）。
+    final seq = _seq;
     final stale = _frozenController;
     _frozenController = null;
     _frozenIndex = null;
@@ -1692,6 +1696,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       await controller.pause();
     } catch (_) {}
     if (!_canRun) {
+      try {
+        await controller.dispose();
+      } catch (_) {}
+      return;
+    }
+    if (seq != _seq) {
       try {
         await controller.dispose();
       } catch (_) {}
@@ -2198,6 +2208,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       canPop: _allowPop || defaultTargetPlatform == TargetPlatform.iOS,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) {
+          // 页面此刻正在退出、context 仍有效：取消在途的列表/详情请求
+          // （退后台路径的 _cancelBackgroundWork 已做，退出路径此前没有）。
+          context.read<PhubApi>().cancelRequests('feed disposed');
+          context.read<XvideosApi>().cancelRequests('feed disposed');
+          context.read<MitaoApi>().cancelRequests('feed disposed');
+          context.read<HuangGuoApi>().cancelRequests('feed disposed');
+          context.read<GenericSiteApi>().cancelRequests('feed disposed');
           stopPlaybackImmediately();
           return;
         }
@@ -2606,6 +2623,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                               icon: Icons.fast_forward,
                               iconSize: 84,
                               numeral: '45',
+                              iconAlpha: 0.4,
                               onTap: _fastForward,
                             )
                           : const SizedBox.shrink(),

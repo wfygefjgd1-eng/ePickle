@@ -13,6 +13,63 @@ import 'source_catalog.dart';
 /// XVideos list + detail (for feed kind "X").
 class XvideosApi {
   static const _singleRequestTimeout = Duration(seconds: 10);
+  // ---- Hoisted inline RegExp (precompiled once, reused per call/loop). ----
+  static final _trailingSlashRe = RegExp(r'/$');
+  static final _cardBlockSplitRe =
+      RegExp(r'(?=<div[^>]+id="video_[^"]+")');
+  static final _videoHrefSplitRe = RegExp(
+    r'(?=href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?/video\.[a-zA-Z0-9]+/)',
+  );
+  static final _videoPathSplitRe =
+      RegExp(r'(?=href="/video\.[a-zA-Z0-9]+/)');
+  static final _hrefRe = RegExp(
+    r'href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?(/video\.[a-zA-Z0-9]+/[^"#?\s]+)"',
+  );
+  static final _titleOnHrefRe = RegExp(
+    r'href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?/video\.[a-zA-Z0-9]+/[^"]+"[^>]*title="([^"]+)"',
+  );
+  static final _titleBeforeHrefRe = RegExp(
+    r'title="([^"]+)"[^>]*href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?/video\.[a-zA-Z0-9]+/',
+  );
+  static final _pTitleRe = RegExp(
+    r'class="[^"]*title[^"]*"[^>]*>\s*<a[^>]*>([^<]{1,200})',
+    caseSensitive: false,
+  );
+  static final _thumbRe = RegExp(
+    r'data-src="((?:https?:)?//[^"]+)"|data-srcse="((?:https?:)?//[^"]+)"|data-idthumb="((?:https?:)?//[^"]+)"|data-thumb="((?:https?:)?//[^"]+)"|data-sfwthumb="((?:https?:)?//[^"]+)"|src="((?:https?:)?//[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
+    caseSensitive: false,
+  );
+  static final _durRe = RegExp(
+    r'class="duration"[^>]*>\s*([^<]+)',
+    caseSensitive: false,
+  );
+  static final _videoIdRe = RegExp(r'/video\.([a-zA-Z0-9]+)');
+  static final _titleNoiseRe = RegExp(r'title="([^"]{3,200})"');
+  static final _htmlTagRe = RegExp(r'<[^>]+>');
+  static final _whitespaceRe = RegExp(r'\s+');
+  static final _trailingDurationRe = RegExp(r'\s+\d+\s*min\s*$');
+  static final _setTitleSingleQuoteRe = RegExp(r"setVideoTitle\('([^']*)'\)");
+  static final _setTitleDoubleQuoteRe = RegExp(r'setVideoTitle\("([^"]*)"\)');
+  static final _pageTagTitleRe = RegExp(
+    r'<title>([^<]+)</title>',
+    caseSensitive: false,
+  );
+  static final _setHlsSingleQuoteRe = RegExp(r"setVideoHLS\('([^']+)'\)");
+  static final _setHlsDoubleQuoteRe = RegExp(r'setVideoHLS\("([^"]+)"\)');
+  static final _setUrlHighSingleQuoteRe =
+      RegExp(r"setVideoUrlHigh\('([^']+)'\)");
+  static final _setUrlHighDoubleQuoteRe =
+      RegExp(r'setVideoUrlHigh\("([^"]+)"\)');
+  static final _setUrlLowSingleQuoteRe =
+      RegExp(r"setVideoUrlLow\('([^']+)'\)");
+  static final _setUrlLowDoubleQuoteRe =
+      RegExp(r'setVideoUrlLow\("([^"]+)"\)');
+  static final _setThumbSingleQuoteRe = RegExp(r"setThumbUrl\('([^']+)'\)");
+  static final _setThumb169DoubleQuoteRe =
+      RegExp(r'setThumbUrl169\("([^"]+)"\)');
+  static final _setThumb169SingleQuoteRe =
+      RegExp(r"setThumbUrl169\('([^']+)'\)");
+
   XvideosApi({Dio? dio, CancelToken? cancelToken})
       : _cancelToken = cancelToken ?? CancelToken(),
         _dio = dio ??
@@ -55,7 +112,7 @@ class XvideosApi {
     if (uri == null || !_xvFamilyHosts.contains(uri.host.toLowerCase())) {
       return url;
     }
-    final base = override.replaceAll(RegExp(r'/$'), '');
+    final base = override.replaceAll(_trailingSlashRe, '');
     final query = uri.hasQuery && uri.query.isNotEmpty ? '?${uri.query}' : '';
     return '$base${uri.path}$query';
   }
@@ -370,62 +427,35 @@ class XvideosApi {
     final itemBase = base ?? _base;
     final out = <VideoItem>[];
     // Card blocks: id="video_XXXX" (hex id) or legacy numeric
-    final blocks = html.split(RegExp(r'(?=<div[^>]+id="video_[^"]+")'));
+    final blocks = html.split(_cardBlockSplitRe);
     Iterable<String> iterable;
     if (blocks.length > 1) {
       iterable = blocks.skip(1);
     } else {
       // Fallback: split on video hrefs (new layout / search pages / mirrors)
-      iterable = html.split(RegExp(
-        r'(?=href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?/video\.[a-zA-Z0-9]+/)',
-      ));
+      iterable = html.split(_videoHrefSplitRe);
       if (iterable.length <= 1) {
-        iterable = html.split(RegExp(r'(?=href="/video\.[a-zA-Z0-9]+/)'));
+        iterable = html.split(_videoPathSplitRe);
       }
     }
 
-    final hrefRe = RegExp(
-      r'href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?(/video\.[a-zA-Z0-9]+/[^"#?\s]+)"',
-    );
-    final titleOnHref = RegExp(
-      r'href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?/video\.[a-zA-Z0-9]+/[^"]+"[^>]*title="([^"]+)"',
-    );
-    final titleBeforeHref = RegExp(
-      r'title="([^"]+)"[^>]*href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?/video\.[a-zA-Z0-9]+/',
-    );
-    final pTitleRe = RegExp(
-      r'class="[^"]*title[^"]*"[^>]*>\s*<a[^>]*>([^<]{1,200})',
-      caseSensitive: false,
-    );
-    final thumbRe = RegExp(
-      r'data-src="((?:https?:)?//[^"]+)"|data-srcse="((?:https?:)?//[^"]+)"|data-idthumb="((?:https?:)?//[^"]+)"|data-thumb="((?:https?:)?//[^"]+)"|data-sfwthumb="((?:https?:)?//[^"]+)"|src="((?:https?:)?//[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
-      caseSensitive: false,
-    );
-    final durRe = RegExp(
-      r'class="duration"[^>]*>\s*([^<]+)',
-      caseSensitive: false,
-    );
-    // Hoisted: compiled once per parse instead of per card.
-    final videoIdRe = RegExp(r'/video\.([a-zA-Z0-9]+)');
-    final titleNoiseRe = RegExp(r'title="([^"]{3,200})"');
-
     for (final chunk in iterable) {
-      final hm = hrefRe.firstMatch(chunk);
+      final hm = _hrefRe.firstMatch(chunk);
       if (hm == null) continue;
       final path = hm.group(1)!;
-      final idM = videoIdRe.firstMatch(path);
+      final idM = _videoIdRe.firstMatch(path);
       final id = idM?.group(1) ?? path;
       if (!seen.add(id)) continue;
 
       String? title;
-      final tLink = titleOnHref.firstMatch(chunk);
-      final tTitleFirst = titleBeforeHref.firstMatch(chunk);
+      final tLink = _titleOnHrefRe.firstMatch(chunk);
+      final tTitleFirst = _titleBeforeHrefRe.firstMatch(chunk);
       if (tLink != null) {
         title = tLink.group(1);
       } else if (tTitleFirst != null) {
         title = tTitleFirst.group(1);
       } else {
-        for (final m in titleNoiseRe.allMatches(chunk)) {
+        for (final m in _titleNoiseRe.allMatches(chunk)) {
           final c = m.group(1)!;
           final low = c.toLowerCase();
           if (low.contains('toggle') ||
@@ -442,12 +472,12 @@ class XvideosApi {
         }
       }
       if (title == null || title.length < 2) {
-        final pTitle = pTitleRe.firstMatch(chunk);
+        final pTitle = _pTitleRe.firstMatch(chunk);
         if (pTitle != null) {
           title = pTitle
               .group(1)!
-              .replaceAll(RegExp(r'<[^>]+>'), ' ')
-              .replaceAll(RegExp(r'\s+'), ' ')
+              .replaceAll(_htmlTagRe, ' ')
+              .replaceAll(_whitespaceRe, ' ')
               .trim();
         }
       }
@@ -465,14 +495,14 @@ class XvideosApi {
           .replaceAll('&#039;', "'")
           .replaceAll('&amp;', '&')
           .replaceAll('&quot;', '"')
-          .replaceAll(RegExp(r'\s+'), ' ')
+          .replaceAll(_whitespaceRe, ' ')
           .trim();
       // Strip trailing duration text accidentally captured in anchor body.
-      title = title.replaceAll(RegExp(r'\s+\d+\s*min\s*$'), '').trim();
+      title = title.replaceAll(_trailingDurationRe, '').trim();
       if (title.length < 2) continue;
 
       String? thumb;
-      final tm = thumbRe.firstMatch(chunk);
+      final tm = _thumbRe.firstMatch(chunk);
       if (tm != null) {
         thumb = tm.group(1) ??
             tm.group(2) ??
@@ -486,7 +516,7 @@ class XvideosApi {
       }
 
       var duration = '-';
-      final dm = durRe.firstMatch(chunk);
+      final dm = _durRe.firstMatch(chunk);
       if (dm != null) {
         final d = dm.group(1)!.trim();
         if (d.isNotEmpty) duration = d;
@@ -507,32 +537,31 @@ class XvideosApi {
 
   Future<VideoDetail> getVideoDetail(String url) async {
     final html = await _getHtml(url);
-    final titleM = RegExp(r"setVideoTitle\('([^']*)'\)").firstMatch(html) ??
-        RegExp(r'setVideoTitle\("([^"]*)"\)').firstMatch(html);
+    final titleM = _setTitleSingleQuoteRe.firstMatch(html) ??
+        _setTitleDoubleQuoteRe.firstMatch(html);
     var title = titleM?.group(1) ?? '';
     title = title
         .replaceAll(r"\'", "'")
         .replaceAll('&#039;', "'")
         .replaceAll('&amp;', '&');
     if (title.isEmpty) {
-      final t2 = RegExp(r'<title>([^<]+)</title>', caseSensitive: false)
-          .firstMatch(html);
+      final t2 = _pageTagTitleRe.firstMatch(html);
       title = (t2?.group(1) ?? url).split('-').first.trim();
     }
 
     final streams = <StreamQuality>[];
-    final hls = RegExp(r"setVideoHLS\('([^']+)'\)").firstMatch(html) ??
-        RegExp(r'setVideoHLS\("([^"]+)"\)').firstMatch(html);
+    final hls = _setHlsSingleQuoteRe.firstMatch(html) ??
+        _setHlsDoubleQuoteRe.firstMatch(html);
     if (hls != null) {
       streams.add(StreamQuality(width: 1280, height: 720, url: hls.group(1)!));
     }
-    final high = RegExp(r"setVideoUrlHigh\('([^']+)'\)").firstMatch(html) ??
-        RegExp(r'setVideoUrlHigh\("([^"]+)"\)').firstMatch(html);
+    final high = _setUrlHighSingleQuoteRe.firstMatch(html) ??
+        _setUrlHighDoubleQuoteRe.firstMatch(html);
     if (high != null) {
       streams.add(StreamQuality(width: 640, height: 360, url: high.group(1)!));
     }
-    final low = RegExp(r"setVideoUrlLow\('([^']+)'\)").firstMatch(html) ??
-        RegExp(r'setVideoUrlLow\("([^"]+)"\)').firstMatch(html);
+    final low = _setUrlLowSingleQuoteRe.firstMatch(html) ??
+        _setUrlLowDoubleQuoteRe.firstMatch(html);
     if (low != null) {
       streams.add(StreamQuality(width: 426, height: 240, url: low.group(1)!));
     }
@@ -541,9 +570,9 @@ class XvideosApi {
     }
     streams.sort((a, b) => b.pixels.compareTo(a.pixels));
 
-    final thumbM = RegExp(r"setThumbUrl\('([^']+)'\)").firstMatch(html) ??
-        RegExp(r'setThumbUrl169\("([^"]+)"\)').firstMatch(html) ??
-        RegExp(r"setThumbUrl169\('([^']+)'\)").firstMatch(html);
+    final thumbM = _setThumbSingleQuoteRe.firstMatch(html) ??
+        _setThumb169DoubleQuoteRe.firstMatch(html) ??
+        _setThumb169SingleQuoteRe.firstMatch(html);
 
     return VideoDetail(
       url: url,

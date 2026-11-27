@@ -163,7 +163,9 @@ Future<void> _showAddSiteDialog(
       ),
     ),
   );
-  urlController.dispose();
+  // pop 即完成 Future，但退场动画期间 TextField 仍持有控制器，
+  // 延迟释放避免 notifyListeners-after-dispose 断言。
+  Future.delayed(const Duration(milliseconds: 350), urlController.dispose);
   if (result == null) return;
   final split = result.split('\n');
   if (split.length != 2) return;
@@ -215,7 +217,9 @@ Future<void> _showHuangguoDomainDialog(
       ],
     ),
   );
-  controller.dispose();
+  // pop 即完成 Future，但退场动画期间 TextField 仍持有控制器，
+  // 延迟释放避免 notifyListeners-after-dispose 断言。
+  Future.delayed(const Duration(milliseconds: 350), controller.dispose);
 }
 
 String _customParserLabel(String parser) => switch (parser) {

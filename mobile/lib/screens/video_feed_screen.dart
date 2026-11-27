@@ -133,6 +133,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   double _smoothedSpeedKbps = 0;
   int _speedSamples = 0;
   final Map<int, VideoDetail> _detailCache = {};
+
+  /// 已对哪些条目做过"浏览器兜底详情→原生流"的一次性重试，避免每次播放
+  /// 都为一个真的只能网页播的条目重复等待。
+  final Set<String> _browserOnlyRetried = {};
   int _preloadCycle = 0;
   int _preloadWaveIndex = -1;
   bool _seeking = false;
@@ -166,6 +170,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _stallTicks = 0;
   bool _stallLowering = false;
   bool _stallLoweredForItem = false;
+
+  /// 连续掉进 WebView 兜底的条目数（原生播放成功即清零）。≥1 时给下一条
+  /// 更大的原生重试预算（22s/3 候选），打破"一条跳网页后条条跳网页"的
+  /// 级联（瞬时网络抖动期间 14s/2 候选会条条超时）。
+  int _webviewFallbackStreak = 0;
 
   /// Ignore stall until this ms epoch. Long after resume (iOS progress freeze).
   int _stallArmedAfterMs = 0;
@@ -529,6 +538,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _items.clear();
       _seen.clear();
       _detailCache.clear();
+      _browserOnlyRetried.clear();
     }
     _settings?.removeListener(_onSettingsChanged);
     MirrorRanker.instance.probing.removeListener(_onMirrorProbeChanged);
@@ -1238,6 +1248,36 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     return future;
   }
 
+  /// 缓存详情只有 WebView 兜底地址（没有原生流）时，在真正开网页前重抓一次。
+  ///
+  /// 这种详情几乎都来自一次瞬时抽取失败（或首页旧预取）：以前播放页直接
+  /// 信缓存开 WebView，用户只能退出重进清缓存才恢复原生播放。这里每个
+  /// 条目最多重试一次；重试仍失败才走网页兜底。直播站不重试（离线判定
+  /// 需要尽快出结果）。
+  Future<VideoDetail> _refreshBrowserOnlyDetail(
+    int index,
+    VideoItem item,
+    VideoDetail detail,
+  ) async {
+    if (detail.streams.isNotEmpty) return detail;
+    if (detail.browserPlaybackUrl?.isNotEmpty != true) return detail;
+    if (widget.site?.kind == SiteKind.live) return detail;
+    if (!_browserOnlyRetried.add(item.url)) return detail;
+    try {
+      final fresh =
+          await _fetchDetail(item.url).timeout(const Duration(seconds: 5));
+      if (fresh.streams.isNotEmpty &&
+          !fresh.countryBlocked &&
+          !fresh.unavailable) {
+        _detailCache[index] = fresh;
+        return fresh;
+      }
+      return fresh.browserPlaybackUrl?.isNotEmpty == true ? fresh : detail;
+    } catch (_) {
+      return detail;
+    }
+  }
+
   /// Fire-and-forget prefetch that also works before _active is set (e.g.
   /// from initState). Shares its network request with every other caller via
   /// [_detailFor], so prefetch + immediate play costs exactly one fetch.
@@ -1667,12 +1707,18 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       return;
     }
 
+    // 缓存里只有"网页可播"的详情时先重抓一次原生流，避免瞬时抽取失败被
+    // 永久当成只能开 WebView（退出重进才恢复的老 bug）。
+    detail = await _refreshBrowserOnlyDetail(index, item, detail);
+    if (seq != _loadSeq || !_canRun || !mounted) return;
+
     _restartPreloading();
 
     final settings = context.read<AppSettings>();
 
     // Plan A: real streams first; empty streams → in-app WebView page.
     if (detail.prefersBrowserPlayer || detail.streams.isEmpty) {
+      _webviewFallbackStreak++;
       final page = detail.browserPlaybackUrl?.trim().isNotEmpty == true
           ? detail.browserPlaybackUrl!.trim()
           : item.url;
@@ -1690,6 +1736,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final cap = _effectiveQualityCap;
     final candidates = PlaybackHelpers.streamCandidates(detail, cap);
     if (candidates.isEmpty) {
+      _webviewFallbackStreak++;
       final page = detail.browserPlaybackUrl?.trim().isNotEmpty == true
           ? detail.browserPlaybackUrl!.trim()
           : item.url;
@@ -1722,12 +1769,20 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         }
       }
     }
-    final playerDeadline = DateTime.now().add(const Duration(seconds: 14));
+    // 防级联：上一条刚掉进 WebView 兜底（多半是瞬时网络/CDN 抖动）时，
+    // 下一条若用同样的 14s/2 候选预算大概率也超时 → 连续跳网页（用户感知
+    // 为"播着播着全变网页，退出重进才恢复"）。此时把原生重试预算放大
+    // （22s / 3 候选），只在更大预算下仍失败才降级 WebView。
+    final nativeRetryBoost = _webviewFallbackStreak >= 1;
+    final playerDeadline = DateTime.now().add(
+      nativeRetryBoost ? const Duration(seconds: 22) : const Duration(seconds: 14),
+    );
+    final maxCandidates = nativeRetryBoost ? 3 : 2;
     // Try at most the top-2 candidates. The first is preferred (sorted by
     // quality); the second is a safety net for either (a) the first stream
     // returned a preview/teaser clip, or (b) init transiently failed. Going
     // beyond 2 wastes up to 8s per attempt before the user gives up.
-    for (var i = 0; i < candidates.length && i < 2 && player == null; i++) {
+    for (var i = 0; i < candidates.length && i < maxCandidates && player == null; i++) {
       final c = candidates[i];
       if (seq != _loadSeq || !_canRun) {
         return;
@@ -1768,6 +1823,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (player == null || stream == null) {
       // Stream URLs failed → fall back to in-app WebView of the detail page.
       if (mounted && seq == _loadSeq) {
+        _webviewFallbackStreak++;
         final page = detail.browserPlaybackUrl?.trim().isNotEmpty == true
             ? detail.browserPlaybackUrl!.trim()
             : (detail.url.startsWith('http') ? detail.url : item.url);
@@ -1787,6 +1843,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       await player.dispose();
       return;
     }
+    // 原生播放成功：级联计数清零。
+    _webviewFallbackStreak = 0;
 
     if (!mounted) {
       await player.dispose();

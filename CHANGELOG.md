@@ -5,6 +5,53 @@
 
 ---
 
+## [2.8.61] - 2026-11-28 - 直播即时报错 / Stripchat 分类去重 / 播放兜底修复
+
+### 🛠️ 修复
+
+1. **直播"突然跳到网页"**：详情只有网页兜底地址、没有原生流时，
+   播放前会先重抓一次详情（每条约 5 秒上限）；抓到真实流就直接原生播放，
+   抓不到才打开站内网页。竖滑信息流与搜索页同步生效。
+2. **直播下播/私密/群组不再白等**：Stripchat 播放器只读
+   `viewCamBase.model` 房间对象判断状态（`model=null`、`isLive:false`、
+   `isOnline:false` 判下播；`status` 非 public 判私密/群组），不再拿页面
+   第一处 `isOnline`（那是主播个人资料状态，在线情侣房也会是 false，
+   会误杀正常房间）。命中后立即显示「主播不在线或已下播，请上滑切换」。
+3. **直播启动提速**：Android/iOS 都改为单阶段状态，去掉
+   「正在连接 → 网页已加载 → 再寻找」的多次转圈；总超时 35s→20s，
+   页面加载后等待 18s→10s，聚焦尝试 25→14 次。
+4. **暂停被看门狗拉起**：暂停时先写 `window.__epicklePaused` 再暂停
+   video，聚焦/看门狗脚本先检查该标记；暂停后不会再被 `play()` 拉起。
+5. **Stripchat 分类串内容**：主题标签只走服务端渲染页
+   `/girls/{tag}/`，SSR 失败直接返回空，绝不回退 girls API（否则
+   「亚/熟女/最新」会整页重复「女」的内容）；「最新」改走真实存在的
+   `/girls/new/`（models API 的 `sortBy=newModels` 实测 400）。
+6. **Stripchat 缩略图**：统一取 `previewUrlThumbSmall`，并补回归断言。
+7. **Chaturbate 主题标签内容稀疏**：room-list API 会忽略
+   `tags`/`sort_order`，改为连续扫 5 页（450 间）后客户端过滤，
+   「亚/新/大胸」等标签有足够房间；SSR 兜底不再回退同一份女生榜。
+8. **TNAFlix 卡片误判**：视频卡只认 `/video{id}`（或 `/view_video`），
+   `/featured/2` 这类分页链接不再被当成视频，修复"没有媒体地址"。
+9. **Stripchat 目录死标签**：移除无实际路由的「更多」标签。
+
+### 🔎 站点巡检
+
+- 本次巡检 10 张现有卡片：Pornhub、XVideos、黄果短剧、XNXX、xHamster、
+  RedTube、Eporner、TNAFlix、Stripchat、Chaturbate。
+- 最近新增的 85RO / 91MD / qiAV / papalah / fangsung 按要求不纳入本轮。
+- 实测：Chaturbate `chatvideocontext` 返回 `room_status:"public"` 与
+  可播放 `llhls.m3u8`；Stripchat `/girls/new/`、`/girls/asian/` 均返回
+  真实房间 JSON；其余站点 feed/detail/media 探针通过。
+
+### 🧪 测试
+
+- `flutter analyze`：无问题。
+- `flutter test`：86 通过 / 1 跳过。
+- 新增/更新：Stripchat 最新页 SSR、分类不回退、缩略图、下播过滤；
+  Chaturbate 多页本地过滤；TNAFlix 分页卡不误判。
+
+---
+
 ## [2.8.60] - 2026-11-28 - 播放器快进按钮：30 秒 → 45 秒，图标放大 3 倍
 
 ### 🚀 调整

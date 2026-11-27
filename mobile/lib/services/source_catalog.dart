@@ -235,7 +235,6 @@ class SourceCatalog {
     SiteTag(id: 'men', label: '\u7537\u4e3b\u64ad', icon: Icons.man_outlined, iconSelected: Icons.man),
     SiteTag(id: 'trans', label: '\u8de8\u6027\u522b', icon: Icons.diversity_3_outlined, iconSelected: Icons.diversity_3),
     SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
-    SiteTag(id: 'more', label: '\u66f4\u591a', icon: Icons.more_horiz_outlined, iconSelected: Icons.more_horiz),
     SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
     SiteTag(id: 'ebony', label: '\u9ed1\u73e0', icon: Icons.nightlife_outlined, iconSelected: Icons.nightlife),
     SiteTag(id: 'latin', label: '\u62c9\u4e01', icon: Icons.language_outlined, iconSelected: Icons.language),
@@ -778,7 +777,7 @@ class SourceCatalog {
         icon: Icons.people_outline,
         iconSelected: Icons.people),
     SiteTag(
-        id: 'more',
+        id: 'asian',
         label: '\u4e9a',
         icon: Icons.public_outlined,
         iconSelected: Icons.public),

@@ -330,6 +330,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // 被墙/不可播的详情不进缓存，也不返回——调用方的激进预热链会拿返回值
       // 去预初始化解码器，喂一个不可播详情只会白占一个解码器槽位。
       if (detail.countryBlocked || detail.unavailable) return null;
+      // 浏览器兜底详情（无原生流、只能开 WebView）同样不进缓存：首页预取
+      // 发生在用户点卡片之前，一次瞬时抽取失败会被当成"只能网页播"缓存，
+      // 播放页于是直接开 WebView；退出重进清缓存后才恢复原生播放——正是
+      // 用户反馈的"突然全变网页、重进才好"。播放页会自己重试抽取。
+      if (detail.prefersBrowserPlayer || detail.streams.isEmpty) return null;
       FeedDetailCache.put(item.url, detail);
       return detail;
     } catch (_) {

@@ -5,8 +5,12 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:epickle/services/generic_site_api.dart';
 import 'package:epickle/services/source_catalog.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+
   const site = SiteDef(
     id: 'fixture',
     name: 'Fixture',
@@ -710,7 +714,7 @@ void main() {
     );
   });
 
-  test('Chaturbate keeps couples and replaces male/trans categories', () async {
+  test('Chaturbate filters theme tags locally across API pages', () async {
     const base = 'https://live.fixture.test';
     const liveSite = SiteDef(
       id: 'chaturbate',
@@ -721,49 +725,68 @@ void main() {
       letter: 'C',
       mirrors: [base],
     );
-    final fixtures = <String, _FixtureResponse>{};
-    for (final entry in const {
-      'female': (query: '&genders=f', fields: '"gender":"f"'),
-      'couples': (query: '&genders=c', fields: '"gender":"c"'),
-      'new': (
-        query: '&genders=f&sort_order=new',
-        fields: '"gender":"f","is_new":true'
+    final fixtures = <String, _FixtureResponse>{
+      // 性别组仍走服务器参数，一页即可。
+      '$base/api/ts/roomlist/room-list/?limit=20&offset=0&genders=f':
+          const _FixtureResponse(
+        '{"rooms":[{"username":"female_room","current_show":"public",'
+        '"is_online":true,"gender":"f"}]}',
       ),
-      'asian': (
-        query: '&genders=f&tags=asian',
-        fields: '"gender":"f","tags":["asian"]'
+      '$base/api/ts/roomlist/room-list/?limit=20&offset=0&genders=c':
+          const _FixtureResponse(
+        '{"rooms":[{"username":"couples_room","current_show":"public",'
+        '"is_online":true,"gender":"c"}]}',
       ),
-    }.entries) {
-      fixtures[
-              '$base/api/ts/roomlist/room-list/?limit=20&offset=0${entry.value.query}'] =
-          _FixtureResponse(
-        '{"rooms":['
-        '${entry.key != 'female' ? '{"username":"ignored_female","current_show":"public","is_online":true,"gender":"f"},' : ''}'
-        '{"username":"${entry.key}_room","current_show":"public",'
-        '"is_online":true,${entry.value.fields}},'
-        '{"username":"${entry.key}_private","current_show":"private","is_online":true},'
-        '{"username":"${entry.key}_offline","current_show":"public","is_online":false}'
-        '],"metadata":{"room":"fake_nested_room"}}',
-      );
-    }
+      // 主题标签：API 忽略 tags/sort_order，必须扫多页后客户端过滤。
+      '$base/api/ts/roomlist/room-list/?limit=90&offset=0&genders=f':
+          const _FixtureResponse(
+        '{"rooms":[{"username":"ignored_female","current_show":"public",'
+        '"is_online":true,"gender":"f"},'
+        '{"username":"new_room","current_show":"public","is_online":true,'
+        '"gender":"f","is_new":true},'
+        '{"username":"asian_room","current_show":"public","is_online":true,'
+        '"gender":"f","tags":["asian"]}]}',
+      ),
+      for (final offset in const [90, 180, 270, 360])
+        '$base/api/ts/roomlist/room-list/?limit=90&offset=$offset&genders=f':
+            const _FixtureResponse('{"rooms":[]}'),
+    };
     final dio = Dio();
     final adapter = _FixtureAdapter(fixtures);
     dio.httpClientAdapter = adapter;
     final api = GenericSiteApi(dio: dio);
 
-    for (final tag in liveSite.tags) {
-      final feed = await api.fetchFeed(liveSite, tagId: tag.id, limit: 10);
-      expect(feed.single.url, '$base/${tag.id}_room');
-    }
-
-    expect(adapter.requests, hasLength(4));
     expect(
-      adapter.requests.map((request) => request.uri.queryParameters['genders']),
-      containsAll(<String>['f', 'c']),
+      (await api.fetchFeed(liveSite, tagId: 'female', limit: 10)).single.url,
+      '$base/female_room',
     );
     expect(
-      adapter.requests.map((request) => request.uri.queryParameters['tags']),
-      contains('asian'),
+      (await api.fetchFeed(liveSite, tagId: 'couples', limit: 10)).single.url,
+      '$base/couples_room',
+    );
+    expect(
+      (await api.fetchFeed(liveSite, tagId: 'new', limit: 10)).single.url,
+      '$base/new_room',
+    );
+    expect(
+      (await api.fetchFeed(liveSite, tagId: 'asian', limit: 10)).single.url,
+      '$base/asian_room',
+    );
+
+    final themeRequests = adapter.requests.where(
+      (r) => r.uri.queryParameters['limit'] == '90',
+    );
+    expect(
+      themeRequests.map((r) => r.uri.queryParameters['offset']).toSet(),
+      {'0', '90', '180', '270', '360'},
+    );
+    expect(
+      adapter.requests.map((r) => r.uri.queryParameters).expand((q) => q.keys),
+      isNot(contains('tags')),
+    );
+    expect(
+      adapter.requests.map((r) => r.uri.queryParameters).expand((q) => q.keys),
+      isNot(contains('sort_order')),
     );
   });
 
@@ -787,6 +810,8 @@ void main() {
           const _FixtureResponse(
         '{"models":[{"username":"model-name","streamName":"83306615",'
         '"isOnline":true,"previewUrl":"https://preview.test/20s.mp4",'
+        '"previewUrlThumbSmall":'
+        '"https://static-proxy.strpst.com/previews/a/b/c/thumb-small",'
         '"hlsPlaylist":"$playlist"}]}',
       ),
       playlist: const _FixtureResponse('#EXTM3U\n#EXTINF:2,\nsegment.ts'),
@@ -795,6 +820,12 @@ void main() {
 
     final feed = await api.fetchFeed(liveSite, tagId: 'girls', limit: 1);
     expect(feed.single.url, '$base/model-name');
+    // Stripchat 的缩略图字段是 previewUrlThumbSmall（没有 previewUrl）；
+    // 漏掉它卡片就是空白占位。
+    expect(
+      feed.single.thumb,
+      'https://static-proxy.strpst.com/previews/a/b/c/thumb-small',
+    );
     await expectLater(
       api.getVideoDetail(liveSite, feed.single.url),
       throwsA(predicate((error) => error.toString().contains('WebRTC'))),
@@ -825,7 +856,11 @@ void main() {
         '{"username":"ticket_room","status":"groupShow","isLive":true,'
         '"isOnline":true,"streamName":"333"},'
         '{"username":"offline_room","status":"public","isLive":false,'
-        '"isOnline":true,"streamName":"444"}'
+        '"isOnline":true,"streamName":"444"},'
+        // Stripchat 下播房间的真实形态：status 仍是 public、isLive 仍是
+        // true，只有 isOnline:false —— 必须靠这个字段挡住。
+        '{"username":"offline_flag","status":"public","isLive":true,'
+        '"isOnline":false,"streamName":"555"}'
         ']}',
       ),
     });
@@ -835,12 +870,13 @@ void main() {
     expect(feed.map((item) => item.url), ['$base/public_room']);
   });
 
-  test('Stripchat replaces the male tab with a newest-girls feed', () async {
+  test('Stripchat newest tab reads /girls/new/ instead of an invalid sortBy',
+      () async {
     expect(SourceCatalog.stripchatTags.map((tag) => tag.id), [
       'girls',
       'new',
       'couples',
-      'more',
+      'asian',
     ]);
     expect(SourceCatalog.stripchatTags.map((tag) => tag.id),
         isNot(contains('men')));
@@ -859,9 +895,11 @@ void main() {
     );
     final dio = Dio();
     final adapter = _FixtureAdapter({
-      '$base/api/front/models?limit=20&offset=0&primaryTag=girls&sortBy=newModels':
-          const _FixtureResponse(
-        '{"models":[{"username":"new-girl-room","isOnline":true}]}',
+      '$base/girls/new/': const _FixtureResponse(
+        '<html><script>window.__STATE__ = '
+        '{"models":[{"username":"new-girl-room","status":"public",'
+        '"isOnline":true,"streamName":"888","id":888}],'
+        '"other":[]};</script></html>',
       ),
     });
     dio.httpClientAdapter = adapter;
@@ -873,12 +911,18 @@ void main() {
     );
 
     expect(feed.single.url, '$base/new-girl-room');
-    expect(adapter.requests.single.uri.queryParameters['primaryTag'], 'girls');
-    expect(adapter.requests.single.uri.queryParameters['sortBy'], 'newModels');
+    expect(adapter.requests.single.uri.path, '/girls/new/');
+    // 2026-11-28 实证：sortBy 只接受 stripRanking，newModels 会 400；
+    // "最新"必须走 SSR 主题页。
+    expect(
+      adapter.requests.where((r) => r.uri.path.contains('/api/')),
+      isEmpty,
+    );
   });
 
-  test('Stripchat more tab uses a valid later girls page', () async {
-    const base = 'https://strip-more.fixture.test';
+  test('Stripchat asian tab reads the themed SSR page, never duplicates girls',
+      () async {
+    const base = 'https://strip-asian.fixture.test';
     const liveSite = SiteDef(
       id: 'stripchat',
       name: 'Strip fixture',
@@ -890,24 +934,60 @@ void main() {
     );
     final dio = Dio();
     final adapter = _FixtureAdapter({
-      '$base/api/front/models?limit=20&offset=60&primaryTag=girls&sortBy=stripRanking':
-          const _FixtureResponse(
-        '{"models":[{"username":"more-girl-room","isOnline":true}]}',
+      '$base/girls/asian/': const _FixtureResponse(
+        '<html><script>window.__STATE__ = '
+        '{"models":[{"username":"asian-room","status":"public",'
+        '"isOnline":true,"streamName":"777","id":777}],'
+        '"other":[]};</script></html>',
       ),
     });
     dio.httpClientAdapter = adapter;
 
     final feed = await GenericSiteApi(dio: dio).fetchFeed(
       liveSite,
-      tagId: 'more',
+      tagId: 'asian',
       limit: 1,
     );
 
-    expect(feed.single.url, '$base/more-girl-room');
-    expect(adapter.requests.single.uri.queryParameters['primaryTag'], 'girls');
-    expect(adapter.requests.single.uri.queryParameters['offset'], '60');
+    expect(feed.single.url, '$base/asian-room');
+    expect(adapter.requests, hasLength(1));
+    expect(adapter.requests.single.uri.path, '/girls/asian/');
     expect(
-        adapter.requests.single.uri.queryParameters, isNot(contains('tags')));
+      adapter.requests.where((r) => r.uri.path.contains('/api/')),
+      isEmpty,
+    );
+  });
+
+  test('Stripchat themed SSR failure never falls back to the girls API',
+      () async {
+    const base = 'https://strip-asian-fail.fixture.test';
+    const liveSite = SiteDef(
+      id: 'stripchat',
+      name: 'Strip fixture',
+      kind: SiteKind.live,
+      tags: SourceCatalog.stripchatTags,
+      color: 0,
+      letter: 'S',
+      mirrors: [base],
+    );
+    final dio = Dio();
+    final adapter = _FixtureAdapter(const {});
+    dio.httpClientAdapter = adapter;
+
+    // SSR 全部失败时应当报错/空结果，而不是偷偷换成 girls API 的重复内容。
+    await expectLater(
+      GenericSiteApi(dio: dio).fetchFeed(
+        liveSite,
+        tagId: 'asian',
+        limit: 1,
+      ),
+      throwsA(anything),
+    );
+    // 绝不回退 girls API：那会把"亚"页变成"女"页的重复内容。
+    expect(
+      adapter.requests.where((r) => r.uri.path.contains('/api/')),
+      isEmpty,
+    );
   });
 
   test('RedTube cards use data-o_thumb thumbnails and bare numeric URLs',
@@ -1077,12 +1157,13 @@ void main() {
       final href = switch (site.id) {
         'xnxx' => '/video-xnxxalpha/',
         'xhamster' => '/videos/xhamster-alpha',
-        'tnaflix' => '/video/tnaflix-alpha/123456',
+        'tnaflix' => '/amateur-porn/tnaflix-alpha/video123456',
         _ => throw StateError('unexpected site ${site.id}'),
       };
       final adapter = _FixtureAdapter({
         path: _FixtureResponse(
           _html('''
+            <a href="/featured/2?page=1">More featured</a>
             <div class="video-card">
               <a href="$href" title="${site.name} Alpha">
                 <div class="thumb"

@@ -74,6 +74,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   late int _index;
   int _seq = 0;
 
+  /// 连续掉进 WebView 兜底的条目数（原生播放成功即清零）。≥1 时给下一条
+  /// 更大的原生重试预算（22s/3 候选），打破"一条跳网页后条条跳网页"的
+  /// 级联（瞬时网络抖动期间 14s/2 候选会条条超时）。
+  int _webviewFallbackStreak = 0;
+
   VideoPlayerController? _controller;
   VideoPlayerController? _frozenController;
   int? _frozenIndex;
@@ -118,6 +123,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   final ValueNotifier<String> _curTime = ValueNotifier('0:00');
 
   final Map<int, VideoDetail> _detailCache = {};
+
+  /// 已对哪些条目做过"浏览器兜底详情→原生流"的一次性重试。
+  final Set<String> _browserOnlyRetried = {};
 
   /// 已展开成连续剧集的系列（key = 系列详情 url），防止重复插入。
   final Set<String> _expandedSeries = {};
@@ -832,6 +840,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           _detailCache.clear();
           _inflightDetails.clear();
           _retried.clear();
+          _browserOnlyRetried.clear();
           final staleFrozen = _frozenController;
           _frozenController = null;
           _frozenIndex = null;
@@ -1198,12 +1207,18 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       return;
     }
 
+    // 浏览器兜底详情先重抓一次原生流（每个条目最多一次），仍失败才开
+    // WebView——修复"突然全变网页、退出重进才好"。
+    detail = await _refreshBrowserOnlyDetail(index, item, detail);
+    if (seq != _seq || !_canRun || !mounted) return;
+
     final cap = _effectiveQualityCap;
     final candidates = PlaybackHelpers.streamCandidates(detail, cap);
     if (candidates.isEmpty) {
       // 网页播放兜底（与 video_feed_screen 同款）：合作站（Qorno/FuQ/iXXX/
       // PornKai…）的落地页静态提取不到流时，直接用应用内 WebView 打开
       // 原播放页——浏览器能播的这里也能播，不再一律跳过。
+      _webviewFallbackStreak++;
       final page = detail.browserPlaybackUrl?.trim().isNotEmpty == true
           ? detail.browserPlaybackUrl!.trim()
           : item.url;
@@ -1236,12 +1251,20 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         await adopted.dispose().catchError((_) {});
       }
     }
-    final playerDeadline = DateTime.now().add(const Duration(seconds: 14));
+    // 防级联（与 video_feed_screen 同款）：上一条刚掉进 WebView 兜底时，
+    // 给本条更大的原生重试预算（22s/3 候选），打破"条条跳网页"级联。
+    final nativeRetryBoost = _webviewFallbackStreak >= 1;
+    final playerDeadline = DateTime.now().add(
+      nativeRetryBoost ? const Duration(seconds: 22) : const Duration(seconds: 14),
+    );
+    final maxCandidates = nativeRetryBoost ? 3 : 2;
     // Try at most the top-2 candidates. The first is preferred (sorted by
     // quality); the second is a safety net for either (a) the first stream
     // returned a preview/teaser clip, or (b) init transiently failed. Going
     // beyond 2 wastes up to 8s per attempt before the user gives up.
-    for (var i = 0; player == null && i < candidates.length && i < 2; i++) {
+    for (var i = 0;
+        player == null && i < candidates.length && i < maxCandidates;
+        i++) {
       final c = candidates[i];
       if (seq != _seq || !_canRun) {
         await player?.dispose();
@@ -1284,6 +1307,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       if (mounted && seq == _seq) {
         // 解码器两连败：与"流为空"一致走网页播放兜底（原页面在 WebView
         // 里往往能播），而不是直接跳过。
+        _webviewFallbackStreak++;
         final page = detail.browserPlaybackUrl?.trim().isNotEmpty == true
             ? detail.browserPlaybackUrl!.trim()
             : (detail.url.startsWith('http') ? detail.url : item.url);
@@ -1310,6 +1334,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       await player.dispose();
       return;
     }
+    // 原生播放成功：级联计数清零。
+    _webviewFallbackStreak = 0;
 
     _currentStreamHeight = stream.height;
     _stallTicks = 0;
@@ -1454,6 +1480,31 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     });
     _inflightDetails[index] = future;
     return future;
+  }
+
+  /// 缓存详情只有 WebView 兜底地址时，开网页前重抓一次原生流（每个条目
+  /// 最多一次）。见 video_feed_screen 同名方法的说明。
+  Future<VideoDetail> _refreshBrowserOnlyDetail(
+    int index,
+    VideoItem item,
+    VideoDetail detail,
+  ) async {
+    if (detail.streams.isNotEmpty) return detail;
+    if (detail.browserPlaybackUrl?.isNotEmpty != true) return detail;
+    if (!_browserOnlyRetried.add(item.url)) return detail;
+    try {
+      final fresh = await _fetchDetail(item.url, item: item)
+          .timeout(const Duration(seconds: 5));
+      if (fresh.streams.isNotEmpty &&
+          !fresh.countryBlocked &&
+          !fresh.unavailable) {
+        _detailCache[index] = fresh;
+        return fresh;
+      }
+      return fresh.browserPlaybackUrl?.isNotEmpty == true ? fresh : detail;
+    } catch (_) {
+      return detail;
+    }
   }
 
   /// Fire-and-forget prefetch; shares its request via [_detailFor].

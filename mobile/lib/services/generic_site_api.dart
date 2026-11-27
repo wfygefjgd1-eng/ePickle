@@ -54,7 +54,9 @@ class GenericSiteApi {
   static final _reYoupornId = RegExp(r'/\d{5,}');
   static final _reRedtubeBare = RegExp(r'^/\d{6,}$');
   static final _reRedtubeId = RegExp(r'/\d{6,}');
-  static final _reTnaflixPair = RegExp(r'/[^/]+/\d+');
+  // TNAFlix 详情页固定以 /video{数字ID} 结尾；旧规则 /[^/]+/\d+ 会把
+  // /featured/2 这类分页链接当成视频卡，播放时自然找不到媒体地址。
+  static final _reTnaflixPair = RegExp(r'/video\d+', caseSensitive: false);
   static final _reFreepornVideo = RegExp(r'/video[s./]');
   static final _reOur55Card = RegExp(r'/video/[a-f0-9]{32}\.html');
   static final _reUsername = RegExp(r'^[a-zA-Z0-9_-]{3,60}$');
@@ -1282,45 +1284,50 @@ class GenericSiteApi {
     required DateTime deadline,
   }) async {
     final out = <VideoItem>[];
+    final epoch = _cancelEpoch;
+    // 2026-11-28 实证：room-list API 会忽略 tags/sort_order 参数，永远返回
+    // 同一份热门女生榜。性别组（genders=f/c/m/t）仍然有效；主题标签只能
+    // 客户端过滤。只取第一页时"亚/新/大胸"等标签经常只剩 0-2 个房间，
+    // 所以主题标签改为连续扫 5 页（450 间）再过滤，命中够数即停。
+    const genderTags = {'female', 'popular', 'hot', 'couples', 'male', 'trans'};
+    final filterOnly = !genderTags.contains(tagId);
+    if (filterOnly) {
+      const scanPages = 5;
+      const scanSize = 90;
+      final baseOffset = (page - 1) * scanSize * scanPages;
+      for (var i = 0; i < scanPages && out.length < limit; i++) {
+        if (_cancelEpoch != epoch) throw _cancelError('');
+        String pathFn(String b) =>
+            '$b/api/ts/roomlist/room-list/?limit=$scanSize&offset=${baseOffset + i * scanSize}&genders=f';
+        try {
+          final served = await _fetchLiveWithMirrors(
+            site,
+            pathFn,
+            deadline: deadline,
+          );
+          out.addAll(
+            _parseLiveJson(served.html, served.base, seen, site, tagId: tagId),
+          );
+        } catch (e) {
+          if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        }
+      }
+      return out;
+    }
+
     final offset = (page - 1) * limit;
     final categoryQueries = switch (tagId) {
       'couples' => const ['&genders=c'],
-      'new' => const ['&genders=f&sort_order=new'],
-      'asian' => const ['&genders=f&tags=asian'],
-      // Chaturbate has used each of these aliases in different room-list APIs.
-      'outdoor' => const [
-          '&genders=f&tags=outdoors',
-          '&genders=f&tags=outdoor',
-          '&genders=f&tags=outside',
-        ],
-      'hd' => const [
-          '&genders=f&tags=hd',
-          '&genders=f&tags=high-definition',
-          '&genders=f&tags=high_definition',
-        ],
       'male' => const ['&genders=m'],
       'trans' => const ['&genders=t'],
-      'female' || 'popular' => const ['&genders=f'],
-      _ => ['&genders=f&tags=${Uri.encodeQueryComponent(tagId)}'],
+      'female' || 'popular' || 'hot' => const ['&genders=f'],
+      _ => ['&genders=f'],
     };
     final legacyQueries = switch (tagId) {
       'couples' => const ['&gender=c'],
-      'new' => const ['&gender=f&sort=new'],
-      'asian' => const ['&gender=f&tag=asian'],
-      'outdoor' => const [
-          '&gender=f&tag=outdoors',
-          '&gender=f&tag=outdoor',
-          '&gender=f&tag=outside',
-        ],
-      'hd' => const [
-          '&gender=f&tag=hd',
-          '&gender=f&tag=high-definition',
-          '&gender=f&tag=high_definition',
-        ],
       'male' => const ['&gender=m'],
       'trans' => const ['&gender=t'],
-      'female' || 'popular' => const ['&gender=f'],
-      _ => ['&gender=f&tag=${Uri.encodeQueryComponent(tagId)}'],
+      _ => const ['&gender=f'],
     };
     final endpoints = <String Function(String)>[
       for (final query in categoryQueries)
@@ -1330,7 +1337,6 @@ class GenericSiteApi {
         (b) =>
             '$b/affiliates/api/onlinerooms/?format=json&limit=$limit&offset=$offset$query',
     ];
-    final epoch = _cancelEpoch;
     for (final pathFn in endpoints) {
       if (_cancelEpoch != epoch) throw _cancelError('');
       try {
@@ -1361,8 +1367,12 @@ class GenericSiteApi {
     final out = <VideoItem>[];
     final genderTags = const {'girls', 'male', 'men', 'trans', 'couples'};
     final epoch = _cancelEpoch;
-    if (!genderTags.contains(tagId) && tagId != 'new' && tagId != 'more') {
-      // 主题标签走服务端渲染页 /girls/{tag}（页面内嵌 models JSON）。
+    if (!genderTags.contains(tagId)) {
+      // 主题标签（含"最新"）走服务端渲染页 /girls/{tag}（页面内嵌 models
+      // JSON）。2026-11-28 实证：/api/front/models 的 tag/filter 参数会被
+      // 忽略，sortBy 只接受 stripRanking（newModels/newest 均 400），
+      // 主题页 SSR 失败时**不能**回退 girls API，否则"亚/日/熟女"等分类
+      // 内容与"女"完全重复（用户可见的串类 bug）。
       final paths = <String Function(String)>[
         (b) => '$b/girls/$tagId/${page > 1 ? '$page' : ''}',
         (b) => '$b/$tagId/${page > 1 ? '$page' : ''}',
@@ -1387,24 +1397,22 @@ class GenericSiteApi {
           if (e is DioException && CancelToken.isCancel(e)) rethrow;
         }
       }
-      // SSR 失败时回退到女生频道 API（内容无法按主题精确过滤，但至少可看）。
-      tagId = 'girls';
+      return out;
     }
-    final offset = (page - 1) * limit + (tagId == 'more' ? 60 : 0);
+    final offset = (page - 1) * limit;
     final primaryTag = switch (tagId) {
       'couples' => 'couples',
       'men' || 'male' => 'men',
       'trans' => 'trans',
       _ => 'girls',
     };
-    final sortBy = tagId == 'new' ? 'newModels' : 'stripRanking';
     final endpoints = <String Function(String)>[
       (b) =>
-          '$b/api/front/models?limit=${limit.clamp(20, 80)}&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy',
+          '$b/api/front/models?limit=${limit.clamp(20, 80)}&offset=$offset&primaryTag=$primaryTag&sortBy=stripRanking',
       (b) =>
-          '$b/api/models?limit=$limit&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy',
+          '$b/api/models?limit=$limit&offset=$offset&primaryTag=$primaryTag&sortBy=stripRanking',
       (b) =>
-          '$b/api/front/v2/models?limit=$limit&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy',
+          '$b/api/front/v2/models?limit=$limit&offset=$offset&primaryTag=$primaryTag&sortBy=stripRanking',
     ];
     for (final pathFn in endpoints) {
       if (_cancelEpoch != epoch) throw _cancelError('');
@@ -1429,84 +1437,93 @@ class GenericSiteApi {
   /// 先定位 "models" 数组的结束，再回溯到包含它的顶层对象并取出整个对象，
   /// 避免"从数组中间开始扫描、首个模型 } 即误判为对象结束"的截断。
   String? _stripchatModelsJson(String html) {
-    final mark = RegExp(
+    // 2026-11-28 实证：SSR 页的第一个 "models" 数组是空占位
+    // （{"models":[],"isPending":true,"total":0}），真实房间在后面更大的
+    // 数组里 —— 只取第一个会拿到空集，标签页于是全部回退到 girls API
+    // （表现为"所有标签内容一样"）。逐个扫描所有 "models" 数组，取第一个
+    // 真正含房间对象（带 "username"）的。
+    final marks = RegExp(
       r'("models"\s*:\s*[\[{])',
       caseSensitive: false,
-    ).firstMatch(html);
-    if (mark == null) return null;
-    // 1) 从 "models:[" 处向前扫描，找到整个数组的结束 "]"（字符串感知）。
-    var bracketDepth = 0;
-    var inString = false;
-    var escaped = false;
-    var arrayEnd = -1;
-    for (var i = mark.start; i < html.length; i++) {
-      final ch = html[i];
-      if (inString) {
-        if (escaped) {
-          escaped = false;
-        } else if (ch == r'\') {
-          escaped = true;
-        } else if (ch == '"') {
-          inString = false;
+    ).allMatches(html);
+    for (final mark in marks) {
+      // 1) 从 "models:[" 处扫描到整个数组的结束 "]"（字符串感知）。
+      var bracketDepth = 0;
+      var inString = false;
+      var escaped = false;
+      var arrayEnd = -1;
+      for (var i = mark.start; i < html.length; i++) {
+        final ch = html[i];
+        if (inString) {
+          if (escaped) {
+            escaped = false;
+          } else if (ch == r'\') {
+            escaped = true;
+          } else if (ch == '"') {
+            inString = false;
+          }
+          continue;
         }
-        continue;
-      }
-      if (ch == '"') {
-        inString = true;
-      } else if (ch == '{' || ch == '[') {
-        bracketDepth++;
-      } else if (ch == '}' || ch == ']') {
-        bracketDepth--;
-        if (bracketDepth == 0) {
-          arrayEnd = i + 1;
-          break;
+        if (ch == '"') {
+          inString = true;
+        } else if (ch == '{' || ch == '[') {
+          bracketDepth++;
+        } else if (ch == '}' || ch == ']') {
+          bracketDepth--;
+          if (bracketDepth == 0) {
+            arrayEnd = i + 1;
+            break;
+          }
         }
       }
+      if (arrayEnd <= mark.start) continue;
+      final arrayBody = html.substring(mark.end - 1, arrayEnd);
+      // 空占位数组（[] 或无 username 的 pending 对象）不是目标，继续扫。
+      if (!arrayBody.contains('"username"')) continue;
+      // 2) 回溯到包含该数组的顶层对象起始 "{"
+      final objStart = html.lastIndexOf('{', mark.start);
+      if (objStart < 0) continue;
+      // 3) 从对象起始扫描到配对的顶层 "}"
+      var objDepth = 0;
+      inString = false;
+      escaped = false;
+      var objEnd = -1;
+      for (var i = objStart; i < html.length; i++) {
+        final ch = html[i];
+        if (inString) {
+          if (escaped) {
+            escaped = false;
+          } else if (ch == r'\') {
+            escaped = true;
+          } else if (ch == '"') {
+            inString = false;
+          }
+          continue;
+        }
+        if (ch == '"') {
+          inString = true;
+        } else if (ch == '{') {
+          objDepth++;
+        } else if (ch == '}') {
+          objDepth--;
+          if (objDepth == 0) {
+            objEnd = i + 1;
+            break;
+          }
+        }
+      }
+      if (objEnd <= objStart) continue;
+      final candidate = html.substring(objStart, objEnd);
+      try {
+        final decoded = jsonDecode(candidate);
+        if (decoded is Map && decoded['models'] != null) return candidate;
+      } catch (_) {}
+      // 兼容没有顶层花括号的片段：直接包装 "models" 这一节。
+      try {
+        final decoded = jsonDecode('{$candidate}');
+        if (decoded is Map && decoded['models'] != null) return '{$candidate}';
+      } catch (_) {}
     }
-    if (arrayEnd <= mark.start) return null;
-    // 2) 回溯到包含该数组的顶层对象起始 "{"
-    final objStart = html.lastIndexOf('{', mark.start);
-    if (objStart < 0) return null;
-    // 3) 从对象起始扫描到配对的顶层 "}"
-    var objDepth = 0;
-    inString = false;
-    escaped = false;
-    var objEnd = -1;
-    for (var i = objStart; i < html.length; i++) {
-      final ch = html[i];
-      if (inString) {
-        if (escaped) {
-          escaped = false;
-        } else if (ch == r'\') {
-          escaped = true;
-        } else if (ch == '"') {
-          inString = false;
-        }
-        continue;
-      }
-      if (ch == '"') {
-        inString = true;
-      } else if (ch == '{') {
-        objDepth++;
-      } else if (ch == '}') {
-        objDepth--;
-        if (objDepth == 0) {
-          objEnd = i + 1;
-          break;
-        }
-      }
-    }
-    if (objEnd <= objStart) return null;
-    final candidate = html.substring(objStart, objEnd);
-    try {
-      final decoded = jsonDecode(candidate);
-      if (decoded is Map && decoded['models'] != null) return candidate;
-    } catch (_) {}
-    // 兼容没有顶层花括号的片段：直接包装 "models" 这一节。
-    try {
-      final decoded = jsonDecode('{$candidate}');
-      if (decoded is Map && decoded['models'] != null) return '{$candidate}';
-    } catch (_) {}
     return null;
   }
 
@@ -1918,8 +1935,33 @@ class GenericSiteApi {
             'Accept': 'application/json,text/plain,*/*',
             'X-Requested-With': 'XMLHttpRequest',
           },
-          accept: (body, _) => body.toLowerCase().contains('.m3u8'),
+          // 2026-11-28 实证：下播房间返回 200 JSON，room_status:"offline" +
+          // hls_source:"" —— accept 不能只认 .m3u8，否则下播房会走满整条
+          // 重试链（WebView 渲染等）才失败，用户干等。放行 JSON 后在这里
+          // 立即判定，快速跳下一条。
+          accept: (body, _) =>
+              body.toLowerCase().contains('.m3u8') ||
+              body.contains('"room_status"'),
         );
+        if (fetched.html.contains('"room_status"')) {
+          final status =
+              RegExp(r'"room_status"\s*:\s*"([a-zA-Z]+)"')
+                  .firstMatch(fetched.html)
+                  ?.group(1)
+                  ?.toLowerCase();
+          final hls = RegExp(r'"hls_source"\s*:\s*"([^"]*)"')
+              .firstMatch(fetched.html)
+              ?.group(1);
+          if (status != null && status != 'public' && status != 'private') {
+            // offline / away 等非公开且不可播状态：明确报因。
+            throw PhubException(
+              status == 'offline' ? '主播当前不在线或已下播' : '主播当前不在直播（$status）',
+            );
+          }
+          if (hls == null || hls.trim().isEmpty) {
+            throw PhubException('主播当前不在线或已下播');
+          }
+        }
         final streams = await _extractLiveStreams(
           site,
           pageUrl,
@@ -1936,6 +1978,12 @@ class GenericSiteApi {
         }
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        // 主播下播等明确原因：直接上抛让信息流快速跳下一条并 toast 提示，
+        // 不走后续 HTML 解析兜底（下播房在网页里也播不了）。
+        if (e is PhubException && e.message.contains('下播') ||
+            e is PhubException && e.message.contains('不在线')) {
+          rethrow;
+        }
       }
     }
     return null;
@@ -3377,10 +3425,18 @@ class GenericSiteApi {
         if (tagId == 'best') return [(b) => '$b/video?o=tr&page=$p'];
         return [(b) => '$b/video?o=mr&page=$p'];
       case 'xnxx':
+        // 2026-11-28 实测：/best/{p} 已 302 到当月（/best/2026-11 形态），
+        // 旧数字分页失效；/hits/{p} 仍可用；/tags/{name}/ 302 到
+        // /search/{name}（搜索即标签）；/?k= 302 到 /search/{k}/{p}。
+        if (tagId == 'best') {
+          final now = DateTime.now();
+          final ym =
+              '${now.year}-${now.month.toString().padLeft(2, '0')}';
+          return [(b) => '$b/best/$ym/$p', (b) => '$b/hits/$p'];
+        }
         return [
           if (tagId == 'new') (b) => '$b/search/new/$p',
           if (tagId == 'asian') (b) => '$b/?k=asian&p=$p',
-          if (tagId == 'best') (b) => '$b/best/$p',
           if (tagId == 'hot') (b) => '$b/hits/$p',
           // 其余标签按 XNXX 标签页/搜索页处理：/tags/{name}/ 或 /search/{name}/。
           (b) => '$b/tags/$tagId/${p > 1 ? '$p' : ''}',
@@ -3702,42 +3758,44 @@ class GenericSiteApi {
         ];
       case 'stripchat':
         final genderTags = const {'girls', 'male', 'men', 'trans', 'couples'};
-        if (!genderTags.contains(tagId) && tagId != 'new' && tagId != 'more') {
+        if (!genderTags.contains(tagId)) {
+          // 主题标签（含"最新"）只认 SSR 主题页；绝不追加 girls API 兜底
+          // （否则分类页与"女"完全重复，正是用户看到的串类 bug）。
           return [
             (b) => '$b/girls/$tagId/',
             (b) => '$b/$tagId/',
-            (b) => '$b/api/front/models?limit=60&primaryTag=girls&sortBy=stripRanking',
-            (b) => '$b/?page=$p',
+            (b) => '$b/tags/$tagId/',
           ];
         }
-        final sortBy = tagId == 'new' ? 'newModels' : 'stripRanking';
-        final offset = (p - 1) * 60 + (tagId == 'more' ? 60 : 0);
-        // models API 的 primaryTag 只接受性别组：girls/couples/men/trans。
+        final offset = (p - 1) * 60;
+        // models API 的 primaryTag 只接受性别组：girls/couples/men/trans；
+        // sortBy 只接受 stripRanking（newModels 等值会 400）。
         final spTag = switch (tagId) {
           'couples' => 'couples',
           'men' || 'male' => 'men',
           'trans' => 'trans',
-          'girls' || 'new' || 'more' => 'girls',
           _ => 'girls',
         };
         return [
           (b) =>
-              '$b/api/front/models?limit=60&offset=$offset&primaryTag=$spTag&sortBy=$sortBy',
+              '$b/api/front/models?limit=60&offset=$offset&primaryTag=$spTag&sortBy=stripRanking',
           (b) =>
               '$b/api/front/models?limit=60&offset=$offset&primaryTag=$spTag',
         ];
       case 'chaturbate':
+        // 性别组仍由服务器过滤，一页即可。
+        const genderTags = {'female', 'popular', 'hot', 'couples', 'male', 'trans'};
+        if (!genderTags.contains(tagId)) {
+          // 主题标签（新/亚/大胸…）的 API 参数会被忽略，_fetchChaturbateApi
+          // 已改为扫多页后客户端过滤。这里绝不能再拿同一份"热门女生榜"
+          // 当 HTML 兜底，否则分类页又会退化成"女"页的重复内容。
+          return const <String Function(String)>[];
+        }
         final categoryQuery = switch (tagId) {
           'couples' => '&genders=c',
           'trans' => '&genders=t',
           'male' => '&genders=m',
-          'new' => '&genders=f&sort_order=new',
-          'asian' => '&genders=f&tags=asian',
-          // Chaturbate 用 outdoors 而非 outdoor。
-          'outdoor' => '&genders=f&tags=outdoors',
-          'hd' => '&genders=f&tags=hd',
-          // 其余标签走 tags 参数（room-list API 支持任意话题标签）。
-          _ => '&genders=f&tags=$tagId',
+          _ => '&genders=f',
         };
         return [
           (b) =>
@@ -4741,8 +4799,7 @@ class GenericSiteApi {
             h.contains('/video?id=') ||
             _reRedtubeId.hasMatch(h);
       case 'tnaflix':
-        return h.contains('/video') ||
-            _reTnaflixPair.hasMatch(h) ||
+        return _reTnaflixPair.hasMatch(h) ||
             _reGenericViewVideo.hasMatch(h);
       case 'eporner':
         return h.contains('/video-') ||

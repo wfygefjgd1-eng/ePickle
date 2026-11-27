@@ -542,10 +542,7 @@ private final class StripchatLivePlatformView: NSObject,
     progressObservation = webView.observe(\.estimatedProgress, options: [.new]) {
       [weak self] webView, _ in
       guard let self, self.isStripchat, !self.videoRevealed else { return }
-      if webView.estimatedProgress >= 0.95 {
-        self.statusLabel.text = "网页已加载，正在寻找直播画面…"
-      }
-      if webView.estimatedProgress >= 0.6, self.pageLoadedAt == nil {
+      if webView.estimatedProgress >= 0.45, self.pageLoadedAt == nil {
         self.pageLoadedAt = Date()
         self.installVideoFocus()
         self.focusTimer?.invalidate()
@@ -701,22 +698,19 @@ private final class StripchatLivePlatformView: NSObject,
     guard !videoRevealed, let loadingStartedAt else { return }
     let elapsed = max(0, Int(Date().timeIntervalSince(loadingStartedAt)))
 
-    // 总超时 30 秒
-    if elapsed >= 30 {
+    // 总超时 20 秒；页面 DOM 就绪后 10 秒仍无画面即判失败。离线房间由
+    // installVideoFocus 读到 isOnline:false 后立即报错，不靠这里的超时。
+    if elapsed >= 20 {
       showFailure("连接超时，请检查网络或更换主播")
       return
     }
 
-    // 网页加载完成后,15 秒内找不到视频就超时
-    if let pageLoadedAt, Date().timeIntervalSince(pageLoadedAt) >= 15 {
-      showFailure("未能捕获直播画面，主播可能离线或切换房间")
+    if let pageLoadedAt, Date().timeIntervalSince(pageLoadedAt) >= 10 {
+      showFailure("未能捕获直播画面，主播可能离线或已下播，请上滑切换")
       return
     }
 
-    if webView.estimatedProgress >= 0.95 {
-      let pageElapsed = pageLoadedAt.map { max(0, Int(Date().timeIntervalSince($0))) } ?? 0
-      statusLabel.text = "网页已加载，正在寻找直播画面… \(pageElapsed) 秒"
-    } else if elapsed >= 15 {
+    if elapsed >= 8 {
       statusLabel.text = "连接较慢，请检查网络… \(elapsed) 秒"
     } else {
       statusLabel.text = "正在连接… \(elapsed) 秒"
@@ -798,29 +792,67 @@ private final class StripchatLivePlatformView: NSObject,
   func pauseLive() {
     livePaused = true
     webView.evaluateJavaScript(
+      "window.__epicklePaused=true;" +
       "document.querySelectorAll('video').forEach(v=>{try{v.pause();}catch(_){}});"
     )
   }
 
   func resumeLive() {
     livePaused = false
+    webView.evaluateJavaScript("window.__epicklePaused=false;")
     if isStripchat {
       installVideoFocus()
     }
     kickPlayback()
   }
 
+  /// 看门狗连续判"画面持续无法播放"的次数阈值：下播后约 3×12s=36s 内给出
+  /// 明确提示（此前无限黑屏等待）。偶发缓冲（>12s）也可能触发一两次，
+  /// 连续计数避免误报；恢复播放即清零。
+  private var stalledKicks = 0
+
   func kickPlayback() {
+    // 用户已手动暂停：看门狗的 kick 必须是 no-op。此前无守卫，暂停后
+    // ≤12 秒必被这里的 v.play() 拉起 —— "已暂停"提示在但画面继续播。
+    guard !livePaused else { return }
     let flag = muted ? "true" : "false"
     webView.evaluateJavaScript(
-      "window.__epickleMuted=\(flag);document.querySelectorAll('video').forEach(v=>{try{v.muted=window.__epickleMuted;if(v.paused||v.readyState<2||v.ended){const p=v.play();if(p){p.catch(()=>{});}}}catch(_){}});"
-    )
+      // 返回值：'badroom:<status>'（SSR 房间状态非 public，加载阶段即离线/
+      // 私密）、'stalled'（画面已呈现但所有 video 都播不动 —— 下播/断流
+      // 信号）、'ok'（正常播放中）。
+      "window.__epickleMuted=\(flag);(function(){if(window.__epicklePaused){return 'paused';}var st=null,off=false;try{var scripts=document.querySelectorAll('script');for(var i=0;i<scripts.length;i++){var t=scripts[i].textContent||'';var vm=t.match(/\"viewCamBase\"\\s*:\\s*\\{\\s*\"model\"\\s*:\\s*(\\{[\\s\\S]*?\\}|null)\\s*,\\s*\"broadcastSettings\"/);if(!vm)continue;var md=vm[1];if(md==='null'){off=true;break;}var sm=md.match(/\"status\"\\s*:\\s*\"([a-zA-Z]+)\"/);if(sm){st=sm[1].toLowerCase();}var lm=md.match(/\"isLive\"\\s*:\\s*(true|false)/);if(lm&&lm[1]==='false'){off=true;}break;}}catch(e){}if(off){return 'badroom:offline';}if(st&&st!=='public'){return 'badroom:'+st;}var vs=document.querySelectorAll('video');var anyVideo=false;var playing=false;vs.forEach(function(v){anyVideo=true;try{v.muted=window.__epickleMuted;if(v.paused||v.readyState<2||v.ended){var p=v.play();if(p){p.catch(function(){});}}if(!v.paused&&v.readyState>=2&&!v.ended){playing=true;}}catch(e){}});if(!anyVideo){return 'novideo';}return playing?'ok':'stalled';})()"
+    ) { [weak self] value, _ in
+      guard let self, !self.livePaused else { return }
+      let raw = (value as? String) ?? ""
+      if raw.hasPrefix("badroom:") {
+        self.stalledKicks = 0
+        let reason = raw.dropFirst("badroom:".count)
+        if reason.contains("offline") {
+          self.showFailure("主播已下播，请上滑或点击跳过切换下一个")
+        } else if reason.contains("private") {
+          self.showFailure("直播已转为私密，无法继续观看，请切换下一个")
+        } else if reason.contains("group") {
+          self.showFailure("直播已转为群组/门票直播，请切换下一个")
+        } else {
+          self.showFailure("直播间已不可观看（\(reason)），请切换下一个")
+        }
+        return
+      }
+      if raw == "stalled" || raw == "novideo" {
+        self.stalledKicks += 1
+        if self.stalledKicks >= 3 {
+          self.stalledKicks = 0
+          self.showFailure("主播可能已下播或断流，请切换下一个")
+        }
+        return
+      }
+      self.stalledKicks = 0
+    }
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     guard isStripchat else { return }
     pageLoadedAt = Date()  // 记录网页加载完成时间
-    statusLabel.text = "网页已加载，正在寻找直播画面… 0 秒"
     installVideoFocus()
     focusTimer?.invalidate()
     focusTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
@@ -926,14 +958,45 @@ private final class StripchatLivePlatformView: NSObject,
         try {
           window.__epickleMuted = \(flag);
           var roomStatus = null;
+          var roomOffline = false;
+          var roomPending = false;
           try {
             var scripts = document.querySelectorAll('script');
             for (var i = 0; i < scripts.length; i++) {
               var t = scripts[i].textContent || '';
-              var m = t.match(/"status"\\s*:\\s*"([a-zA-Z]+)"/);
-              if (m) { roomStatus = m[1].toLowerCase(); break; }
+              // 只认 viewCamBase.model 房间对象：页面里第一个 isOnline 是
+              // 主播个人资料状态，在线情侣房也可能是 false（实测
+              // Cutieecouple00），拿它判下播会误杀正常房间。下播/删除的
+              // 真实信号是 model=null（error 给出 deleted/offline）、
+              // model.isLive=false 或 model.isOnline=false。
+              var vm = t.match(/"viewCamBase"\\s*:\\s*\\{\\s*"model"\\s*:\\s*(\\{[\\s\\S]*?\\}|null)\\s*,\\s*"broadcastSettings"/);
+              if (!vm) continue;
+              var model = vm[1];
+              if (model === 'null') {
+                var em = t.match(/"error"\\s*:\\s*\\{\\s*"type"\\s*:\\s*"([^"]+)"/);
+                if (em && /deleted|offline|not.?found|blocked/i.test(em[1])) {
+                  roomOffline = true;
+                } else if (/"isRequestCompleted"\\s*:\\s*true/.test(t)) {
+                  roomOffline = true;
+                } else {
+                  roomPending = true;
+                }
+                break;
+              }
+              var sm = model.match(/"status"\\s*:\\s*"([a-zA-Z]+)"/);
+              if (sm) { roomStatus = sm[1].toLowerCase(); }
+              var lm = model.match(/"isLive"\\s*:\\s*(true|false)/);
+              if (lm && lm[1] === 'false') { roomOffline = true; }
+              var om = model.match(/"isOnline"\\s*:\\s*(true|false)/);
+              if (om && om[1] === 'false') { roomOffline = true; }
+              break;
             }
           } catch (e) {}
+          if (roomOffline) {
+            window.__epickleRoomStatus = 'offline';
+            return 'badroom:offline';
+          }
+          if (roomPending) { return false; }
           if (roomStatus && roomStatus !== 'public') {
             window.__epickleRoomStatus = roomStatus;
             return 'badroom:' + roomStatus;
@@ -1020,7 +1083,7 @@ private final class StripchatLivePlatformView: NSObject,
         video.muted = window.__epickleMuted;
         video.style.setProperty('object-fit', 'contain', 'important');
         window.scrollTo(0, 0);
-        if (video.paused) video.play().catch(() => {});
+        if (video.paused && !window.__epicklePaused) video.play().catch(() => {});
         return true;
         } catch (e) { return false; }
       })()
@@ -1041,7 +1104,7 @@ private final class StripchatLivePlatformView: NSObject,
         } else if reason.contains("group") {
           message = "群组/门票直播，无法免费观看，请返回切换主播"
         } else if reason.contains("offline") {
-          message = "主播当前离线，请返回切换主播"
+          message = "主播不在线或已下播，请上滑切换"
         } else {
           message = "房间不可观看（\(reason)），请返回切换主播"
         }

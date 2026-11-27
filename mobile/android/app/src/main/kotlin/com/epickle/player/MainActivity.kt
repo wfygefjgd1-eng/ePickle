@@ -781,23 +781,23 @@ class StripchatLiveView(
         override fun run() {
             if (disposed || videoRevealed || !isStripchat) return
             val elapsed = ((System.currentTimeMillis() - loadingStartedAt) / 1000).toInt()
-            if (elapsed >= 35) {
+            // 单阶段状态：不再出现"正在连接→网页已加载→再寻找"的多次转圈，
+            // 用户只看到一条连续计时。离线房间由 installVideoFocus 在 DOM
+            // 就绪后立即判出（isOnline:false），不会等到这里超时。
+            if (elapsed >= 20) {
                 showFailure("连接超时，请检查网络或换主播")
                 return
             }
             if (pageLoadedAt > 0 &&
-                System.currentTimeMillis() - pageLoadedAt >= 18_000
+                System.currentTimeMillis() - pageLoadedAt >= 10_000
             ) {
-                showFailure("未能捕获直播画面，主播可能离线")
+                showFailure("未能捕获直播画面，主播可能离线或已下播，请上滑切换")
                 return
             }
-            statusLabel.text = when {
-                pageLoadedAt > 0 -> {
-                    val pe = ((System.currentTimeMillis() - pageLoadedAt) / 1000).toInt()
-                    "网页已加载，正在寻找直播画面… $pe 秒"
-                }
-                elapsed >= 12 -> "连接较慢，请检查网络… $elapsed 秒"
-                else -> "正在连接直播… $elapsed 秒"
+            statusLabel.text = if (elapsed >= 8) {
+                "连接较慢，请检查网络… $elapsed 秒"
+            } else {
+                "正在连接直播… $elapsed 秒"
             }
             sampleNetworkSpeed()
             handler.postDelayed(this, 1000)
@@ -808,7 +808,7 @@ class StripchatLiveView(
         override fun run() {
             if (disposed || videoRevealed || !isStripchat) return
             installVideoFocus()
-            if (!disposed && !videoRevealed && focusAttempts < 25) {
+            if (!disposed && !videoRevealed && focusAttempts < 14) {
                 handler.postDelayed(this, 1000)
             }
         }
@@ -955,13 +955,11 @@ class StripchatLiveView(
             webView.webChromeClient = object : android.webkit.WebChromeClient() {
                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                     if (disposed || videoRevealed || !isStripchat) return
-                    if (newProgress >= 95 && pageLoadedAt == 0L) {
-                        statusLabel.text = "网页已加载，正在寻找直播画面…"
-                    }
                     // 提速：不等 onPageFinished（页面尾部图片/统计脚本会拖住
                     // 1~3 秒），主文档渲染过半就开始轮询 video 元素。直播画面
-                    // 由 <video> 承载，DOM 早于整页完成就能捕获。
-                    if (newProgress >= 60 && pageLoadedAt == 0L) {
+                    // 由 <video> 承载，DOM 早于整页完成就能捕获；房间 JSON
+                    // （isOnline/status）也在这之前可读，离线能更早判出。
+                    if (newProgress >= 45 && pageLoadedAt == 0L) {
                         pageLoadedAt = System.currentTimeMillis()
                         focusAttempts = 0
                         handler.removeCallbacks(focusTick)
@@ -982,10 +980,9 @@ class StripchatLiveView(
                 override fun onPageFinished(v: WebView?, url: String?) {
                     if (disposed || !isStripchat || videoRevealed) return
                     if (pageLoadedAt == 0L) pageLoadedAt = System.currentTimeMillis()
-                    statusLabel.text = "网页已加载，正在寻找直播画面… 0 秒"
                     focusAttempts = 0
                     handler.removeCallbacks(focusTick)
-                    handler.postDelayed(focusTick, 600)
+                    handler.post(focusTick)
                 }
 
                 override fun shouldOverrideUrlLoading(
@@ -1129,15 +1126,44 @@ class StripchatLiveView(
             (function(){
               try {
                 window.__epickleMuted=$flag;
-                var roomStatus=null;
+                var roomStatus=null, roomOffline=false, roomPending=false;
                 try {
                   var scripts=document.querySelectorAll('script');
                   for (var i=0;i<scripts.length;i++){
                     var t=scripts[i].textContent||'';
-                    var m=t.match(/"status"\s*:\s*"([a-zA-Z]+)"/);
-                    if(m){roomStatus=m[1].toLowerCase();break;}
+                    // 只认 viewCamBase.model 这个"房间对象"：页面里第一个
+                    // isOnline 是主播个人资料状态，实测在线情侣房也会是
+                    // false（Cutieecouple00），拿它判下播会误杀正常房间。
+                    // 下播/删除房间的真实信号是 model=null（error 给出
+                    // deleted/offline）、model.isLive=false 或 model.isOnline=false。
+                    var vm=t.match(/"viewCamBase"\s*:\s*\{\s*"model"\s*:\s*(\{[\s\S]*?\}|null)\s*,\s*"broadcastSettings"/);
+                    if(!vm) continue;
+                    var model=vm[1];
+                    if(model==='null'){
+                      var em=t.match(/"error"\s*:\s*\{\s*"type"\s*:\s*"([^"]+)"/);
+                      if(em && /deleted|offline|not.?found|blocked/i.test(em[1])){
+                        roomOffline=true;
+                      } else if(/"isRequestCompleted"\s*:\s*true/.test(t)){
+                        roomOffline=true;
+                      } else {
+                        roomPending=true;
+                      }
+                      break;
+                    }
+                    var sm=model.match(/"status"\s*:\s*"([a-zA-Z]+)"/);
+                    if(sm){roomStatus=sm[1].toLowerCase();}
+                    var lm=model.match(/"isLive"\s*:\s*(true|false)/);
+                    if(lm && lm[1]==='false'){roomOffline=true;}
+                    var om=model.match(/"isOnline"\s*:\s*(true|false)/);
+                    if(om && om[1]==='false'){roomOffline=true;}
+                    break;
                   }
                 } catch(e){}
+                if (roomOffline) {
+                  window.__epickleRoomStatus='offline';
+                  return 'badroom:offline';
+                }
+                if (roomPending) return false;
                 if (roomStatus && roomStatus!=='public') {
                   window.__epickleRoomStatus=roomStatus;
                   return 'badroom:'+roomStatus;
@@ -1184,7 +1210,7 @@ class StripchatLiveView(
                 video.muted=$flag;
                 video.style.setProperty('object-fit','contain','important');
                 window.scrollTo(0,0);
-                if(video.paused) video.play().catch(function(){});
+                if(video.paused && !window.__epicklePaused) video.play().catch(function(){});
                 return true;
               } catch(e) { return false; }
             })()
@@ -1203,7 +1229,7 @@ class StripchatLiveView(
                         when {
                             reason.contains("private") -> "私密直播，无法观看，请跳过"
                             reason.contains("group") -> "群组/门票直播，无法免费观看，请跳过"
-                            reason.contains("offline") -> "主播当前离线，请跳过"
+                            reason.contains("offline") -> "主播不在线或已下播，请上滑切换"
                             else -> "房间不可观看（$reason），请跳过"
                         }
                     )
@@ -1212,8 +1238,8 @@ class StripchatLiveView(
                 val focused = raw == "true"
                 if (focused) {
                     revealVideo()
-                } else if (focusAttempts >= 20) {
-                    showFailure("未能捕获直播画面，主播可能离线")
+                } else if (focusAttempts >= 14) {
+                    showFailure("未能捕获直播画面，主播可能离线或已下播，请上滑切换")
                 }
             }
         } catch (_: Exception) {
@@ -1237,12 +1263,18 @@ class StripchatLiveView(
         } catch (_: Exception) {}
     }
 
+    /** 看门狗连续"画面播不动"计数（下播/断流信号），3 次即报主播下播。 */
+    private var stalledKicks = 0
+
     /** Soft recover: re-play video elements; if not revealed yet, re-run focus. */
     fun kickPlayback() {
         if (disposed) return
+        // 用户已手动暂停：看门狗的 kick 必须是 no-op。此前无守卫，暂停后
+        // ≤12 秒必被这里的 v.play() 拉起 —— "已暂停"提示在但画面继续播。
+        if (livePaused) return
         try {
             webView.post {
-                if (disposed) return@post
+                if (disposed || livePaused) return@post
                 try {
                     if (!videoRevealed && isStripchat) {
                         // Still loading — nudge focus / age-gate instead of no-op.
@@ -1251,24 +1283,69 @@ class StripchatLiveView(
                     }
                     webView.evaluateJavascript(
                         """(function(){
+                          if(window.__epicklePaused){return 'paused';}
+                          var st=null, off=false;
+                          try{
+                            var scripts=document.querySelectorAll('script');
+                            for(var i=0;i<scripts.length;i++){
+                              var t=scripts[i].textContent||'';
+                              var vm=t.match(/"viewCamBase"\s*:\s*\{\s*"model"\s*:\s*(\{[\s\S]*?\}|null)\s*,\s*"broadcastSettings"/);
+                              if(!vm)continue;
+                              var md=vm[1];
+                              if(md==='null'){off=true;break;}
+                              var sm=md.match(/"status"\s*:\s*"([a-zA-Z]+)"/);
+                              if(sm){st=sm[1].toLowerCase();}
+                              var lm=md.match(/"isLive"\s*:\s*(true|false)/);
+                              if(lm&&lm[1]==='false'){off=true;}
+                              break;
+                            }
+                          }catch(e){}
+                          if(off){return 'badroom:offline';}
+                          if(st&&st!=='public'){return 'badroom:'+st;}
                           var vs=document.querySelectorAll('video');
-                          var ok=false;
+                          var anyVideo=false; var playing=false;
                           vs.forEach(function(v){
+                            anyVideo=true;
                             try{
                               if(v.paused||v.readyState<2||v.ended){
                                 v.muted=!!window.__epickleMuted;
                                 var p=v.play();
                                 if(p&&p.catch)p.catch(function(){});
                               }
-                              if(v.readyState>=2 && !v.paused){
+                              if(v.readyState>=2 && !v.paused && !v.ended){
+                                playing=true;
                                 try{ v.currentTime = v.currentTime; }catch(e){}
                               }
-                              ok=true;
                             }catch(e){}
                           });
-                          return ok;
+                          if(!anyVideo){return 'novideo';}
+                          return playing?'ok':'stalled';
                         })()"""
-                    ) { _ -> }
+                    ) { value ->
+                        val raw = value?.trim()?.removeSurrounding("\"") ?: ""
+                        when {
+                            raw.startsWith("badroom:") -> {
+                                stalledKicks = 0
+                                val reason = raw.removePrefix("badroom:")
+                                showFailure(
+                                    when {
+                                        reason.contains("offline") -> "主播已下播，请上滑或点击跳过切换下一个"
+                                        reason.contains("private") -> "直播已转为私密，无法继续观看，请切换下一个"
+                                        reason.contains("group") -> "直播已转为群组/门票直播，请切换下一个"
+                                        else -> "直播间已不可观看（$reason），请切换下一个"
+                                    }
+                                )
+                            }
+                            raw == "stalled" || raw == "novideo" -> {
+                                stalledKicks++
+                                if (stalledKicks >= 3) {
+                                    stalledKicks = 0
+                                    showFailure("主播可能已下播或断流，请切换下一个")
+                                }
+                            }
+                            else -> stalledKicks = 0
+                        }
+                    }
                 } catch (_: Exception) {}
             }
         } catch (_: Exception) {}
@@ -1278,10 +1355,15 @@ class StripchatLiveView(
         if (disposed) return
         livePaused = true
         try {
-            webView.onPause()
+            // 先执行 JS 暂停，再冻结 WebView：反序（onPause→evaluate）会让
+            // JS 队列挂起，暂停命令直到 onResume 才执行，表现为"点了暂停
+            // 画面还在播"。回调里再 onPause，确保视频真的停了。
             webView.evaluateJavascript(
-                "document.querySelectorAll('video').forEach(function(v){try{v.pause()}catch(e){}})"
-            ) { _ -> }
+                "window.__epicklePaused=true;document.querySelectorAll('video').forEach(function(v){try{v.pause()}catch(e){}});true"
+            ) { _ ->
+                if (disposed || !livePaused) return@evaluateJavascript
+                try { webView.onPause() } catch (_: Exception) {}
+            }
         } catch (_: Exception) {}
     }
 
@@ -1290,6 +1372,9 @@ class StripchatLiveView(
         livePaused = false
         try {
             webView.onResume()
+            webView.evaluateJavascript(
+                "window.__epicklePaused=false;"
+            ) { _ -> }
             kickPlayback()
         } catch (_: Exception) {}
     }

@@ -7,8 +7,11 @@ import 'package:epickle/services/generic_site_api.dart';
 import 'package:epickle/services/source_catalog.dart';
 import 'package:epickle/utils/http_client.dart';
 import 'package:epickle/utils/http_headers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
   final enabled = Platform.environment['LIVE_SOURCE_TEST'] == '1';
 
   test(

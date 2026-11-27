@@ -89,6 +89,59 @@ class GenericSiteApi {
   static final _reListSplitHref = RegExp(r'''(?=href=["'][^"']+["'])''');
   static final _reTagOpen = RegExp(r'<a\s[^>]*>\s*$', caseSensitive: false);
   static final _reTagText = RegExp(r'>\s*([^<>]{4,120})\s*<');
+  // ---- 91MD（MacCMS ym005_pc）----
+  static final _reLiOpen = RegExp(r'(?=<li[\s>])', caseSensitive: false);
+  static final _reMacCmsPlayHref = RegExp(
+    r'''href\s*=\s*["']([^"']*vod/play/id/\d+/sid/\d+/nid/\d+\.html)["']''',
+    caseSensitive: false,
+  );
+  // ---- qiAV（自研 PHP CMS）----
+  static final _reQinavVideo = RegExp(r'/video/\d+\.html');
+  static final _reQinavCard = RegExp(
+    r'''(?=<a[^>]*href="[^"]*/video/\d+\.html")''',
+    caseSensitive: false,
+  );
+  static final _reQinavHref = RegExp(
+    r'''href\s*=\s*["']([^"']*/video/\d+\.html)["']''',
+    caseSensitive: false,
+  );
+  // 真缩略图挂在非标准 img= 属性（src= 是 loading.gif 占位）。
+  static final _reQinavImg = RegExp(
+    r'''img\s*=\s*["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']''',
+    caseSensitive: false,
+  );
+  static final _reQinavTitle = RegExp(
+    r'''<li\s+class="title"[^>]*>([^<]+)</li>''',
+    caseSensitive: false,
+  );
+  static final _reQinavDur = RegExp(
+    r'''class="note"[^>]*>([^<]+)</span>''',
+    caseSensitive: false,
+  );
+  // ---- fangsung（自研 PHP + Plyr/HLS）----
+  static final _reFangsungCard = RegExp(
+    r'''(?=<a[^>]*href="[^"]*/a片/[^"]*")''',
+  );
+  static final _reFangsungHref = RegExp(
+    r'''href\s*=\s*["']([^"']*/a片/[^"']*)["']''',
+  );
+  static final _reFangsungTitle = RegExp(
+    r'''<h5\s+class="card-title"[^>]*>([^<]+)</h5>''',
+    caseSensitive: false,
+  );
+  // ---- 啪啪啦 papalah（自研 CMS）----
+  // 播放页内联混淆块：const _HEX = [片段,...]; const _PERM = [数字,...];
+  // for(i) 拼接 parts[perm.indexOf(i)] → decodeURIComponent → 去掉页内
+  // .replace('TOKEN','') 的随机 token → 明文 mp4。
+  static final _rePapalahVideo = RegExp(r'(^|/)v/\d+(/|$)');
+  static final _rePapalahObfBlock = RegExp(
+    r'''const\s+_[0-9a-f]+\s*=\s*\[([^\]]*)\];\s*const\s+_[0-9a-f]+\s*=\s*\[([0-9,\s]+)\];''',
+    multiLine: true,
+    dotAll: true,
+  );
+  static final _rePapalahStripToken = RegExp(
+    r'''\.replace\('([^']+)',\s*''\)''',
+  );
   // ---- _extractStreams / MacCMS ----
   static final _reHlsAbs = RegExp(
     r'''["'](https?:\\?/\\?/[^"'\s]+\.m3u8[^"'\s]*)["']''',
@@ -1986,6 +2039,18 @@ class GenericSiteApi {
     // Resolve site-specific player formats before broad URL matching. This
     // avoids mistaking hover previews and ad assets for the full video.
     var streams = <StreamQuality>[];
+    // 85ro（KVS）：flashvars 明文 video_url/video_alt_url（/get_file/ 签名
+    // 直链 + v-acctoken），JS 对象键不带引号，宽匹配的 "video_url" 规则
+    // 抓不到，直接走 KVS 专用抽取。
+    if (site.id == 'ro85') {
+      streams = _extractKvsStreams(html, url);
+    }
+    // 啪啪啦（自研 CMS）：video.js 壳 <source src="">，真实 mp4 由页内
+    // 随机变量名的混淆 JS 块拼装（片段乱序 + perm.indexOf + unquote +
+    // 去 token）；/embed/{id} 是空源死胡同，只有播放页有。
+    if (site.id == 'papalah') {
+      streams = _extractPapalahStreams(html, url);
+    }
     // Our55 / 88XQQ: DES-encrypted player payload (video.id + data[]).
     if (site.id == 'our55' || site.id == 'xqq88') {
       streams = _extractEncryptedSiteStreams(html, url);
@@ -3456,6 +3521,72 @@ class GenericSiteApi {
           if (_rePbCategory.hasMatch(tagId)) (b) => '$b/$tagId?page=$p',
           (b) => '$b/?page=$p',
         ];
+      case 'md91':
+        // MacCMS 厂牌分类页：tagId 即分类数字 id（md91Tags/md91DirectoryTags）；
+        // 通用调用方（预热/随机页传 'hot' 等）兜底到 91视频(25)。页 1 两种
+        // 形态都在（/type/id/{id}.html 与 /type/id/{id}/page/1.html），先走
+        // 带 page 的（与第 2 页起同构，翻页少一次跳变）。
+        final md91Id = RegExp(r'^\d+$').hasMatch(tagId) ? tagId : '25';
+        return [
+          (b) => '$b/index.php/vod/type/id/$md91Id/page/$p.html',
+          (b) => '$b/index.php/vod/type/id/$md91Id.html',
+        ];
+      case 'qinav':
+        // 路由实证（2026-11）：/new-{p}.html（页1=/new.html）、/hot-{p}.html、
+        // /like-{p}.html；今日热播 /rank/index.html（/{ymd}-{p}.html 日期不
+        // 固定，只取首页）。分类 tagId 形如 '1-27' → /site/1/27-{p}.html。
+        if (RegExp(r'^\d+-\d+$').hasMatch(tagId)) {
+          final parts = tagId.split('-');
+          return [
+            (b) => '$b/site/${parts[0]}/${parts[1]}-$p.html',
+            (b) => '$b/site/${parts[0]}/${parts[1]}.html',
+          ];
+        }
+        if (tagId == 'hot') {
+          return [(b) => p > 1 ? '$b/hot-$p.html' : '$b/hot.html'];
+        }
+        if (tagId == 'like') {
+          return [(b) => p > 1 ? '$b/like-$p.html' : '$b/like.html'];
+        }
+        if (tagId == 'rank') return [(b) => '$b/rank/index.html'];
+        return [(b) => p > 1 ? '$b/new-$p.html' : '$b/new.html'];
+      case 'ro85':
+        // KVS 路由实证（2026-11）：/top-rated/{p}/（最贊，分页到 592 页）、
+        // /latest-updates/{p}/、/most-popular/{p}/；标签页 /tags/{slug}/{p}/
+        // （slug 卡同款 div.item，/tags/zi-pai/ 实测）。
+        if (tagId == 'hot') return [(b) => '$b/top-rated/$p/'];
+        if (tagId == 'new') return [(b) => '$b/latest-updates/$p/'];
+        if (tagId == 'pop') return [(b) => '$b/most-popular/$p/'];
+        if (RegExp(r'^[a-z0-9-]+$').hasMatch(tagId)) {
+          return [(b) => '$b/tags/$tagId/$p/', (b) => '$b/tags/$tagId/'];
+        }
+        return [(b) => '$b/top-rated/$p/'];
+      case 'papalah':
+        // 路由实证（2026-11）：/ 最新（?&page=N，2479 页）、/hot 熱門
+        // （hot?&page=N）；标签页 /tag/{繁体词}?&q={同词}&page=N（tagId 即
+        // 繁体中文标签名）。/top 是周榜但卡结构不同（无 .item），不用。
+        final isPapalahTag = tagId != 'hot' &&
+            tagId != 'new' &&
+            RegExp(r'^[\u4e00-\u9fffA-Za-z0-9]{1,12}$').hasMatch(tagId);
+        if (isPapalahTag) {
+          final t = Uri.encodeComponent(tagId);
+          return [(b) => '$b/tag/$t?&q=$t&page=$p'];
+        }
+        if (tagId == 'hot') return [(b) => '$b/hot?&page=$p'];
+        return [(b) => p > 1 ? '$b/?&page=$p' : '$b/'];
+      case 'fangsung':
+        // 路由实证（2026-11）：最新 /a片/11/search/all?page=N（4 万条）、
+        // 精选 /免费a片?page=N；标签 /a片/search/{词}?page=N（分类目录页
+        // 即标签链，badge chips）。
+        if (tagId == 'hot') {
+          return [(b) => '$b/%E5%85%8D%E8%B4%B9a%E7%89%87?page=$p'];
+        }
+        if (tagId != 'new' &&
+            RegExp(r'^[\u4e00-\u9fffA-Za-z0-9]{1,20}$').hasMatch(tagId)) {
+          final t = Uri.encodeComponent(tagId);
+          return [(b) => '$b/a%E7%89%87/search/$t?page=$p'];
+        }
+        return [(b) => '$b/a%E7%89%87/11/search/all?page=$p'];
       case 'av01':
         return [
           if (tagId == 'new')
@@ -3719,6 +3850,24 @@ class GenericSiteApi {
         // 2026-10-30 实证：表单 action=/node/search，title= 关键词。
         // 搜索页无静态卡（Vue 水合），静态解析失败会走 WebView 渲染兜底。
         return [(b) => '$b/node/search?title=$enc'];
+      case 'md91':
+        // 2026-11 实证：GET /index.php/vod/search/page/{p}/wd/{enc}.html
+        // 直接返回完整结果流（页面表单是 POST，但 GET 同效且可翻页）。
+        return [(b) => '$b/index.php/vod/search/page/$p/wd/$enc.html'];
+      case 'qinav':
+        // 2026-11 实证：GET /?module=tags&action=keyword&keyword={enc} 直接
+        // 出 /video/{id}.html 结果流（站内表单为 POST，GET 同效；无分页）。
+        return [(b) => '$b/?module=tags&action=keyword&keyword=$enc'];
+      case 'ro85':
+        // KVS 搜索：/search/{enc}/{p}/（结果卡与列表同款 div.item）。
+        return [(b) => '$b/search/$enc/${p > 1 ? '$p/' : ''}'];
+      case 'papalah':
+        // 2026-11 实证：/?q={enc}&page=N（结果页有 ?&q=&page= 分页）。
+        return [(b) => '$b/?q=$enc${p > 1 ? '&page=$p' : ''}'];
+      case 'fangsung':
+        // 2026-11 实证：GET /a片/search?query={enc}&page=N 出结果流
+        // （表单即此形态；/a片/search/{词} 路径形式同效）。
+        return [(b) => '$b/a%E7%89%87/search?query=$enc&page=$p'];
       case 'our55':
       case 'xqq88':
         return [
@@ -4110,6 +4259,29 @@ class GenericSiteApi {
       final parsed = _parseEpornerList(html, base, seen);
       if (parsed.isNotEmpty) return parsed;
     }
+    // 91MD（MacCMS ym005_pc）：卡片是 <li> 块（img src 直链、标题在 alt），
+    // div 切分对 <li> 模板不稳，按字面 <li> 边界整卡解析。
+    if ((site.parserId ?? site.id) == 'md91') {
+      final parsed = _parseMacCmsLiList(html, base, seen);
+      if (parsed.isNotEmpty) return parsed;
+    }
+    // qiAV：卡片是 <a href="/video/{id}.html"> 包 <li> 的非常规结构，真缩略
+    // 图在非标准 img= 属性（src= 是 loading 占位图），按卡面 <a> 边界解析。
+    if ((site.parserId ?? site.id) == 'qinav') {
+      final parsed = _parseQinavList(html, base, seen);
+      if (parsed.isNotEmpty) return parsed;
+    }
+    // fangsung：Bootstrap 卡 `<a href="/a片/…"><div class="card bg-dark…">`，
+    // "card" 词把 <a> 与卡体切进不同块（首卡 <a> 会单独成块出杂卡），
+    // 按卡面 <a href=/a片/…> 边界整卡解析，标题取 h5.card-title（比 img
+    // alt 更完整），缩略图在 data-src。
+    if ((site.parserId ?? site.id) == 'fangsung') {
+      final parsed = _parseFangsungList(html, base, seen);
+      if (parsed.isNotEmpty) return parsed;
+    }
+    // 85ro（KVS）：卡是 <div class="item">（div.item 正好命中通用切分词），
+    // href=/v/{id}.html 命中 _reGenericV、图在 data-original —— 通用解析链
+    // 全兼容，无需专用解析器；只有详情播放走 KVS 专用抽取（见 _parseVideoDetail）。
     // Collect href candidates that look like video pages
     final hrefRe = RegExp(
       r'''href\s*=\s*["']([^"']+)["']''',
@@ -4334,6 +4506,156 @@ class GenericSiteApi {
     return out;
   }
 
+  /// 啪啪啦（自研 CMS）：播放页 `<source src="">` 空壳，真实 mp4 由页内
+  /// 混淆 JS 块拼装——`const _HEX=[片段,…]`（片段本身是 URL 编码的乱序
+  /// 拼块）、`const _PERM=[数字,…]`，循环 `parts[perm.indexOf(i)]` 依序拼
+  /// 接 → `decodeURIComponent` → 去掉页内 `.replace('TOKEN','')` 指名的
+  /// 随机 token。已对拍 3 条视频（109243/109242/109240）全部解出
+  /// media.sslah.com 直链（mp4 免 Referer，播放器默认 UA 头即可）。
+  List<StreamQuality> _extractPapalahStreams(String html, String pageUrl) {
+    final block = _rePapalahObfBlock.firstMatch(html);
+    if (block == null) return const [];
+    final parts = block
+        .group(1)!
+        .split(',')
+        .map((e) => e.trim().replaceAll('"', '').replaceAll("'", ''))
+        .toList();
+    final perm = block
+        .group(2)!
+        .split(',')
+        .map((e) => int.tryParse(e.trim()) ?? -1)
+        .toList();
+    if (parts.isEmpty || perm.isEmpty) return const [];
+    final buf = StringBuffer();
+    for (var i = 0; i < perm.length; i++) {
+      final idx = perm.indexOf(i);
+      if (idx < 0 || idx >= parts.length) return const [];
+      buf.write(parts[idx]);
+    }
+    String url;
+    try {
+      url = Uri.decodeComponent(buf.toString());
+    } catch (_) {
+      url = buf.toString();
+    }
+    final token = _rePapalahStripToken.firstMatch(html)?.group(1);
+    if (token != null && token.isNotEmpty) {
+      url = url.replaceFirst(token, '');
+    }
+    final low = url.toLowerCase();
+    if (!low.startsWith('http')) return const [];
+    if (!low.contains('.mp4') && !low.contains('.m3u8')) return const [];
+    if (_isPreviewUrl(url)) return const [];
+    return [
+      StreamQuality(width: 854, height: 480, url: url, referer: pageUrl),
+    ];
+  }
+
+  /// 91MD（MacCMS ym005_pc）：每张卡是一个 `<li>`，内部 `p.img > img`
+  /// （src 直链、alt = 完整标题）+ 空锚 `<a href="/index.php/vod/play/
+  /// id/…/nid/….html">` + `<p>` 标题文本 + `<i>` 日期 + `<strong>N观看`
+  /// （无时长角标，日期不作时长解析）。按字面 `<li>` 边界整卡切分。
+  List<VideoItem> _parseMacCmsLiList(
+    String html,
+    String base,
+    Set<String> seen,
+  ) {
+    final out = <VideoItem>[];
+    for (final chunk in html.split(_reLiOpen)) {
+      if (chunk.length < 60) continue;
+      final href = _reMacCmsPlayHref.firstMatch(chunk)?.group(1);
+      if (href == null) continue;
+      final abs = _abs(base, href);
+      final key = abs.split('#').first;
+      if (!seen.add(key)) continue;
+      var title =
+          _cleanTitle(_reImgAlt.firstMatch(chunk)?.group(1) ?? '');
+      if (title.length < 2) {
+        final tm = _reTagText.firstMatch(chunk);
+        if (tm != null) title = _cleanTitle(tm.group(1)!);
+      }
+      if (title.length < 2 || _isJunkTitle(title)) continue;
+      out.add(
+        VideoItem(
+          url: abs,
+          title: title,
+          duration: '-',
+          thumb: _extractThumbFromChunk(chunk, base),
+        ),
+      );
+      if (out.length >= 80) break;
+    }
+    return out;
+  }
+
+  /// qiAV（自研 PHP CMS）：每张卡是 `<a href="/video/{id}.html">` 包
+  /// `<li class="image">`（img src=loading 占位、真图在 img= 属性、
+  /// `<span class="note">` 时长）+ `<li class="title">` 标题文本。按卡面
+  /// `<a href=/video/…>` 边界切分；`<li class="view">` 在 </a> 之后，落到
+  /// 本块尾部但不影响按序取首个 href/img/标题。
+  List<VideoItem> _parseQinavList(
+    String html,
+    String base,
+    Set<String> seen,
+  ) {
+    final out = <VideoItem>[];
+    for (final chunk in html.split(_reQinavCard)) {
+      if (chunk.length < 60) continue;
+      final href = _reQinavHref.firstMatch(chunk)?.group(1);
+      if (href == null) continue;
+      final abs = _abs(base, href);
+      final key = abs.split('#').first;
+      if (!seen.add(key)) continue;
+      final title = _cleanTitle(_reQinavTitle.firstMatch(chunk)?.group(1) ??
+          _reImgAlt.firstMatch(chunk)?.group(1) ??
+          '');
+      if (title.length < 2 || _isJunkTitle(title)) continue;
+      var thumb = _reQinavImg.firstMatch(chunk)?.group(1);
+      thumb ??= _extractThumbFromChunk(chunk, base);
+      final dur = _reQinavDur.firstMatch(chunk)?.group(1)?.trim();
+      out.add(
+        VideoItem(
+          url: abs,
+          title: title,
+          duration: dur == null || dur.isEmpty ? '-' : dur,
+          thumb: _normalizeThumbUrl(thumb, base),
+        ),
+      );
+      if (out.length >= 80) break;
+    }
+    return out;
+  }
+
+  /// fangsung（自研 PHP）：卡是 `<a href="…/a片/…">` + Bootstrap
+  /// `<div class="card bg-dark text-light h-100">`（img data-src=真图、
+  /// src=base64 占位、alt=截断标题）+ `<h5 class="card-title">` 全标题 +
+  /// 标签 badge 链（无时长角标）。按卡面 `<a href=/a片/…>` 边界整卡解析。
+  List<VideoItem> _parseFangsungList(
+    String html,
+    String base,
+    Set<String> seen,
+  ) {
+    final out = <VideoItem>[];
+    for (final chunk in html.split(_reFangsungCard)) {
+      if (chunk.length < 60) continue;
+      final href = _reFangsungHref.firstMatch(chunk)?.group(1);
+      if (href == null) continue;
+      final abs = _abs(base, href);
+      final key = abs.split('#').first;
+      if (!seen.add(key)) continue;
+      final title = _cleanTitle(_reFangsungTitle.firstMatch(chunk)?.group(1) ??
+          _reImgAlt.firstMatch(chunk)?.group(1) ??
+          '');
+      if (title.length < 2 || _isJunkTitle(title)) continue;
+      final thumb = _extractThumbFromChunk(chunk, base);
+      out.add(
+        VideoItem(url: abs, title: title, duration: '-', thumb: thumb),
+      );
+      if (out.length >= 80) break;
+    }
+    return out;
+  }
+
   bool _looksLikeVideoPath(String href, SiteDef site) {
     final h = href.toLowerCase();
     if (h.startsWith('javascript:') ||
@@ -4448,6 +4770,20 @@ class GenericSiteApi {
         // 2026-10-30 实证：卡是 /{纯数字}（/793507…）；旧 JAV 家族正则
         // (jav|video|movie|watch)+/xx-123 全不匹配真实卡 → 只剩一张杂链。
         return _rePbVideoPath.hasMatch(h);
+      case 'md91':
+        // MacCMS 播放卡：/index.php/vod/play/id/{id}/sid/{s}/nid/{n}.html；
+        // 分类/分页（vod/type、page）由通用排除挡掉。
+        return h.contains('/vod/play/');
+      case 'qinav':
+        // 视频卡 = /video/{id}.html（分类 /site/、标签 /tags/ 由通用排除挡掉）。
+        return _reQinavVideo.hasMatch(h);
+      case 'papalah':
+        // 视频卡 = v/{id}/ 或 v/{id}/{URL编码标题slug}（相对路径无前导斜杠）。
+        return _rePapalahVideo.hasMatch(h);
+      case 'fangsung':
+        // 视频卡 = /a片/{id}/{slug}（首页/搜索）或 /a片/{分类}/{slug}/{id}
+        // （分类列表）；统一按 /a片/ 前缀识别。
+        return h.contains('/a片/');
       case 'stripchat':
       case 'chaturbate':
         // room username path

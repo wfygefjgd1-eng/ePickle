@@ -2150,6 +2150,397 @@ class SourceCatalog {
     directoryTags: pornbestDirectoryTags,
   );
 
+  // ---- 2026-11 新增三站（85ro / 91MD / qiAV）----
+  //
+  // 91MD（MacCMS 苹果CMS V10，ym005_pc 模板）：厂牌分类页
+  // /index.php/vod/type/id/{id}/page/{n}.html（GET 搜索
+  // /index.php/vod/search/page/{n}/wd/{词}.html 同样实证可用）；
+  // 播放页 player_aaaa 明文 m3u8（encrypt=0，_resolveMacCmsPlayer 直接吃）。
+  // 卡片是 <li> 块（img src 直链、标题在 alt），缩略图在裸 IP CDN
+  // https://23.225.11.173:8443（证书 SAN 含该 IP，App 内可直连）。
+  static const md91Tags = <SiteTag>[
+    SiteTag(
+      id: '25',
+      label: '91视频',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: '1',
+      label: '麻豆',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: '27',
+      label: '糖心',
+      icon: Icons.videocam_outlined,
+      iconSelected: Icons.videocam,
+    ),
+    SiteTag(
+      id: '21',
+      label: '杏吧',
+      icon: Icons.tag_outlined,
+      iconSelected: Icons.tag,
+    ),
+  ];
+
+  /// 91MD 全部 20 个厂牌分类（2026-11 首页导航实证）。
+  static const md91DirectoryTags = <SiteTag>[
+    SiteTag(id: '25', label: '91视频', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1', label: '麻豆视频', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '2', label: '91制片厂', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '3', label: '天美传媒', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '4', label: '蜜桃传媒', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '5', label: '皇家华人', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '6', label: '星空传媒', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '7', label: '精东影业', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '8', label: '海角社区', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '9', label: '成人头条', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '10', label: '乌鸦传媒', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '20', label: '兔子先生', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '21', label: '杏吧原创', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '22', label: '玩偶姐姐', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '23', label: 'mini传媒', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '24', label: '大象传媒', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '26', label: 'PsychoPorn', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '27', label: '糖心Vlog', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '29', label: '萝莉社', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '30', label: '性视界', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+  ];
+
+  static const md91 = SiteDef(
+    id: 'md91',
+    name: '91MD',
+    kind: SiteKind.video,
+    color: 0xFF00695C,
+    letter: '9',
+    ready: true,
+    mirrors: [
+      'https://91md.me',
+      'https://www.91md.me',
+      'https://www.9191md.me',
+    ],
+    tags: md91Tags,
+    directoryTags: md91DirectoryTags,
+  );
+
+  // qiAV（自研 PHP CMS，DPlayer + hls.js）：列表路由 /new-/hot-/like-{p}.html
+  // 与 /rank/index.html；分类 /site/{站号}/{分类id}-{p}.html。播放页
+  // /video/{id}.html 内嵌同源 iframe /embed/{id}.html（DPlayer 配置里明文
+  // const url='…m3u8'，_followEmbeds 跟一层即出）；m3u8 CDN 直连免头。
+  // 卡片 <a href=/video/{id}.html> 包 <li>，真缩略图在非标准 img= 属性。
+  static const qinavTags = <SiteTag>[
+    SiteTag(
+      id: 'new',
+      label: '新',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'hot',
+      label: '热',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: 'like',
+      label: '推',
+      icon: Icons.recommend_outlined,
+      iconSelected: Icons.recommend,
+    ),
+    SiteTag(
+      id: 'rank',
+      label: '榜',
+      icon: Icons.emoji_events_outlined,
+      iconSelected: Icons.emoji_events,
+    ),
+  ];
+
+  /// qiAV 分类大全 163 个里精选的 24 个（2026-11 /site/ 目录页实证）。
+  /// id 形如 '{站号}-{分类id}'，与 _listPaths 的 qinav 分支对应。
+  static const qinavDirectoryTags = <SiteTag>[
+    SiteTag(id: '1-4', label: '国产精品', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-27', label: '自拍偷拍', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-18', label: '中文字幕', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-1', label: '日韩无码', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-16', label: '人妻系列', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-36', label: '巨乳系列', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-3', label: '欧美精品', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-20', label: '动漫精品', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-25', label: '制服诱惑', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-32', label: '3P合辑', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-28', label: 'AV明星', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '1-40', label: 'SM重味', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '2-1', label: '国产自拍', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '2-34', label: '童颜巨乳', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '2-37', label: '绝美少女', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '2-35', label: '高潮喷吹', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '3-49', label: '国产探花', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '3-51', label: '野战户外', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '3-54', label: '主播大秀', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '8-35', label: '网红头条', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '8-5', label: 'AI换脸', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '8-8', label: '欧美系列', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '8-9', label: '美女主播', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '8-37', label: '欧美无码', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+  ];
+
+  static const qinav = SiteDef(
+    id: 'qinav',
+    name: 'QinAV',
+    kind: SiteKind.video,
+    color: 0xFF0277BD,
+    letter: 'Q',
+    ready: true,
+    mirrors: [
+      'https://www.qinav.com',
+      'https://qinav.com',
+    ],
+    tags: qinavTags,
+    directoryTags: qinavDirectoryTags,
+  );
+
+  // 85ro（KVS 模板，繁体中文站）：榜单路由 /top-rated/{p}/（最贊，592 页）、
+  // /latest-updates/{p}/、/most-popular/{p}/；标签页 /tags/{slug}/{p}/；搜索
+  // /search/{enc}/{p}/。播放页 /v/{id}.html 的 flashvars 明文 video_url
+  // （/get_file/ 签名 mp4 + v-acctoken，_extractKvsStreams 直接吃，CDN 免头）。
+  // 卡片 div.item/data-original/alt 标题 —— 通用解析链全兼容。
+  static const ro85Tags = <SiteTag>[
+    SiteTag(
+      id: 'hot',
+      label: '最赞',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: 'new',
+      label: '最新',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'pop',
+      label: '热门',
+      icon: Icons.recommend_outlined,
+      iconSelected: Icons.recommend,
+    ),
+    SiteTag(
+      id: 'zi-pai',
+      label: '自拍',
+      icon: Icons.tag_outlined,
+      iconSelected: Icons.tag,
+    ),
+  ];
+
+  /// 85ro /tags/ 索引精选 32 个实义繁体标签（2026-11 实证 slug）。
+  static const ro85DirectoryTags = <SiteTag>[
+    SiteTag(id: 'zi-pai', label: '自拍', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'kou-jiao', label: '口交', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'ju-ru', label: '巨乳', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'nei-she', label: '内射', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'ren-qi', label: '人妻', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'shu-nv', label: '熟女', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'gang-jiao', label: '肛交', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'luan-lun', label: '乱伦', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'po-chu', label: '破处', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'luo-li', label: '萝莉', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'shao-nv', label: '少女', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'bai-si', label: '白丝', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'mei-tui', label: '美腿', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'mei-tun', label: '美臀', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'ru-jiao', label: '乳交', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'shou-yin', label: '手淫', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'chao-chui', label: '潮吹', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'pen-shui', label: '喷水', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'gao-chao', label: '高潮', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'hou-ru', label: '后入', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'shuang-fei', label: '双飞', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'kun-bang', label: '捆绑', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'diao-jiao', label: '调教', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'hu-shi', label: '护士', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'kong-jie', label: '空姐', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'an-mo', label: '按摩', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'guo-chan2', label: '国产', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'che-zhen', label: '车震', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'jiu-dian', label: '酒店', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'hu-wai', label: '户外', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'ming-xing', label: '明星', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'huan-lian', label: '换脸', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+  ];
+
+  static const ro85 = SiteDef(
+    id: 'ro85',
+    name: '85RO',
+    kind: SiteKind.video,
+    color: 0xFF2E7D32,
+    letter: '8',
+    ready: true,
+    mirrors: [
+      'https://www.85ro.com',
+      'https://85ro.com',
+    ],
+    tags: ro85Tags,
+    directoryTags: ro85DirectoryTags,
+  );
+
+  // 啪啪啦 papalah（自研 CMS，繁体中文）：列表 / 最新（?&page=N）、/hot 熱門
+  // （hot?&page=N）；标签 /tag/{繁体词}?&q={词}&page=N（tag-list 30 个实义
+  // 标签）。播放页 /v/{id}/：video.js 空壳 + 页内混淆 JS 拼装 mp4 直链
+  // （_extractPapalahStreams 专解）；列表卡标题字段故意留空，靠 slug/详情页
+  // JSON-LD 补题。
+  static const papalahTags = <SiteTag>[
+    SiteTag(
+      id: 'new',
+      label: '最新',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'hot',
+      label: '热门',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: '自拍',
+      label: '自拍',
+      icon: Icons.tag_outlined,
+      iconSelected: Icons.tag,
+    ),
+    SiteTag(
+      id: '台灣',
+      label: '台湾',
+      icon: Icons.public_outlined,
+      iconSelected: Icons.public,
+    ),
+  ];
+
+  /// papalah /tag-list 全部 30 个实义标签（2026-11 实证）。
+  static const papalahDirectoryTags = <SiteTag>[
+    SiteTag(id: '自拍', label: '自拍', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '自慰', label: '自慰', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '做愛', label: '做爱', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '破處', label: '破处', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '內射', label: '内射', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '台灣', label: '台湾', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '人妻', label: '人妻', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '巨乳', label: '巨乳', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '3P', label: '3P', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '口交', label: '口交', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '口爆', label: '口爆', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '肛交', label: '肛交', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '高潮', label: '高潮', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '偷情', label: '偷情', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '勾引', label: '勾引', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '丁字褲', label: '丁字裤', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '白虎', label: '白虎', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '情侶', label: '情侣', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '大奶', label: '大奶', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '妹妹', label: '妹妹', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '對白', label: '对白', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'JK', label: 'JK', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'KTV', label: 'KTV', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '健身', label: '健身', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '同事', label: '同事', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '明星', label: '明星', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '空姐', label: '空姐', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '老師', label: '老师', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '製服', label: '制服', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '跳蛋', label: '跳蛋', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+  ];
+
+  static const papalah = SiteDef(
+    id: 'papalah',
+    name: '啪啪啦',
+    kind: SiteKind.video,
+    color: 0xFF8E24AA,
+    letter: '啪',
+    ready: true,
+    mirrors: [
+      'https://www.papalah.com',
+    ],
+    tags: papalahTags,
+    directoryTags: papalahDirectoryTags,
+  );
+
+  // fangsung（自研 PHP + Plyr/HLS，简体）：最新 /a片/11/search/all?page=N、
+  // 精选 /免费a片?page=N；标签 /a片/search/{词}?page=N（分类目录即标签链）。
+  // 播放页 `var source = "…m3u8"` 明文（宽提取直接吃）；媒体 CDN 需要
+  // 浏览器 UA（AppHttpHeaders.forMediaUrl 兜底已带，零专用接线）。
+  static const fangsungTags = <SiteTag>[
+    SiteTag(
+      id: 'new',
+      label: '最新',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'hot',
+      label: '精选',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: '自拍',
+      label: '自拍',
+      icon: Icons.tag_outlined,
+      iconSelected: Icons.tag,
+    ),
+    SiteTag(
+      id: '国产',
+      label: '国产',
+      icon: Icons.tag_outlined,
+      iconSelected: Icons.tag,
+    ),
+  ];
+
+  /// fangsung 分类目录页标签链精选 28 个（2026-11 实证，badge chips）。
+  static const fangsungDirectoryTags = <SiteTag>[
+    SiteTag(id: '自拍', label: '自拍', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '偷拍', label: '偷拍', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '国产', label: '国产', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '中国AV', label: '中国AV', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '中出', label: '中出', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '内射', label: '内射', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '人妻', label: '人妻', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '口交', label: '口交', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '口爆', label: '口爆', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '乳交', label: '乳交', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '双飞', label: '双飞', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '乱伦', label: '乱伦', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '处女', label: '处女', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '大奶', label: '大奶', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '动漫', label: '动漫', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '制服', label: '制服', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '办公室', label: '办公室', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '主播', label: '主播', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '中文', label: '中文字幕', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'SM', label: 'SM', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: 'FC2PPV', label: 'FC2PPV', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '18岁', label: '18岁', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '00后', label: '00后', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '大学', label: '大学', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '健身', label: '健身', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '午夜', label: '午夜', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '偷情', label: '偷情', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '出轨', label: '出轨', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+  ];
+
+  static const fangsung = SiteDef(
+    id: 'fangsung',
+    name: 'fangsung',
+    kind: SiteKind.video,
+    color: 0xFF6D4C41,
+    letter: 'F',
+    ready: true,
+    mirrors: [
+      'https://www.fangsung.com',
+    ],
+    tags: fangsungTags,
+    directoryTags: fangsungDirectoryTags,
+  );
+
   static const all = <SiteDef>[
     pornhub,
     xvideos,
@@ -2161,6 +2552,13 @@ class SourceCatalog {
     redtube,
     eporner,
     tnaflix,
+    // 2026-11 新增：91MD（MacCMS 厂牌流）、qiAV（自研 CMS）、85ro（KVS）、
+    // papalah、fangsung。
+    md91,
+    qinav,
+    ro85,
+    papalah,
+    fangsung,
     // 2026-11 按用户要求下架：langmei（上游视频 CDN 域名 NXDOMAIN，播放与
     // 新图均不可用）、yaofafa、jable、supjav、av123、mmtv7、bestjavporn、
     // pornbest、ixxx、fuq、qorno、pornkai、tubesafari、hotsextube。

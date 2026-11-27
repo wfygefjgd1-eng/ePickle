@@ -37,3 +37,6 @@ backups/
 *.ipa
 mobile/room.html
 mobile/roomlist.json
+
+# 探测临时目录
+_scratch*/

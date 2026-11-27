@@ -5,6 +5,43 @@
 
 ---
 
+## [2.8.58] - 2026-11-28 - 新增五站：85RO / 91MD / qiAV / 啪啪啦 / fangsung
+
+### 🚀 新增
+
+1. **85RO**（KVS 模板，繁体中文）：「最赞 / 最新 / 热门」三个榜单 tab +
+   32 个精选繁体标签页（/tags/{slug}）；播放页 flashvars 明文
+   `video_url`（/get_file/ 签名 mp4 + v-acctoken），CDN 免头直连。
+2. **91MD**（MacCMS 苹果CMS V10）：91视频 / 麻豆 / 糖心 / 杏吧四个厂牌 tab +
+   全部 20 个厂牌分类；播放页 `player_aaaa` 明文 m3u8（复用现有 MacCMS
+   解析链）；缩略图在裸 IP CDN（证书 SAN 含该 IP，App 内可直连）。
+3. **qiAV**（自研 PHP CMS）：新 / 热 / 推 / 榜四个路由 tab + 24 个精选分类
+   （/site/{站号}/{分类id}）；播放页 /video/{id} 内嵌同源 iframe
+   /embed/{id}（DPlayer 配置明文 m3u8，现有 _followEmbeds 跟一层即出）；
+   卡片真缩略图在非标准 `img=` 属性（src 是 loading 占位），专用解析。
+4. **啪啪啦 papalah**（自研 CMS，繁体中文）：最新 / 热门 tab + 全部 30 个
+   标签页；播放页 `<source src="">` 空壳 + 页内混淆 JS（片段乱序数组 +
+   permutation + 随机 token）——新增专用解码器 `_extractPapalahStreams`
+   （已对拍 3 条真实视频），解出 media.sslah.com mp4 直链（免 Referer）。
+   列表卡标题字段站点故意留空，标题取 URL slug 解码 / 详情页 og:title。
+5. **fangsung**（自研 PHP + Plyr/HLS）：最新 / 精选 tab + 28 个精选标签；
+   播放页 `var source = "…m3u8"` 明文（宽提取直接吃）；媒体 CDN 需浏览器
+   UA —— `AppHttpHeaders.forMediaUrl` 兜底已带，零专用接线。
+6. **站内搜索**：五站全部接通（85ro `/search/{词}/{页}/`、91MD GET
+   `/index.php/vod/search/page/{页}/wd/{词}.html`、qiAV
+   `/?module=tags&action=keyword&keyword={词}`、papalah `/?q={词}&page=`、
+   fangsung `/a片/search?query={词}`），中文词直查。
+7. **标签目录页**：五站均配 directoryTags，「直达标签页」开关与标签 tab
+   目录共用；`_catalogVer` 升到 21，老用户更新后新卡片自动出现在首页。
+
+### 🧪 测试
+
+8. 新增 `test/five_new_sites_test.dart`：五站真实页面片段 fixture（每站
+   列表卡解析 + 播放直链抽取各一例，共 10 例，片段取自 2026-11-27/28
+   线上抓取页）；`flutter analyze` 与完整 `flutter test` 全绿。
+
+---
+
 ## [2.8.57] - 2026-11-19 - RedTube 边缘节点兼容 / Eporner 会员清晰度过滤
 
 ### 🛠️ 修复

@@ -19,12 +19,47 @@ class AppHttpHeaders {
     'Upgrade-Insecure-Requests': '1',
   };
 
+  /// 桌面 Chrome UA：部分站按 UA 切模板（见 [desktopUaHostSuffixes]）。
+  static const String desktopUserAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+  /// 这些站点对移动 UA 会切换到精简/异步模板，导致列表抓取退化：
+  /// - 85ro（KVS）：移动 UA 的榜单页走异步加载，/top-rated /latest-updates
+  ///   /most-popular 三个路径拿到同一批预览内容（2026-11-28 App UA 实测，
+  ///   桌面 UA 各榜单为独立完整列表）；
+  /// - 91md（MacCMS）：移动 UA 切 ym005_wap 模板，卡片结构整体不同。
+  /// 列表/详情页按 host 命中时改用桌面 UA；两站媒体 CDN 对 UA 不敏感。
+  static const Set<String> desktopUaHostSuffixes = {
+    '85ro.com',
+    '91md.me',
+    '9191md.me',
+  };
+
+  /// [url] 的 host 是否命中需要桌面 UA 的站点。
+  static bool wantsDesktopUa(String? url) {
+    if (url == null || url.isEmpty) return false;
+    final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
+    if (host.isEmpty) return false;
+    for (final suffix in desktopUaHostSuffixes) {
+      if (host == suffix || host.endsWith('.$suffix')) return true;
+    }
+    return false;
+  }
+
+  /// 纯 browser 头（无 Referer），按 [url] 的 host 决定 UA。
+  static Map<String, String> browserFor(String? url) =>
+      wantsDesktopUa(url)
+          ? {...browser, 'User-Agent': desktopUserAgent}
+          : browser;
+
   /// Headers for a page fetch with correct site origin/referer.
   static Map<String, String> forSite(String baseUrl) {
     final base = baseUrl.replaceAll(_trailingSlash, '');
     final origin = _origin(base) ?? base;
     return {
       ...browser,
+      if (wantsDesktopUa(baseUrl)) 'User-Agent': desktopUserAgent,
       'Referer': '$origin/',
     };
   }

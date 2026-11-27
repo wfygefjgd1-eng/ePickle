@@ -64,7 +64,7 @@ void main() {
   });
 
   group('91MD（MacCMS）', () {
-    test('列表：<li> 卡片（img src 直链 + alt 标题）', () async {
+    test('列表（桌面模板）：<li> 卡片（img src 直链 + alt 标题 + 日期角标）', () async {
       const html = '''
         <ul class="list">
         <li><p class="img"><img class="lazy" src="https://23.225.11.173:8443/images/2026/11/27/e4594b796b59c8e5e79019d06b4e0cfd.jpg" alt="3P三洞填满顶级骚货舞蹈老师天生母狗体质" title="3P三洞填满顶级骚货舞蹈老师天生母狗体质"><a href="/index.php/vod/play/id/43018/sid/1/nid/1.html"></a></p><p>3P三洞填满顶级骚货舞蹈老师天生母狗体质</p><p><i>11-27</i><strong>929观看</strong></p></li>
@@ -85,6 +85,36 @@ void main() {
         items.first.thumb,
         'https://23.225.11.173:8443/images/2026/11/27/e4594b796b59c8e5e79019d06b4e0cfd.jpg',
       );
+      expect(items.first.duration, '11-27');
+    });
+
+    test('列表（WAP 模板）：video-item 卡（移动 UA 实测 2026-11-28）', () async {
+      // iPhone UA 会切 ym005_wap 模板：<div class="video-item"> 包 <a>，
+      // 日期在 <div class="time">。桌面 UA 现已强制（http_headers.dart），
+      // 此用例兜底防模板再变。
+      const html = '''
+        <div class="video-item"><a href="/index.php/vod/play/id/43018/sid/1/nid/1.html" alt=""><div class="log"><img class="lazy" src="https://23.225.11.173:8443/images/2026/11/27/e4594b796b59c8e5e79019d06b4e0cfd.jpg" alt="3P三洞填满顶级骚货舞蹈老师天生母狗体质三洞填满肏到腿软" title="3P三洞填满顶级骚货舞蹈老师天生母狗体质三洞填满肏到腿软"></div><div class="title">3P三洞填满顶级骚货舞蹈老师天生母狗体质三洞填满肏到腿软</div><div class="video-foot"><div class="time">11-27</div><div class="view">1200次</div></div></a></div>
+        <div class="video-item"><a href="/index.php/vod/play/id/43017/sid/1/nid/1.html" alt=""><div class="log"><img class="lazy" src="https://23.225.11.173:8443/images/2026/11/27/42832e678b2994842962dc82afd7b735.jpg" alt="DJ闺蜜车震刺激-深圳第一深情" title="DJ闺蜜车震刺激-深圳第一深情"></div><div class="title">DJ闺蜜车震刺激-深圳第一深情</div><div class="video-foot"><div class="time">11-26</div><div class="view">866次</div></div></a></div>
+      ''';
+      final items = await apiWith({
+        'https://91md.me/index.php/vod/type/id/25/page/1.html': html,
+      }).fetchFeed(md91, tagId: '25', page: 1);
+
+      expect(items.length, 2);
+      expect(
+        items.first.url,
+        'https://91md.me/index.php/vod/play/id/43018/sid/1/nid/1.html',
+      );
+      expect(
+        items.first.title,
+        '3P三洞填满顶级骚货舞蹈老师天生母狗体质三洞填满肏到腿软',
+      );
+      expect(
+        items.first.thumb,
+        'https://23.225.11.173:8443/images/2026/11/27/e4594b796b59c8e5e79019d06b4e0cfd.jpg',
+      );
+      expect(items.first.duration, '11-27');
+      expect(items[1].duration, '11-26');
     });
 
     test('详情：player_aaaa encrypt=0 明文 m3u8', () async {
@@ -129,6 +159,22 @@ void main() {
       );
       expect(items.first.thumb, 'https://qin.toolmm.com/upload/94/99/31.jpg');
       expect(items.first.duration, '60:52');
+    });
+
+    test('列表（热搜标签页）：数字 tagId → /tags/{id}.html', () async {
+      const html = '''
+        <ul>
+        <a title="" href="/video/107300.html"><li class="image"><img class="lazy" src="/static/loading.gif" img="https://qin.toolmm.com/upload/10/73/00.jpg"><span class="time"></span><span class="note">49:09</span></li><li class="title">按摩师老王偷拍实录：诱逼极品良家少妇初次下海破处</li></a>
+        <li class="view"><u>2.1万</u></li>
+        </ul>
+      ''';
+      final items = await apiWith({
+        'https://www.qinav.com/tags/659787.html': html,
+      }).fetchFeed(qinav, tagId: '659787', page: 1);
+
+      expect(items.length, 1);
+      expect(items.first.url, 'https://www.qinav.com/video/107300.html');
+      expect(items.first.duration, '49:09');
     });
 
     test('详情：/embed/{id} iframe 内明文 const url m3u8', () async {

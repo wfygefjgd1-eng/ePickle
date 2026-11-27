@@ -2226,39 +2226,43 @@ class SourceCatalog {
   );
 
   // qiAV（自研 PHP CMS，DPlayer + hls.js）：列表路由 /new-/hot-/like-{p}.html
-  // 与 /rank/index.html；分类 /site/{站号}/{分类id}-{p}.html。播放页
-  // /video/{id}.html 内嵌同源 iframe /embed/{id}.html（DPlayer 配置里明文
-  // const url='…m3u8'，_followEmbeds 跟一层即出）；m3u8 CDN 直连免头。
-  // 卡片 <a href=/video/{id}.html> 包 <li>，真缩略图在非标准 img= 属性。
+  // 与 /rank/index.html；分类 /site/{站号}/{分类id}-{p}.html；热搜标签页
+  // /tags/{id}-{p}.html（/tags/ 索引 201 个标签）。播放页 /video/{id}.html
+  // 内嵌同源 iframe /embed/{id}.html（DPlayer 配置里明文 const url='…m3u8'，
+  // _followEmbeds 跟一层即出）；m3u8 CDN 直连免头。卡片
+  // <a href=/video/{id}.html> 包 <li>，真缩略图在非标准 img= 属性。
+  // tab 顺序按用户要求：最新 / 热门 / 排行 / 推荐，热搜与分类在「标签」
+  // 目录页（底部第 5 个 tab）以方块网格呈现。
   static const qinavTags = <SiteTag>[
     SiteTag(
       id: 'new',
-      label: '新',
+      label: '最新',
       icon: Icons.fiber_new_outlined,
       iconSelected: Icons.fiber_new,
     ),
     SiteTag(
       id: 'hot',
-      label: '热',
+      label: '热门',
       icon: Icons.local_fire_department_outlined,
       iconSelected: Icons.local_fire_department,
     ),
     SiteTag(
-      id: 'like',
-      label: '推',
-      icon: Icons.recommend_outlined,
-      iconSelected: Icons.recommend,
-    ),
-    SiteTag(
       id: 'rank',
-      label: '榜',
+      label: '排行',
       icon: Icons.emoji_events_outlined,
       iconSelected: Icons.emoji_events,
     ),
+    SiteTag(
+      id: 'like',
+      label: '推荐',
+      icon: Icons.recommend_outlined,
+      iconSelected: Icons.recommend,
+    ),
   ];
 
-  /// qiAV 分类大全 163 个里精选的 24 个（2026-11 /site/ 目录页实证）。
-  /// id 形如 '{站号}-{分类id}'，与 _listPaths 的 qinav 分支对应。
+  /// qiAV 标签目录：分类大全精选（id '{站号}-{分类id}'）+ 热搜页真实标签
+  /// （id 为 /tags/{id}.html 的数字 id，2026-11-28 实证），合在同一个
+  /// 「标签」目录页方块网格里。
   static const qinavDirectoryTags = <SiteTag>[
     SiteTag(id: '1-4', label: '国产精品', icon: Icons.tag_outlined, iconSelected: Icons.tag),
     SiteTag(id: '1-27', label: '自拍偷拍', icon: Icons.tag_outlined, iconSelected: Icons.tag),
@@ -2284,6 +2288,33 @@ class SourceCatalog {
     SiteTag(id: '8-8', label: '欧美系列', icon: Icons.tag_outlined, iconSelected: Icons.tag),
     SiteTag(id: '8-9', label: '美女主播', icon: Icons.tag_outlined, iconSelected: Icons.tag),
     SiteTag(id: '8-37', label: '欧美无码', icon: Icons.tag_outlined, iconSelected: Icons.tag),
+    SiteTag(id: '659787', label: '自慰', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659805', label: '萝莉', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659789', label: '迷奸', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659832', label: '母子', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659801', label: '按摩', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659833', label: '探花', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659791', label: '换妻', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659813', label: '强奸', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659799', label: '乱伦', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659795', label: '技师', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659840', label: '阿姨', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659775', label: '父女', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659873', label: '少妇', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659798', label: '良家', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659846', label: '喷水', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659834', label: '偷情', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '660013', label: '肛交', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659773', label: 'COS', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659825', label: '破处', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659777', label: '3p', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659778', label: '主播', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659847', label: '闺蜜', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659870', label: '露出', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659783', label: '裸舞', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659821', label: '伪娘', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '659969', label: '韩国', icon: Icons.square_outlined, iconSelected: Icons.square),
+    SiteTag(id: '660006', label: '轮奸', icon: Icons.square_outlined, iconSelected: Icons.square),
   ];
 
   static const qinav = SiteDef(

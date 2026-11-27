@@ -89,10 +89,22 @@ class GenericSiteApi {
   static final _reListSplitHref = RegExp(r'''(?=href=["'][^"']+["'])''');
   static final _reTagOpen = RegExp(r'<a\s[^>]*>\s*$', caseSensitive: false);
   static final _reTagText = RegExp(r'>\s*([^<>]{4,120})\s*<');
-  // ---- 91MD（MacCMS ym005_pc）----
-  static final _reLiOpen = RegExp(r'(?=<li[\s>])', caseSensitive: false);
+  // ---- 91MD（MacCMS ym005_pc / ym005_wap）----
+  // 桌面模板卡 = <li><p class="img">…（ym005_pc）；移动 UA 切 WAP 模板
+  // （ym005_wap），卡 = <div class="video-item"><a href=…><div class="log">
+  // <img src=…jpg alt=标题></div><div class="title">标题</div><div
+  // class="video-foot"><div class="time">MM-DD</div>…。两模板统一按
+  // li/video-item 边界整卡解析；两站卡上都没有时长角标，只有发布日期。
+  static final _reMacCmsCard = RegExp(
+    r'''(?=<(?:li[\s>]|div[^>]+class="video-item"))''',
+    caseSensitive: false,
+  );
   static final _reMacCmsPlayHref = RegExp(
     r'''href\s*=\s*["']([^"']*vod/play/id/\d+/sid/\d+/nid/\d+\.html)["']''',
+    caseSensitive: false,
+  );
+  static final _reMacCmsDate = RegExp(
+    r'''(?:<i[^>]*>\s*([0-9]{1,2}-[0-9]{1,2})\s*</i>|class="time"[^>]*>\s*([0-9]{1,2}-[0-9]{1,2})\s*<)''',
     caseSensitive: false,
   );
   // ---- qiAV（自研 PHP CMS）----
@@ -797,7 +809,8 @@ class GenericSiteApi {
         // remaining-- decrement and hang the race forever.
         final url = pathBuilder(base);
         final headers = <String, String>{
-          ...AppHttpHeaders.browser,
+          // 按站点切桌面 UA（85ro/91md 移动 UA 会拿到异步/精简模板）。
+          ...AppHttpHeaders.browserFor(base),
           'Referer': '$base/',
           if (extraHeaders != null) ...extraHeaders,
         };
@@ -3534,12 +3547,18 @@ class GenericSiteApi {
       case 'qinav':
         // 路由实证（2026-11）：/new-{p}.html（页1=/new.html）、/hot-{p}.html、
         // /like-{p}.html；今日热播 /rank/index.html（/{ymd}-{p}.html 日期不
-        // 固定，只取首页）。分类 tagId 形如 '1-27' → /site/1/27-{p}.html。
+        // 固定，只取首页）。分类 tagId '1-27' → /site/1/27-{p}.html；热搜
+        // 标签 tagId（纯数字，/tags/ 索引页）→ /tags/{id}-{p}.html。
         if (RegExp(r'^\d+-\d+$').hasMatch(tagId)) {
           final parts = tagId.split('-');
           return [
             (b) => '$b/site/${parts[0]}/${parts[1]}-$p.html',
             (b) => '$b/site/${parts[0]}/${parts[1]}.html',
+          ];
+        }
+        if (RegExp(r'^\d{3,}$').hasMatch(tagId)) {
+          return [
+            (b) => p > 1 ? '$b/tags/$tagId-$p.html' : '$b/tags/$tagId.html',
           ];
         }
         if (tagId == 'hot') {
@@ -4551,17 +4570,20 @@ class GenericSiteApi {
     ];
   }
 
-  /// 91MD（MacCMS ym005_pc）：每张卡是一个 `<li>`，内部 `p.img > img`
-  /// （src 直链、alt = 完整标题）+ 空锚 `<a href="/index.php/vod/play/
-  /// id/…/nid/….html">` + `<p>` 标题文本 + `<i>` 日期 + `<strong>N观看`
-  /// （无时长角标，日期不作时长解析）。按字面 `<li>` 边界整卡切分。
+  /// 91MD（MacCMS）：桌面模板（ym005_pc）每张卡是一个 `<li>`，内部
+  /// `p.img > img`（src 直链、alt = 完整标题）+ 空锚
+  /// `<a href="/index.php/vod/play/id/…/nid/….html">` + `<p>` 标题文本 +
+  /// `<i>` 日期 + `<strong>N观看`；移动 UA 切 WAP 模板（ym005_wap），卡是
+  /// `<div class="video-item">`（`<a href=…>` 包 `<div class="log"><img>`、
+  /// `<div class="title">`、`<div class="time">日期`）。两模板都没有时长
+  /// 角标，只有发布日期 —— 日期填进 duration 位（与站内卡片显示一致）。
   List<VideoItem> _parseMacCmsLiList(
     String html,
     String base,
     Set<String> seen,
   ) {
     final out = <VideoItem>[];
-    for (final chunk in html.split(_reLiOpen)) {
+    for (final chunk in html.split(_reMacCmsCard)) {
       if (chunk.length < 60) continue;
       final href = _reMacCmsPlayHref.firstMatch(chunk)?.group(1);
       if (href == null) continue;
@@ -4575,11 +4597,13 @@ class GenericSiteApi {
         if (tm != null) title = _cleanTitle(tm.group(1)!);
       }
       if (title.length < 2 || _isJunkTitle(title)) continue;
+      final dm = _reMacCmsDate.firstMatch(chunk);
+      final date = dm?.group(1) ?? dm?.group(2);
       out.add(
         VideoItem(
           url: abs,
           title: title,
-          duration: '-',
+          duration: date ?? '-',
           thumb: _extractThumbFromChunk(chunk, base),
         ),
       );
